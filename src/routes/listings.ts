@@ -85,7 +85,7 @@ router.post("/", requireAuth, async (req, res) => {
 router.get("/:listingId", async (req, res) => {
   const listingId = p(req.params["listingId"]);
   const listing = await db.query.listingsTable.findFirst({
-    where: eq(listingsTable.id, listingId),
+    where: and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")),
     with: { images: true, category: true, wants: true },
   });
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
