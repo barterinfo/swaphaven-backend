@@ -294,6 +294,62 @@ export const openApiSpec = {
     "/api/users/{userId}/reviews": {
       get: { tags: ["Users"], summary: "List a user's trade reviews", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated reviews" } } },
     },
+    // ── Media (S3 presign) ───────────────────────────────────────────────────────
+    "/api/media/status": {
+      get: {
+        tags: ["Media"],
+        summary: "S3 upload configuration status",
+        security: [],
+        responses: { "200": { description: "configured flag and allowed content types" } },
+      },
+    },
+    "/api/media/presign": {
+      post: {
+        tags: ["Media"],
+        summary: "Create presigned S3 upload URL(s) for listing images",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                oneOf: [
+                  {
+                    type: "object",
+                    required: ["contentType"],
+                    properties: {
+                      contentType: { type: "string", example: "image/jpeg" },
+                      filename: { type: "string" },
+                    },
+                  },
+                  {
+                    type: "object",
+                    required: ["files"],
+                    properties: {
+                      files: {
+                        type: "array",
+                        maxItems: 10,
+                        items: {
+                          type: "object",
+                          required: ["contentType"],
+                          properties: {
+                            contentType: { type: "string" },
+                            filename: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Presigned upload URL and public URL" },
+          "503": { description: "S3 not configured" },
+        },
+      },
+    },
     // ── Categories & Listings ────────────────────────────────────────────────────
     "/api/categories": {
       get: { tags: ["Listings"], summary: "Get category tree", security: [], responses: { "200": { description: "Category list", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Category" } } } } } } },

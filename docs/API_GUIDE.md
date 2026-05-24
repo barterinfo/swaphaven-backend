@@ -98,6 +98,28 @@ curl -s -X PATCH http://localhost:3001/api/users/me \
 
 ---
 
+## Media (S3 uploads)
+
+| Method | Path | Auth |
+|--------|------|------|
+| GET | `/api/media/status` | — |
+| POST | `/api/media/presign` | ✓ |
+
+Setup: [S3_SETUP.md](./S3_SETUP.md)
+
+### Presign one image
+
+```bash
+curl -s -X POST http://localhost:3001/api/media/presign \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"contentType":"image/jpeg","filename":"photo.jpg"}' | jq
+```
+
+Upload the file with **PUT** to `uploadUrl` using header `Content-Type: image/jpeg`, then use `publicUrl` in listing `images`.
+
+---
+
 ## Categories & listings
 
 | Method | Path | Auth |

@@ -39,9 +39,13 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   /** Public base URL for docs / clients (e.g. https://api.swaphaven.io). */
   PUBLIC_API_URL: z.string().url().optional(),
-  // ─── S3 media (optional until presign upload is wired) ─────────────────────
+  // ─── S3 media (optional — presigned uploads at POST /api/media/presign) ───
   AWS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
   S3_MEDIA_BUCKET: z.string().optional(),
+  S3_MEDIA_PREFIX: z.string().default("listings"),
+  S3_PRESIGN_EXPIRES_SEC: z.coerce.number().int().min(60).max(3600).default(300),
   CDN_BASE_URL: z.string().url().optional(),
 });
 

@@ -9,6 +9,7 @@ import {
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
+import { filterListingImageUrls } from "../lib/media.js";
 import {
   buildReviewSnapshot,
   createListingBodySchema,
@@ -128,7 +129,7 @@ router.post("/", requireAuth, async (req, res) => {
     })
     .returning();
 
-  const imageUrls = (data.images ?? []).filter((u) => u.trim().length > 0);
+  const imageUrls = filterListingImageUrls(data.images ?? []);
   if (imageUrls.length) {
     await db.insert(listingImagesTable).values(
       imageUrls.map((url, position) => ({
@@ -321,9 +322,17 @@ router.post("/:listingId/images", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
   }
 
+  const [url] = filterListingImageUrls([parsed.data.url]);
+  if (!url) {
+    return res.status(400).json({
+      error: "validation",
+      message: "url must be a public https URL (upload via POST /api/media/presign first)",
+    });
+  }
+
   const [image] = await db
     .insert(listingImagesTable)
-    .values({ listingId, ...parsed.data })
+    .values({ listingId, url, position: parsed.data.position })
     .returning();
   return res.status(201).json(image);
 });
