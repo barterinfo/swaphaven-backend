@@ -12,32 +12,24 @@ COPY drizzle ./drizzle
 
 RUN npm run build
 
-# ─── Production image ──────────────────────────────────────────────────────────
+# ─── Production (Railway: listen on $PORT, no custom entrypoint) ───────────────
 FROM node:22-alpine AS production
 
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3001
 ENV HOST=0.0.0.0
+# Do NOT set PORT here — Railway injects PORT at runtime (often not 3001).
 
-RUN apk add --no-cache tini wget
+RUN apk add --no-cache wget
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
-COPY deploy/docker-entrypoint.sh /entrypoint.sh
-
-RUN chmod +x /entrypoint.sh
-
-EXPOSE 3001
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3001/api/healthz || exit 1
 
 USER node
 
-ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
-CMD ["node", "dist/index.js"]
+# Migrate then start API in one shell (Railway startCommand overrides this if set).
+CMD ["sh", "-c", "node dist/db/migrate.js && exec node dist/index.js"]

@@ -1,16 +1,14 @@
-# Railway deploy config — https://docs.railway.app/reference/config-as-code
+# Legacy/config-as-code — Railway also reads railway.json (Dockerfile deploy).
 [build]
-builder = "nixpacks"
-buildCommand = "npm ci && npm run build"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
-# Ensures trust proxy + production defaults even if dashboard vars are missing
 [env]
 NODE_ENV = "production"
 TRUST_PROXY = "true"
 
 [deploy]
-startCommand = "node dist/db/migrate.js && node dist/index.js"
-# Liveness only (200). Use /api/readyz manually to verify DB.
+startCommand = "sh -c 'node dist/db/migrate.js && exec node dist/index.js'"
 healthcheckPath = "/api/healthz"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"

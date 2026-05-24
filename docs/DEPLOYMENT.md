@@ -195,7 +195,8 @@ See `.env.example`.
 | Cold start slow                  | Normal on hobby plans; upgrade plan for always-on            |
 | `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` | Set `TRUST_PROXY=true` (auto in production); redeploy latest |
 | 404 on `/api/readyz`             | Deploy crashed before routes loaded — redeploy; try `/health` |
-| Health check failed (migrate OK) | Add `JWT_ACCESS_SECRET` + `JWT_REFRESH_SECRET`; use `/api/healthz` in Railway; check logs for `[server] Listening` |
+| Health check failed (migrate OK) | Use `sh -c 'node dist/db/migrate.js && exec node dist/index.js'`; remove Docker `ENTRYPOINT`; do not hardcode `PORT` in Dockerfile; look for `[server] Listening` |
+| Logs stop after migrate only | Container exited — API never started; fix start command shell (see above) |
 | `/api/readyz` → 503              | `DATABASE_URL` wrong or Postgres not linked — use Railway **reference** variable |
 
 

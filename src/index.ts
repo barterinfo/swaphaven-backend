@@ -1,3 +1,7 @@
+console.log(
+  `[boot] PORT=${process.env["PORT"] ?? "(unset)"} NODE_ENV=${process.env["NODE_ENV"] ?? "(unset)"}`,
+);
+
 import "dotenv/config";
 import { createServer } from "http";
 import { env } from "./config/env.js";
