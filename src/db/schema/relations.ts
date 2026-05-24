@@ -40,8 +40,8 @@ export const categoriesRelations = relations(categoriesTable, ({ many }) => ({
 }));
 
 export const listingsRelations = relations(listingsTable, ({ one, many }) => ({
-  user:      one(usersTable, { fields: [listingsTable.userId], references: [usersTable.id] }),
-  category:  one(categoriesTable, { fields: [listingsTable.categoryId], references: [categoriesTable.id] }),
+  user:         one(usersTable, { fields: [listingsTable.userId], references: [usersTable.id] }),
+  categoryRow:  one(categoriesTable, { fields: [listingsTable.categoryId], references: [categoriesTable.id] }),
   images:    many(listingImagesTable),
   wants:     many(listingWantsTable),
   swipes:    many(swipesTable),

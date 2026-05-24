@@ -67,7 +67,7 @@ router.get("/:userId/listings", async (req, res) => {
   const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
   const items = await db.query.listingsTable.findMany({
     where: eq(listingsTable.userId, p(req.params["userId"])),
-    with: { images: true, category: true },
+    with: { images: true, categoryRow: true },
     limit,
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });

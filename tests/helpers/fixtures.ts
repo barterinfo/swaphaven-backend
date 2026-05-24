@@ -46,7 +46,19 @@ export async function createListing(
     .send({ title: `Item-${uid()}`, condition: "good", ...overrides });
 
   if (res.status !== 201) throw new Error(`createListing failed: ${JSON.stringify(res.body)}`);
-  return res.body as ListingResult;
+  const body = res.body as {
+    id?: string;
+    title?: string;
+    userId?: string;
+    status?: string;
+    listing?: { id?: string; title?: string; user_id?: string; status?: string };
+  };
+  return {
+    id: body.listing?.id ?? body.id ?? "",
+    title: body.listing?.title ?? body.title ?? "",
+    userId: body.listing?.user_id ?? body.userId ?? "",
+    status: body.listing?.status ?? body.status ?? "",
+  };
 }
 
 // ─── Offers ───────────────────────────────────────────────────────────────────

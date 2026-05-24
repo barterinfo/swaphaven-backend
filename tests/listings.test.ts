@@ -90,6 +90,36 @@ describe("POST /api/listings", () => {
       .send({ condition: "good" });
     expect(res.status).toBe(400);
   });
+
+  it("accepts barter-stack / Flutter create listing body (slug categories, no UUID)", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: "Vintage Camera",
+        description: "Works great",
+        categoryId: "cameras",
+        category: "Cameras",
+        estimatedValue: 250,
+        condition: "great",
+        acceptCashTopUps: true,
+        wantedCategoryIds: ["electronics", "books"],
+        wantedCategories: ["Electronics", "Books"],
+        details: { ageRange: "5-10 years", brand: "Canon" },
+        location: { lat: 37.77, lng: -122.42, address: "San Francisco, CA" },
+        images: ["/tmp/photo1.jpg"],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.listing).toBeTruthy();
+    expect(res.body.listing.title).toBe("Vintage Camera");
+    expect(res.body.listing.category).toBe("Cameras");
+    expect(res.body.listing.estimated_value).toBe(250);
+    expect(res.body.listing.accept_cash_top_ups).toBe(true);
+    expect(res.body.listing.wanted_category_ids).toEqual(["electronics", "books"]);
+    expect(res.body.listing.images).toEqual(["/tmp/photo1.jpg"]);
+  });
 });
 
 // ─── GET /api/listings/:id ────────────────────────────────────────────────────

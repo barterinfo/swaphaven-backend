@@ -27,7 +27,7 @@ router.get("/deck", requireAuth, async (req, res) => {
 
   const cards = await db.query.listingsTable.findMany({
     where: and(...conditions),
-    with: { images: true, category: true, wants: true },
+    with: { images: true, categoryRow: true, wants: true },
     limit: DAILY_SWIPE_LIMIT,
     // Replace with AI mutual-fit score in production
     orderBy: sql`RANDOM()`,

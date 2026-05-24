@@ -9,6 +9,17 @@ import {
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
+import {
+  buildReviewSnapshot,
+  createListingBodySchema,
+  isUuid,
+  normalizeDetails,
+  resolveCategorySlug,
+  resolveCategoryUuid,
+  resolveEstimatedValue,
+  resolveLocation,
+  serializeListingBarter,
+} from "../lib/barter-listing.js";
 
 const router = Router();
 
@@ -18,67 +29,134 @@ export async function listCategories(_req: unknown, res: { json: (v: unknown) =>
   res.json(cats);
 }
 
+async function loadListingImages(listingId: string): Promise<string[]> {
+  const rows = await db.query.listingImagesTable.findMany({
+    where: eq(listingImagesTable.listingId, listingId),
+    orderBy: (t, { asc }) => [asc(t.position)],
+  });
+  return rows.map((r) => r.url);
+}
+
 // ─── GET /api/listings ────────────────────────────────────────────────────────
 router.get("/", optionalAuth, async (req, res) => {
   const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
-  const { q, categoryId, excludeMine } = req.query as Record<string, string | undefined>;
+  const { q, categoryId, category, excludeMine, status } = req.query as Record<string, string | undefined>;
 
-  const conditions: SQL<unknown>[] = [eq(listingsTable.status, "active")];
+  const listingStatus = status === "traded" ? "traded" : "active";
+  const conditions: SQL<unknown>[] = [eq(listingsTable.status, listingStatus)];
   if (q) conditions.push(ilike(listingsTable.title, `%${q}%`));
-  if (categoryId) conditions.push(eq(listingsTable.categoryId, categoryId));
-  if (cursor) conditions.push(lt(listingsTable.createdAt, cursor));
+  if (categoryId && isUuid(categoryId)) {
+    conditions.push(eq(listingsTable.categoryId, categoryId));
+  } else if (categoryId || category) {
+    conditions.push(eq(listingsTable.category, categoryId ?? category ?? ""));
+  }
+  if (cursor) conditions.push(lt(listingsTable.createdAt, new Date(cursor)));
   if (excludeMine !== "false" && req.user) {
     conditions.push(ne(listingsTable.userId, req.user.sub));
   }
 
   const items = await db.query.listingsTable.findMany({
     where: and(...conditions),
-    with: { images: true, category: true },
+    with: { images: true, categoryRow: true },
     limit,
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
+
+  const listings = await Promise.all(
+    items.map(async (row) =>
+      serializeListingBarter(row, {
+        images: row.images?.length
+          ? row.images.sort((a, b) => a.position - b.position).map((i) => i.url)
+          : await loadListingImages(row.id),
+      }),
+    ),
+  );
+
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
-  return res.json({ items, nextCursor });
+  return res.json({ listings, items, nextCursor });
 });
 
 // ─── POST /api/listings ───────────────────────────────────────────────────────
-const createListingSchema = z.object({
-  title:               z.string().min(1).max(120),
-  description:         z.string().max(2000).optional(),
-  categoryId:          z.string().uuid().optional(),
-  condition:           z.enum(["new", "like_new", "great", "good", "fair"]),
-  estimatedValueCents: z.number().int().positive().optional(),
-  isSwipeOnly:         z.boolean().default(false),
-  locationCity:        z.string().max(100).optional(),
-  locationLat:         z.number().min(-90).max(90).optional(),
-  locationLng:         z.number().min(-180).max(180).optional(),
-  wantedCategoryIds:   z.array(z.string().uuid()).optional(),
-  wantedFreeText:      z.string().max(500).optional(),
-});
-
 router.post("/", requireAuth, async (req, res) => {
-  const parsed = createListingSchema.safeParse(req.body);
+  const parsed = createListingBodySchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+    return res.status(400).json({
+      error: parsed.error.issues.map((i) => i.message).join("; ") || "Invalid listing body",
+    });
   }
 
-  const { wantedCategoryIds, wantedFreeText, locationLat, locationLng, ...rest } = parsed.data;
+  const data = parsed.data;
+  const category = resolveCategorySlug(data);
+  const categoryUuid = resolveCategoryUuid(data);
+  const estimatedValue = resolveEstimatedValue(data);
+  const details = normalizeDetails(data.details);
+  const location = resolveLocation(data);
+  const reviewSnapshot = buildReviewSnapshot(
+    data,
+    category,
+    estimatedValue,
+    details,
+    location,
+  );
+
   const [listing] = await db
     .insert(listingsTable)
     .values({
-      ...rest,
       userId: req.user!.sub,
-      locationLat: toDecimalStr(locationLat),
-      locationLng: toDecimalStr(locationLng),
+      title: data.title.trim(),
+      description: data.description ?? "",
+      category,
+      categoryId: categoryUuid,
+      condition: data.condition,
+      estimatedValue,
+      estimatedValueCents:
+        data.estimatedValueCents ??
+        (estimatedValue > 0 ? estimatedValue * 100 : null),
+      acceptCashTopUps: Boolean(data.acceptCashTopUps),
+      wantedCategoryIds: data.wantedCategoryIds ?? [],
+      wantedCategories: data.wantedCategories ?? [],
+      details,
+      reviewSnapshot,
+      isSwipeOnly: Boolean(data.isSwipeOnly),
+      locationCity: location.city,
+      locationLat: toDecimalStr(location.lat),
+      locationLng: toDecimalStr(location.lng),
+      locationAddress: location.address,
+      locationState: location.state,
+      locationCountry: location.country,
+      locationPostalCode: location.postalCode,
     })
     .returning();
 
+  const imageUrls = (data.images ?? []).filter((u) => u.trim().length > 0);
+  if (imageUrls.length) {
+    await db.insert(listingImagesTable).values(
+      imageUrls.map((url, position) => ({
+        listingId: listing.id,
+        url,
+        position,
+      })),
+    );
+  }
+
   const wantRows: { listingId: string; categoryId?: string | null; freeText?: string | null }[] = [];
-  for (const cid of wantedCategoryIds ?? []) wantRows.push({ listingId: listing.id, categoryId: cid });
-  if (wantedFreeText) wantRows.push({ listingId: listing.id, freeText: wantedFreeText });
+  for (const cid of data.wantedCategoryIds ?? []) {
+    if (isUuid(cid)) wantRows.push({ listingId: listing.id, categoryId: cid });
+  }
+  if (data.wantedFreeText?.trim()) {
+    wantRows.push({ listingId: listing.id, freeText: data.wantedFreeText.trim() });
+  }
   if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
 
-  return res.status(201).json(listing);
+  const serialized = serializeListingBarter(listing, { images: imageUrls });
+  return res.status(201).json({
+    listing: serialized,
+    // Legacy flat fields (tests + older clients)
+    id: listing.id,
+    title: listing.title,
+    status: listing.status,
+    userId: listing.userId,
+  });
 });
 
 // ─── GET /api/listings/:listingId ─────────────────────────────────────────────
@@ -86,23 +164,62 @@ router.get("/:listingId", async (req, res) => {
   const listingId = p(req.params["listingId"]);
   const listing = await db.query.listingsTable.findFirst({
     where: and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")),
-    with: { images: true, category: true, wants: true },
+    with: { images: true, categoryRow: true, wants: true, user: true },
   });
-  if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
-  return res.json(listing);
+  if (!listing) {
+    return res.status(404).json({ error: "Listing not found" });
+  }
+
+  const images = listing.images?.length
+    ? listing.images.sort((a, b) => a.position - b.position).map((i) => i.url)
+    : await loadListingImages(listing.id);
+  const ownerName =
+    listing.user && "name" in listing.user ? String(listing.user.name) : "";
+
+  const payload = serializeListingBarter(listing, { ownerName, images });
+  const listingDetail = {
+    ...payload,
+    owner_email:
+      listing.user && "email" in listing.user
+        ? String(listing.user.email)
+        : undefined,
+  };
+  return res.json({
+    listing: listingDetail,
+    id: listing.id,
+    title: listing.title,
+    status: listing.status,
+    images,
+  });
 });
 
 // ─── PATCH /api/listings/:listingId ───────────────────────────────────────────
 const updateListingSchema = z.object({
-  title:               z.string().min(1).max(120).optional(),
-  description:         z.string().max(2000).optional(),
-  categoryId:          z.string().uuid().optional(),
-  condition:           z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(10000).optional(),
+  category: z.string().optional(),
+  categoryId: z.string().optional(),
+  condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
+  estimatedValue: z.coerce.number().nonnegative().optional(),
   estimatedValueCents: z.number().int().positive().optional(),
-  isSwipeOnly:         z.boolean().optional(),
-  locationCity:        z.string().max(100).optional(),
-  status:              z.enum(["active", "traded", "paused", "deleted"]).optional(),
+  acceptCashTopUps: z.boolean().optional(),
+  isSwipeOnly: z.boolean().optional(),
+  locationCity: z.string().max(100).optional(),
+  location: locationSchemaFromBarter().optional(),
+  status: z.enum(["active", "traded", "paused", "deleted"]).optional(),
 });
+
+function locationSchemaFromBarter() {
+  return z.object({
+    lat: z.union([z.number(), z.string()]).optional().nullable(),
+    lng: z.union([z.number(), z.string()]).optional().nullable(),
+    address: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    country: z.string().optional(),
+    postalCode: z.string().optional(),
+  });
+}
 
 router.patch("/:listingId", requireAuth, async (req, res) => {
   const listingId = p(req.params["listingId"]);
@@ -117,12 +234,61 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
   }
 
+  const patch = parsed.data;
+  const loc = patch.location
+    ? resolveLocation(
+        createListingBodySchema.parse({
+          title: patch.title ?? listing.title,
+          condition: patch.condition ?? listing.condition,
+          location: patch.location,
+          locationCity: patch.locationCity,
+        }),
+      )
+    : null;
+
   const [updated] = await db
     .update(listingsTable)
-    .set({ ...parsed.data, updatedAt: new Date() })
+    .set({
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.category !== undefined ? { category: patch.category } : {}),
+      ...(patch.categoryId !== undefined && isUuid(patch.categoryId)
+        ? { categoryId: patch.categoryId }
+        : {}),
+      ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
+      ...(patch.estimatedValue !== undefined
+        ? { estimatedValue: Math.round(patch.estimatedValue) }
+        : {}),
+      ...(patch.acceptCashTopUps !== undefined
+        ? { acceptCashTopUps: patch.acceptCashTopUps }
+        : {}),
+      ...(patch.isSwipeOnly !== undefined ? { isSwipeOnly: patch.isSwipeOnly } : {}),
+      ...(patch.status !== undefined ? { status: patch.status } : {}),
+      ...(patch.locationCity !== undefined ? { locationCity: patch.locationCity } : {}),
+      ...(loc
+        ? {
+            locationLat: toDecimalStr(loc.lat),
+            locationLng: toDecimalStr(loc.lng),
+            locationAddress: loc.address,
+            locationCity: loc.city || patch.locationCity,
+            locationState: loc.state,
+            locationCountry: loc.country,
+            locationPostalCode: loc.postalCode,
+          }
+        : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(listingsTable.id, listingId))
     .returning();
-  return res.json(updated);
+
+  const images = await loadListingImages(updated.id);
+  const serialized = serializeListingBarter(updated, { images });
+  return res.json({
+    listing: serialized,
+    id: updated.id,
+    title: updated.title,
+    status: updated.status,
+  });
 });
 
 // ─── DELETE /api/listings/:listingId ─────────────────────────────────────────
@@ -140,7 +306,7 @@ router.delete("/:listingId", requireAuth, async (req, res) => {
 
 // ─── POST /api/listings/:listingId/images ─────────────────────────────────────
 const addImageSchema = z.object({
-  url:      z.string().url(),
+  url: z.string().min(1),
   position: z.number().int().min(0).default(0),
 });
 
