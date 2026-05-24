@@ -20,6 +20,10 @@ import notificationsRouter from "./routes/notifications.js";
 export function createApp(): express.Express {
   const app = express();
 
+  if (env.TRUST_PROXY) {
+    app.set("trust proxy", 1);
+  }
+
   // ─── Security headers ────────────────────────────────────────────────────────
   app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -77,21 +81,43 @@ export function createApp(): express.Express {
   app.use("/api", apiLimiter);
   app.use("/api/auth", authLimiter);
 
-  // ─── OpenAPI docs ─────────────────────────────────────────────────────────────
-  app.get("/api/openapi.json", (_req, res) => res.json(openApiSpec));
-  app.use(
-    "/api-docs",
-    swaggerUi.serve,
-    swaggerUi.setup(openApiSpec, {
-      customSiteTitle: "SwapHaven API Docs",
-      customCss: ".swagger-ui .topbar { background-color: #6366f1; }",
-    }),
-  );
+  // ─── OpenAPI docs (disabled in production unless ENABLE_API_DOCS=true) ─────────
+  if (env.ENABLE_API_DOCS) {
+    app.get("/api/openapi.json", (_req, res) => res.json(openApiSpec));
+    app.use(
+      "/api-docs",
+      swaggerUi.serve,
+      swaggerUi.setup(openApiSpec, {
+        customSiteTitle: "SwapHaven API Docs",
+        customCss: ".swagger-ui .topbar { background-color: #6366f1; }",
+      }),
+    );
+  }
 
-  // ─── Health check ─────────────────────────────────────────────────────────────
+  // ─── Health checks ────────────────────────────────────────────────────────────
   app.get("/api/healthz", (_req, res) =>
     res.json({ status: "ok", service: "swaphaven-api", timestamp: new Date().toISOString() }),
   );
+
+  app.get("/api/readyz", async (_req, res) => {
+    try {
+      const { pool } = await import("./db/client.js");
+      await pool.query("SELECT 1");
+      res.json({
+        status: "ready",
+        service: "swaphaven-api",
+        database: "up",
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      res.status(503).json({
+        status: "not_ready",
+        service: "swaphaven-api",
+        database: "down",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
 
   // ─── Routes ───────────────────────────────────────────────────────────────────
   app.get("/api/categories", listCategories as express.RequestHandler);

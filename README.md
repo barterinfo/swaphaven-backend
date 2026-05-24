@@ -28,6 +28,27 @@ npm run dev
 
 API at `http://localhost:3001` · Docs at `http://localhost:3001/api-docs`
 
+### Production-like local stack (Docker)
+
+```bash
+docker compose up --build
+# → http://localhost:3001/api/readyz
+```
+
+---
+
+## Deployment
+
+**Hosted on [Railway](https://railway.app)** (GitHub → auto-deploy). We do not deploy `barter-stack/backend`.
+
+→ **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Postgres plugin, `DATABASE_URL`, env vars, public URL
+
+| Step | Command |
+|------|---------|
+| Pre-push check | `./deploy/scripts/release.sh` |
+| Local Docker stack | `npm run docker:up` |
+| Health | `GET /api/healthz` · `GET /api/readyz` |
+
 ---
 
 ## Database tables
@@ -170,13 +191,11 @@ npm run db:studio    # Open Drizzle Studio
 
 ## Production checklist
 
-- [ ] Set `NODE_ENV=production`
-- [ ] Use strong random JWT secrets (≥ 64 hex chars)
-- [ ] Set `CORS_ORIGINS` to specific frontend origins
-- [ ] Front with nginx / a load balancer (TLS termination)
-- [ ] Replace in-memory WebSocket rooms with Redis pub/sub for multi-process
-- [ ] Add a JWT denylist (Redis) for logout invalidation
-- [ ] Integrate email service for `forgot-password` flow
-- [ ] Replace swipe deck `ORDER BY RANDOM()` with an AI mutual-fit scoring service
-- [ ] Add structured logging (Pino / Winston)
-- [ ] Set up DB connection pooling (PgBouncer)
+See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. Summary:
+
+- [ ] Railway project: GitHub service + PostgreSQL + `DATABASE_URL` reference
+- [ ] `NODE_ENV=production`, strong JWT secrets, `TRUST_PROXY=true`
+- [ ] `CORS_ORIGINS` set; generate public domain
+- [ ] `/api/readyz` shows database up
+- [ ] Flutter `API_BASE` = Railway HTTPS URL
+- [ ] (Later) S3 presigned uploads for listing images

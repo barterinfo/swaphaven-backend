@@ -7,11 +7,28 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
   PORT: z.coerce.number().default(3001),
+  HOST: z.string().default("0.0.0.0"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().default(20),
   API_RATE_LIMIT_MAX: z.coerce.number().default(300),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
+  /** Set true when behind Railway / a reverse proxy (rate limit + secure cookies). */
+  TRUST_PROXY: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Swagger UI at /api-docs. Default off in production. */
+  ENABLE_API_DOCS: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+  /** Public base URL for docs / clients (e.g. https://api.swaphaven.io). */
+  PUBLIC_API_URL: z.string().url().optional(),
+  // ─── S3 media (optional until presign upload is wired) ─────────────────────
+  AWS_REGION: z.string().optional(),
+  S3_MEDIA_BUCKET: z.string().optional(),
+  CDN_BASE_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -21,5 +38,13 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
-export type Env = typeof parsed.data;
+const data = parsed.data;
+
+export const env = {
+  ...data,
+  ENABLE_API_DOCS:
+    data.ENABLE_API_DOCS ??
+    (data.NODE_ENV !== "production"),
+};
+
+export type Env = typeof env;

@@ -1,0 +1,10 @@
+# Railway deploy config — https://docs.railway.app/reference/config-as-code
+[build]
+builder = "nixpacks"
+buildCommand = "npm ci && npm run build"
+
+[deploy]
+startCommand = "node dist/db/migrate.js && node dist/index.js"
+healthcheckPath = "/api/readyz"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"

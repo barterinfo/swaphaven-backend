@@ -1,0 +1,55 @@
+# Local API + Postgres (optional; production uses Railway).
+#
+#   cp .env.example .env
+#   docker compose up --build
+#
+# API: http://localhost:3001/api/healthz
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: swaphaven
+      POSTGRES_PASSWORD: swaphaven
+      POSTGRES_DB: swaphaven
+    ports:
+      - "5433:5432"
+    volumes:
+      - swaphaven_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swaphaven -d swaphaven"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      target: production
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://swaphaven:swaphaven@postgres:5432/swaphaven
+      RUN_MIGRATIONS: "true"
+      TRUST_PROXY: "false"
+      ENABLE_API_DOCS: "true"
+      CORS_ORIGINS: "*"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-only-change-me-access-secret-32chars-minimum-xx}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-only-change-me-refresh-secret-32chars-minimum-xx}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  swaphaven_pg_data:

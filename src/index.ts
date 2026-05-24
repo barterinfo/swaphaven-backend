@@ -30,8 +30,8 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-httpServer.listen(env.PORT, () => {
-  console.log(`🚀  SwapHaven API  →  http://localhost:${env.PORT}`);
+httpServer.listen(env.PORT, env.HOST, () => {
+  console.log(`🚀  SwapHaven API  →  http://${env.HOST}:${env.PORT}`);
   console.log(`📖  API Docs       →  http://localhost:${env.PORT}/api-docs`);
   console.log(`🔌  WebSocket      →  ws://localhost:${env.PORT}/ws/<conversationId>?token=`);
   console.log(`📄  OpenAPI JSON   →  http://localhost:${env.PORT}/api/openapi.json`);

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
-drizzle/
+.env.production
 *.local
 .env.test
+# Drizzle Kit generated meta; SQL migrations in drizzle/*.sql are committed
+drizzle/meta/
