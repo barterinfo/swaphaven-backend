@@ -20,15 +20,28 @@ Pre-push (same as CI):
 
 ## Test database
 
-Tests use **`.env.test`** (default):
+Tests use **`.env.test`** (gitignored). Copy the committed template first:
+
+```bash
+cp .env.test.example .env.test
+```
+
+Required variables (see `.env.test.example`):
 
 ```env
 DATABASE_URL=postgresql://swaphaven:swaphaven@localhost:5433/swaphaven_test
+JWT_ACCESS_SECRET=dev-test-access-secret-min-32-chars-long
+JWT_REFRESH_SECRET=dev-test-refresh-secret-min-32-chars-long
+NODE_ENV=test
+AUTH_RATE_LIMIT_MAX=10000
+API_RATE_LIMIT_MAX=100000
 ```
 
 ### Setup
 
 ```bash
+cp .env.test.example .env.test
+
 # If using docker-compose Postgres on 5433:
 docker compose up postgres -d
 

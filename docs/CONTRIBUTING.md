@@ -23,6 +23,8 @@ This repo uses the [agent harness framework](https://www.npmjs.com/package/@made
 
 **Edit sources in `.harness/src/`**, then run `npm run harness:apply` and commit both `.harness/` and generated `.cursor/` files.
 
+The Cursor provider auto-generates **hooks** and **skills** only (`npm run harness:check` tracks those paths). **Commands** (`.cursor/commands/`), **system prompt** (`.cursor/prompt.md`), and **rules** (`.cursor/rules/`) must be kept in sync manually with `.harness/src/commands/`, `.harness/src/prompts/system.md`, and preset rules when you change harness sources.
+
 ### PR agent review
 
 On every non-draft PR, **Agent PR review** workflow:
@@ -39,7 +41,7 @@ Requires GitHub secret **`CURSOR_API_KEY`** ([Cursor dashboard](https://cursor.c
 
 ### CI auto-fix
 
-When **CI** fails on a PR branch, **Agent fix CI** may push a fix commit (same `CURSOR_API_KEY` requirement).
+When **CI** fails on a PR branch, **Agent fix CI** may push a fix commit (same `CURSOR_API_KEY` requirement). Opt in with label **`agent-fix`** or repo variable **`AGENT_AUTO_FIX=true`** (mirrors the `agent-apply` gate on review apply).
 
 ---
 

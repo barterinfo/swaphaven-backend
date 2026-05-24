@@ -132,4 +132,4 @@ API_BASE=http://127.0.0.1:3001
 | `DATABASE_URL is required` | Create `.env` from `.env.example` |
 | `Invalid environment variables` | JWT secrets ≥ 32 characters |
 | Port in use | Change `PORT` in `.env` |
-| Tests fail | Start Postgres on port **5433** for `.env.test` or run `docker compose up postgres` |
+| Tests fail | Copy `.env.test.example` → `.env.test`; start Postgres on port **5433** or run `docker compose up postgres` |
