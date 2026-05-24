@@ -15,7 +15,7 @@ Flutter app  ──HTTPS──►  Railway API service  ──►  Railway Postg
                          /api/readyz
 ```
 
-Listing images (later): S3 presigned uploads — URLs stored in `listing_images.url`.
+Listing images: S3 presigned uploads — see **[S3_SETUP.md](./S3_SETUP.md)**.
 
 ---
 

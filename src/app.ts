@@ -16,6 +16,7 @@ import offersRouter from "./routes/offers.js";
 import tradesRouter from "./routes/trades.js";
 import conversationsRouter from "./routes/conversations.js";
 import notificationsRouter from "./routes/notifications.js";
+import mediaRouter from "./routes/media.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -150,6 +151,7 @@ export function createApp(): express.Express {
   app.use("/api/trades",        tradesRouter);
   app.use("/api/conversations", conversationsRouter);
   app.use("/api/notifications", notificationsRouter);
+  app.use("/api/media", mediaRouter);
 
   // ─── Error handling ───────────────────────────────────────────────────────────
   app.use(notFoundHandler);
