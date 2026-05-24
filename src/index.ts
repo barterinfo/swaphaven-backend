@@ -5,6 +5,10 @@ import { createApp } from "./app.js";
 import { createWsServer } from "./lib/ws.js";
 import { pool } from "./db/client.js";
 
+console.log(
+  `[server] Booting (NODE_ENV=${env.NODE_ENV}, PORT=${env.PORT}, TRUST_PROXY=${env.TRUST_PROXY})`,
+);
+
 const app        = createApp();
 const httpServer = createServer(app);
 createWsServer(httpServer);
@@ -30,9 +34,12 @@ process.on("unhandledRejection", (reason) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+httpServer.on("error", (err: NodeJS.ErrnoException) => {
+  console.error("[server] Failed to bind:", err.message);
+  process.exit(1);
+});
+
 httpServer.listen(env.PORT, env.HOST, () => {
-  console.log(`🚀  SwapHaven API  →  http://${env.HOST}:${env.PORT}`);
-  console.log(`📖  API Docs       →  http://localhost:${env.PORT}/api-docs`);
-  console.log(`🔌  WebSocket      →  ws://localhost:${env.PORT}/ws/<conversationId>?token=`);
-  console.log(`📄  OpenAPI JSON   →  http://localhost:${env.PORT}/api/openapi.json`);
+  console.log(`[server] Listening on http://${env.HOST}:${env.PORT}`);
+  console.log(`[server] Health: /api/healthz  Ready (DB): /api/readyz`);
 });

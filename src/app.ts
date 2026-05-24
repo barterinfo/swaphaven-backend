@@ -88,7 +88,8 @@ export function createApp(): express.Express {
         database: "up",
         timestamp: new Date().toISOString(),
       });
-    } catch {
+    } catch (err) {
+      console.error("[readyz] database check failed:", err);
       res.status(503).json({
         status: "not_ready",
         service: "swaphaven-api",

@@ -64,6 +64,8 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 
 Do **not** set `PORT` — Railway injects it automatically.
 
+**Important:** Migrations only need `DATABASE_URL`. The API **will not start** without both JWT secrets. If logs show migrate success but health checks fail, open **Deploy Logs** and look for `Invalid environment variables` or missing `JWT_*` — then redeploy.
+
 ### E. Deploy & public URL
 
 1. **Redeploy** after saving variables.
@@ -182,6 +184,8 @@ See `.env.example`.
 | Cold start slow                  | Normal on hobby plans; upgrade plan for always-on            |
 | `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` | Set `TRUST_PROXY=true` (auto in production); redeploy latest |
 | 404 on `/api/readyz`             | Deploy crashed before routes loaded — redeploy; try `/health` |
+| Health check failed (migrate OK) | Add `JWT_ACCESS_SECRET` + `JWT_REFRESH_SECRET`; use `/api/healthz` in Railway; check logs for `[server] Listening` |
+| `/api/readyz` → 503              | `DATABASE_URL` wrong or Postgres not linked — use Railway **reference** variable |
 
 
 ---
