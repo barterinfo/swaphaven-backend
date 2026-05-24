@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+/** Railway UI values pasted from .env often include wrapping quotes — strip them. */
+function normalizeEnv(raw: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === undefined) continue;
+    let v = value.trim();
+    if (
+      (v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'"))
+    ) {
+      v = v.slice(1, -1).trim();
+    }
+    out[key] = v;
+  }
+  return out;
+}
+
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 chars"),
@@ -28,7 +45,7 @@ const envSchema = z.object({
   CDN_BASE_URL: z.string().url().optional(),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const parsed = envSchema.safeParse(normalizeEnv(process.env));
 
 if (!parsed.success) {
   console.error("❌  Invalid environment variables:\n", parsed.error.flatten().fieldErrors);
@@ -36,6 +53,15 @@ if (!parsed.success) {
 }
 
 const data = parsed.data;
+
+if (data.DATABASE_URL.includes("${{")) {
+  console.error(
+    "❌  DATABASE_URL looks like an unresolved Railway reference.\n" +
+      "   In Railway → API service → Variables → use **Add Reference** → Postgres → DATABASE_URL,\n" +
+      "   do not paste the text ${{Postgres.DATABASE_URL}} manually.",
+  );
+  process.exit(1);
+}
 
 export const env = {
   ...data,

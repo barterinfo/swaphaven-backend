@@ -62,6 +62,17 @@ Generate secrets:
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
+**Railway variable format (important):**
+
+| Do | Don't |
+|----|--------|
+| `production` | `"production"` |
+| `true` | `"true"` |
+| `*` | `"*"` |
+| **Add Reference** → Postgres → `DATABASE_URL` | Paste `${{Postgres.DATABASE_URL}}` as plain text |
+
+Values in the Railway UI are **not** `.env` files — omit surrounding quotes.
+
 Do **not** set `PORT` — Railway injects it automatically.
 
 **Important:** Migrations only need `DATABASE_URL`. The API **will not start** without both JWT secrets. If logs show migrate success but health checks fail, open **Deploy Logs** and look for `Invalid environment variables` or missing `JWT_*` — then redeploy.

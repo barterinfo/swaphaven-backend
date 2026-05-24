@@ -9,7 +9,7 @@ NODE_ENV = "production"
 TRUST_PROXY = "true"
 
 [deploy]
-startCommand = "sh deploy/start.sh"
+startCommand = "node dist/db/migrate.js && node dist/index.js"
 # Liveness only (200). Use /api/readyz manually to verify DB.
 healthcheckPath = "/api/healthz"
 healthcheckTimeout = 300
