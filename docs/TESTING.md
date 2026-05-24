@@ -38,6 +38,8 @@ npm test
 
 `tests/helpers/global-setup.ts` resets the `public` schema and runs all migrations before the suite.
 
+`DATABASE_URL` drives both the test DB and admin connection (same host/port as CI on `5432`, local Docker on `5433` per `.env.test`).
+
 ---
 
 ## Test layout
