@@ -3,6 +3,11 @@
 builder = "nixpacks"
 buildCommand = "npm ci && npm run build"
 
+# Ensures trust proxy + production defaults even if dashboard vars are missing
+[env]
+NODE_ENV = "production"
+TRUST_PROXY = "true"
+
 [deploy]
 startCommand = "node dist/db/migrate.js && node dist/index.js"
 healthcheckPath = "/api/readyz"

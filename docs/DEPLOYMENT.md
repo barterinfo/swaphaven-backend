@@ -53,7 +53,7 @@ Listing images (later): S3 presigned uploads — URLs stored in `listing_images.
 | `JWT_REFRESH_SECRET` | ≥ 32 chars                                            |
 | `CORS_ORIGINS`       | `*` for staging; comma-separated app origins for prod |
 | `ENABLE_API_DOCS`    | `true` (team testing) or `false` (locked down)        |
-| `TRUST_PROXY`        | `true`                                                |
+| `TRUST_PROXY`        | Optional — auto **`true`** in production (`railway.toml` sets it) |
 
 
 Generate secrets:
@@ -180,6 +180,8 @@ See `.env.example`.
 | Build fails                      | Set **Root Directory** in monorepos; check build logs        |
 | CORS errors                      | Add app origin to `CORS_ORIGINS`                             |
 | Cold start slow                  | Normal on hobby plans; upgrade plan for always-on            |
+| `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` | Set `TRUST_PROXY=true` (auto in production); redeploy latest |
+| 404 on `/api/readyz`             | Deploy crashed before routes loaded — redeploy; try `/health` |
 
 
 ---

@@ -20,6 +20,7 @@ import notificationsRouter from "./routes/notifications.js";
 export function createApp(): express.Express {
   const app = express();
 
+  // Railway / load balancers send X-Forwarded-For — required before rate limiting.
   if (env.TRUST_PROXY) {
     app.set("trust proxy", 1);
   }
@@ -61,40 +62,18 @@ export function createApp(): express.Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
-  // ─── Rate limiting ────────────────────────────────────────────────────────────
-  const apiLimiter = rateLimit({
-    windowMs: env.RATE_LIMIT_WINDOW_MS,
-    max: env.API_RATE_LIMIT_MAX,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-    message: { error: "too_many_requests", message: "Too many requests. Please try again later." },
-  });
+  // ─── Health checks (before rate limits — Railway / probes must not throw) ─────
+  app.get("/", (_req, res) =>
+    res.json({
+      service: "swaphaven-api",
+      health: "/api/healthz",
+      ready: "/api/readyz",
+      docs: env.ENABLE_API_DOCS ? "/api-docs" : undefined,
+    }),
+  );
 
-  const authLimiter = rateLimit({
-    windowMs: env.RATE_LIMIT_WINDOW_MS,
-    max: env.AUTH_RATE_LIMIT_MAX,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-    message: { error: "too_many_requests", message: "Too many authentication attempts. Please try again later." },
-  });
+  app.get("/health", (_req, res) => res.redirect(307, "/api/healthz"));
 
-  app.use("/api", apiLimiter);
-  app.use("/api/auth", authLimiter);
-
-  // ─── OpenAPI docs (disabled in production unless ENABLE_API_DOCS=true) ─────────
-  if (env.ENABLE_API_DOCS) {
-    app.get("/api/openapi.json", (_req, res) => res.json(openApiSpec));
-    app.use(
-      "/api-docs",
-      swaggerUi.serve,
-      swaggerUi.setup(openApiSpec, {
-        customSiteTitle: "SwapHaven API Docs",
-        customCss: ".swagger-ui .topbar { background-color: #6366f1; }",
-      }),
-    );
-  }
-
-  // ─── Health checks ────────────────────────────────────────────────────────────
   app.get("/api/healthz", (_req, res) =>
     res.json({ status: "ok", service: "swaphaven-api", timestamp: new Date().toISOString() }),
   );
@@ -118,6 +97,39 @@ export function createApp(): express.Express {
       });
     }
   });
+
+  // ─── Rate limiting ────────────────────────────────────────────────────────────
+  const apiLimiter = rateLimit({
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    max: env.API_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "too_many_requests", message: "Too many requests. Please try again later." },
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    max: env.AUTH_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "too_many_requests", message: "Too many authentication attempts. Please try again later." },
+  });
+
+  app.use("/api/auth", authLimiter);
+  app.use("/api", apiLimiter);
+
+  // ─── OpenAPI docs (disabled in production unless ENABLE_API_DOCS=true) ─────────
+  if (env.ENABLE_API_DOCS) {
+    app.get("/api/openapi.json", (_req, res) => res.json(openApiSpec));
+    app.use(
+      "/api-docs",
+      swaggerUi.serve,
+      swaggerUi.setup(openApiSpec, {
+        customSiteTitle: "SwapHaven API Docs",
+        customCss: ".swagger-ui .topbar { background-color: #6366f1; }",
+      }),
+    );
+  }
 
   // ─── Routes ───────────────────────────────────────────────────────────────────
   app.get("/api/categories", listCategories as express.RequestHandler);

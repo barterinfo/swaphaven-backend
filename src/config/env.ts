@@ -13,11 +13,8 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().default(20),
   API_RATE_LIMIT_MAX: z.coerce.number().default(300),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
-  /** Set true when behind Railway / a reverse proxy (rate limit + secure cookies). */
-  TRUST_PROXY: z
-    .enum(["true", "false"])
-    .default("false")
-    .transform((v) => v === "true"),
+  /** Behind Railway / reverse proxy. Defaults to true when NODE_ENV=production. */
+  TRUST_PROXY: z.enum(["true", "false"]).optional(),
   /** Swagger UI at /api-docs. Default off in production. */
   ENABLE_API_DOCS: z
     .enum(["true", "false"])
@@ -42,6 +39,9 @@ const data = parsed.data;
 
 export const env = {
   ...data,
+  TRUST_PROXY:
+    data.TRUST_PROXY === "true" ||
+    (data.TRUST_PROXY !== "false" && data.NODE_ENV === "production"),
   ENABLE_API_DOCS:
     data.ENABLE_API_DOCS ??
     (data.NODE_ENV !== "production"),
