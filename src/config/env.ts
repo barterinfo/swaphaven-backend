@@ -65,6 +65,9 @@ if (data.DATABASE_URL.includes("${{")) {
 
 export const env = {
   ...data,
+  // Vitest registers many users against one app instance — avoid 429s in CI/local test runs.
+  AUTH_RATE_LIMIT_MAX: data.NODE_ENV === "test" ? 10_000 : data.AUTH_RATE_LIMIT_MAX,
+  API_RATE_LIMIT_MAX: data.NODE_ENV === "test" ? 100_000 : data.API_RATE_LIMIT_MAX,
   TRUST_PROXY:
     data.TRUST_PROXY === "true" ||
     (data.TRUST_PROXY !== "false" && data.NODE_ENV === "production"),

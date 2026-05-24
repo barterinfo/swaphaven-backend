@@ -1,0 +1,13 @@
+---
+description: Tight harness — minimal scope, match repo style, no drive-by changes
+alwaysApply: true
+---
+
+# Tight harness rules
+
+- Only modify code required by the task; no unrelated refactors or files.
+- Read surrounding code first; match existing naming, types, and patterns.
+- Reuse existing functions and components instead of reimplementing.
+- Do not add markdown docs unless asked.
+- Never commit or write secrets (`.env`, keys, credentials).
+- Verify with `npm run typecheck` and `npm test` after substantive edits.

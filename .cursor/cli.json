@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**/*)",
+      "Write(src/**/*)",
+      "Write(tests/**/*)",
+      "Write(drizzle/**/*)",
+      "Write(docs/**/*)",
+      "Write(.harness/src/**/*)",
+      "Write(.cursor/**/*)",
+      "Shell(git)",
+      "Shell(npm)",
+      "Shell(node)",
+      "Shell(docker)",
+      "Shell(docker compose)",
+      "Shell(curl)",
+      "Shell(grep)",
+      "Shell(find)",
+      "Shell(cat)",
+      "Shell(head)",
+      "Shell(tail)",
+      "Shell(ls)",
+      "Shell(cd)",
+      "Shell(pwd)",
+      "Shell(test)",
+      "Shell(echo)"
+    ],
+    "deny": [
+      "Shell(rm)",
+      "Shell(git push)",
+      "Shell(git commit)",
+      "Shell(gh)",
+      "Write(**/.env*)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)",
+      "Write(**/credentials*)"
+    ]
+  }
+}

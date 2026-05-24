@@ -1,0 +1,21 @@
+---
+description: Express 5 + PostgreSQL + Drizzle — src/
+globs: src/**/*
+alwaysApply: false
+---
+
+# Backend — SwapHaven API conventions
+
+**Before implementing:** read related `src/routes/`, `src/db/schema/`, middleware, `src/app.ts` mounts, and `tests/` for the area.
+
+## Structure
+
+- Routes in `src/routes/`; Drizzle schema in `src/db/schema/`; auth/errors in `src/middleware/`; helpers in `src/lib/`.
+- Keep handlers thin: Zod validate → Drizzle query → consistent JSON response.
+- Listing payloads must stay compatible with `src/lib/barter-listing.ts` (barter-stack mobile).
+
+## Quality
+
+- Explanatory names; comments for security and non-obvious behavior only.
+- Commit `drizzle/*.sql` and `drizzle/meta/_journal.json` when schema changes.
+- No secrets in code; use auth middleware for protected routes.

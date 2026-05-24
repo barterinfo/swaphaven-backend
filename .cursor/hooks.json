@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "command": "node .harness/scripts/guard-post-tool.mjs",
+        "timeout": 120
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "node .harness/scripts/guard-pre-tool.mjs",
+        "timeout": 10
+      }
+    ]
+  },
+  "version": 1
+}

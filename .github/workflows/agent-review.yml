@@ -1,0 +1,229 @@
+name: Agent PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+concurrency:
+  group: agent-review-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Review & recommend
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    env:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Cursor CLI (pinned + checksum)
+        run: bash .github/scripts/install-cursor-cli.sh
+
+      - name: Verify Cursor API key
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "::error::CURSOR_API_KEY is not configured for this repository."
+            echo "Add it: GitHub → Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+
+      - name: Fetch base branch
+        run: git fetch origin "${{ github.base_ref }}"
+
+      - name: Prepare review context
+        run: |
+          git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
+          {
+            echo "# PR context"
+            echo "Title: ${{ github.event.pull_request.title }}"
+            echo
+            echo "Body:"
+            echo "${{ github.event.pull_request.body }}"
+          } > pr-context.md
+
+      - name: Run PR review
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          agent -p --force --output-format text \
+            "Review this pull request for swaphaven-api.
+
+          Follow .cursor/commands/review-pr.md and the reviewer skill.
+          Use tight harness rules (.cursor/rules, .cursor/prompt.md).
+
+          Read pr-context.md and pr.diff.
+
+          Write the full review to review.md with Summary, Must fix, Should fix, and Nits.
+          Every Must fix and Should fix item MUST include a **How to fix** subsection.
+
+          Do NOT commit, push, or use gh. Only write review.md."
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-review
+          path: review.md
+          if-no-files-found: error
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## Cursor agent review"
+            echo
+            echo "Recommendations below. To let the bot **push fixes**, add the \`agent-apply\` label (or set repository variable \`AGENT_AUTO_APPLY=true\`)."
+            echo
+            cat review.md
+          } > review-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body-file review-comment.md
+
+  apply-fixes:
+    name: Apply review fixes
+    runs-on: ubuntu-latest
+    needs: review
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'agent-apply') ||
+        vars.AGENT_AUTO_APPLY == 'true'
+      )
+    env:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      DATABASE_URL: postgresql://swaphaven:swaphaven@localhost:5432/swaphaven_test
+      JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long
+      JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long
+      PORT: "3001"
+      NODE_ENV: test
+    permissions:
+      contents: write
+      pull-requests: write
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: swaphaven
+          POSTGRES_PASSWORD: swaphaven
+          POSTGRES_DB: swaphaven_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swaphaven -d swaphaven_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cursor CLI
+        run: bash .github/scripts/install-cursor-cli.sh
+
+      - name: Verify Cursor API key
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "::error::CURSOR_API_KEY is not configured."
+            exit 1
+          fi
+
+      - name: Download review
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-review
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Apply review recommendations
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          agent -p --force --output-format text \
+            "Apply code fixes for swaphaven-api based on review.md.
+
+          Follow .cursor/commands/apply-review.md and tight harness rules.
+
+          - Implement Must fix and Should fix items with minimal edits.
+          - Do NOT edit .github/workflows/.
+          - Write fixes-applied.md (Applied / Skipped / Manual steps).
+          - Do NOT commit, push, or use gh."
+
+      - name: Verify API
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Commit and push fixes
+        id: commit
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          SUBSTANTIVE="src tests drizzle docs README.md"
+          AGENT_ARTIFACTS="review.md fixes-applied.md pr.diff pr-context.md"
+
+          rm -f ${AGENT_ARTIFACTS} 2>/dev/null || true
+
+          if git diff --quiet "${BASE_SHA}" -- ${SUBSTANTIVE} && \
+             [ -z "$(git ls-files --others --exclude-standard -- ${SUBSTANTIVE})" ]; then
+            echo "No substantive edits since apply job started."
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "cursor-agent[bot]"
+          git config user.email "cursor-agent[bot]@users.noreply.github.com"
+          git add ${SUBSTANTIVE}
+          if git diff --staged --quiet; then
+            echo "::error::Substantive tree changed but nothing stageable."
+            git status
+            exit 1
+          fi
+          git commit -m "chore(agent): apply PR review recommendations"
+          git push origin "HEAD:${{ github.head_ref }}"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Post apply summary
+        if: steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## Cursor agent — fixes applied"
+            echo
+            if [ -f fixes-applied.md ]; then
+              cat fixes-applied.md
+            else
+              echo "Agent pushed a commit; see the latest commit on this branch."
+            fi
+            echo
+            echo "---"
+            echo "Pull and verify: \`npm ci && npm run typecheck && npm test\`"
+          } > apply-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body-file apply-comment.md

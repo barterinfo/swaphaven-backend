@@ -1,0 +1,115 @@
+name: Agent fix CI
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fix:
+    name: Cursor agent fix CI failures
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_branch != ''
+    env:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      DATABASE_URL: postgresql://swaphaven:swaphaven@localhost:5432/swaphaven_test
+      JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long
+      JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long
+      PORT: "3001"
+      NODE_ENV: test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: swaphaven
+          POSTGRES_PASSWORD: swaphaven
+          POSTGRES_DB: swaphaven_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swaphaven -d swaphaven_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Cursor CLI
+        run: bash .github/scripts/install-cursor-cli.sh
+
+      - name: Verify Cursor API key
+        run: |
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "::error::CURSOR_API_KEY is not configured."
+            exit 1
+          fi
+
+      - name: Download CI failure logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run view "${{ github.event.workflow_run.id }}" --log-failed > ci-failure.log || true
+          if [ ! -s ci-failure.log ]; then
+            gh run view "${{ github.event.workflow_run.id }}" --log > ci-failure.log || true
+          fi
+
+      - name: Apply fix
+        run: |
+          agent -p --force --output-format text \
+            "Fix the CI failure for swaphaven-api.
+
+          Follow .cursor/commands/fix-ci.md and tight harness rules.
+
+          - Modify src/, tests/, drizzle/ only.
+          - Do NOT commit, push, or use gh.
+
+          Failed workflow: ${{ github.event.workflow_run.name }}
+          Run URL: ${{ github.event.workflow_run.html_url }}
+
+          CI logs:
+          $(head -c 120000 ci-failure.log)
+          "
+
+      - name: Verify API
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Commit and push fix
+        run: |
+          if git diff --quiet; then
+            echo "No changes produced by agent"
+            exit 0
+          fi
+          git config user.name "cursor-agent[bot]"
+          git config user.email "cursor-agent[bot]@users.noreply.github.com"
+          git add src tests drizzle docs README.md
+          git commit -m "fix(ci): auto-fix CI failure via Cursor agent" || exit 0
+          git push origin "HEAD:${{ github.event.workflow_run.head_branch }}"
+
+      - name: Comment on PR
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="$(gh pr list --head "${{ github.event.workflow_run.head_branch }}" --json number -q '.[0].number')"
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+            gh pr comment "$PR_NUMBER" --body "Pushed an automated CI fix from the Cursor agent. Please review the latest commit."
+          fi

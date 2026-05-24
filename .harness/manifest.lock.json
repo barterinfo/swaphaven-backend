@@ -1,0 +1,89 @@
+{
+  "entities": [
+    {
+      "id": "apply-review",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "faeb1c74e4bb470991f7f3ad7c119b2af533b54c873621145a11218f5619e383",
+      "type": "command"
+    },
+    {
+      "id": "fix-ci",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "9bf05ed2344ed582c509176efd3e6156b04a0425c770933baf2ab804eba2adda",
+      "type": "command"
+    },
+    {
+      "id": "fix-issue",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "e621df4f7720a0663f2367e6274f31ae7512d447f57b4a5182bb45ca60ef1fef",
+      "type": "command"
+    },
+    {
+      "id": "review-pr",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "19a5c5499a08276a2f3c9c4bfcd80fb1f5adeea8fd421b853176eeb102203085",
+      "type": "command"
+    },
+    {
+      "id": "ci-guard",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "03202e019816b4afd41ab2efcfd34eba6698aab4531e36a6e7ce30de34206a45",
+      "type": "hook"
+    },
+    {
+      "id": "system",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "a7d3457f7abfde076b4361a2768c3f99271075ac50d2149c4e83a58cb8d8e260",
+      "type": "prompt"
+    },
+    {
+      "id": "backend-architecture",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "5b3893ddcb14caf84166646c2c2df3b31d5d4f455237de8a55180bead9f52be2",
+      "type": "skill"
+    },
+    {
+      "id": "reviewer",
+      "overrideSha256ByProvider": {},
+      "registry": "local",
+      "sourceSha256": "3d0512a478835556eb6e014322011adc4cfe1e535086d3420238c3e0ff384760",
+      "type": "skill"
+    }
+  ],
+  "generatedAt": "2026-05-24T13:10:59.493Z",
+  "manifestFingerprint": "56d15ea50620a01a31fff6ca3128a16a5a1e4a76fdb298d9691aa350443b8d48",
+  "outputs": [
+    {
+      "contentSha256": "b1135fa7fc77008fbeea5bbbe5a03ada20fef982c687bb52dc4c97cb01e1733b",
+      "ownerEntityIds": [
+        "ci-guard"
+      ],
+      "path": ".cursor/hooks.json",
+      "provider": "cursor"
+    },
+    {
+      "contentSha256": "c6af31ec1fef275286f44428fc49a02fcfa93f029fb6a1800d68000693a5b66c",
+      "ownerEntityIds": [
+        "backend-architecture"
+      ],
+      "path": ".cursor/skills/backend-architecture/SKILL.md",
+      "provider": "cursor"
+    },
+    {
+      "contentSha256": "0b3bca12e41a4acb70f855de2f2fd98a22abbbd3d7abad714214094e5776d281",
+      "ownerEntityIds": [
+        "reviewer"
+      ],
+      "path": ".cursor/skills/reviewer/SKILL.md",
+      "provider": "cursor"
+    }
+  ],
+  "version": 1
+}

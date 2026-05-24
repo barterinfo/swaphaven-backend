@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "providers": {
+    "enabled": ["cursor"]
+  },
+  "registries": {
+    "default": "local",
+    "entries": {
+      "local": {
+        "type": "local"
+      }
+    }
+  },
+  "entities": [
+    {
+      "id": "system",
+      "type": "prompt",
+      "registry": "local",
+      "sourcePath": ".harness/src/prompts/system.md",
+      "enabled": true
+    },
+    {
+      "id": "reviewer",
+      "type": "skill",
+      "registry": "local",
+      "sourcePath": ".harness/src/skills/reviewer/SKILL.md",
+      "enabled": true
+    },
+    {
+      "id": "backend-architecture",
+      "type": "skill",
+      "registry": "local",
+      "sourcePath": ".harness/src/skills/backend-architecture/SKILL.md",
+      "enabled": true
+    },
+    {
+      "id": "fix-issue",
+      "type": "command",
+      "registry": "local",
+      "sourcePath": ".harness/src/commands/fix-issue.md",
+      "enabled": true
+    },
+    {
+      "id": "fix-ci",
+      "type": "command",
+      "registry": "local",
+      "sourcePath": ".harness/src/commands/fix-ci.md",
+      "enabled": true
+    },
+    {
+      "id": "review-pr",
+      "type": "command",
+      "registry": "local",
+      "sourcePath": ".harness/src/commands/review-pr.md",
+      "enabled": true
+    },
+    {
+      "id": "apply-review",
+      "type": "command",
+      "registry": "local",
+      "sourcePath": ".harness/src/commands/apply-review.md",
+      "enabled": true
+    },
+    {
+      "id": "ci-guard",
+      "type": "hook",
+      "registry": "local",
+      "sourcePath": ".harness/src/hooks/ci-guard.json",
+      "enabled": true
+    }
+  ]
+}

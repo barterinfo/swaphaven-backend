@@ -1,0 +1,16 @@
+{
+  "id": "tight",
+  "name": "Tight Harness",
+  "description": "Cursor harness for SwapHaven API — strict hooks, PR review agent, minimal-scope fixes.",
+  "recommended": true,
+  "operations": [
+    { "type": "enable_provider", "provider": "cursor" },
+    { "type": "add_prompt" },
+    { "type": "add_skill", "id": "reviewer" },
+    { "type": "add_skill", "id": "backend-architecture" },
+    { "type": "add_command", "id": "fix-issue" },
+    { "type": "add_command", "id": "fix-ci" },
+    { "type": "add_command", "id": "review-pr" },
+    { "type": "add_hook", "id": "ci-guard" }
+  ]
+}
