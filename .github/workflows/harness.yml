@@ -1,0 +1,41 @@
+name: Harness
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  validate-and-sync:
+    name: Validate harness & sync Cursor outputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate harness manifest
+        run: npx harness validate
+
+      - name: Apply harness (generate provider outputs)
+        run: npx harness apply
+
+      - name: Fail if harness-managed outputs drift
+        run: |
+          PATHS="$(node -e "
+            const idx = require('./.harness/managed-index.json');
+            const paths = [...(idx.managedOutputPaths || [])];
+            if (!paths.length) process.exit(1);
+            console.log(paths.join(' '));
+          ")"
+          git diff --exit-code -- $PATHS || {
+            echo "::error::Harness-managed outputs are out of date. Run: npm run harness:apply && commit."
+            git diff --stat -- $PATHS
+            exit 1
+          }

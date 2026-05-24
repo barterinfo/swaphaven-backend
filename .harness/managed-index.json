@@ -1,0 +1,18 @@
+{
+  "managedOutputPaths": [
+    ".cursor/hooks.json",
+    ".cursor/skills/backend-architecture/SKILL.md",
+    ".cursor/skills/reviewer/SKILL.md"
+  ],
+  "managedSourcePaths": [
+    ".harness/src/commands/apply-review.md",
+    ".harness/src/commands/fix-ci.md",
+    ".harness/src/commands/fix-issue.md",
+    ".harness/src/commands/review-pr.md",
+    ".harness/src/hooks/ci-guard.json",
+    ".harness/src/prompts/system.md",
+    ".harness/src/skills/backend-architecture/SKILL.md",
+    ".harness/src/skills/reviewer/SKILL.md"
+  ],
+  "version": 1
+}

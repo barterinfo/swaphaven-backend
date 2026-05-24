@@ -1,0 +1,19 @@
+{
+  "mode": "strict",
+  "events": {
+    "pre_tool_use": [
+      {
+        "type": "command",
+        "command": "node .harness/scripts/guard-pre-tool.mjs",
+        "timeoutSec": 10
+      }
+    ],
+    "post_tool_use": [
+      {
+        "type": "command",
+        "command": "node .harness/scripts/guard-post-tool.mjs",
+        "timeoutSec": 120
+      }
+    ]
+  }
+}

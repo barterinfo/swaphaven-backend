@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "start:prod": "node dist/db/migrate.js && node dist/index.js",
+    "start:prod": "sh -c 'node dist/db/migrate.js && exec node dist/index.js'",
     "migrate:prod": "node dist/db/migrate.js",
     "docker:build": "docker build -t swaphaven-api:latest .",
     "docker:up": "docker compose up --build",
@@ -20,7 +20,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --reporter=verbose",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "harness:validate": "harness validate",
+    "harness:apply": "harness apply",
+    "harness:check": "npm run harness:validate && npm run harness:apply && node -e \"const i=require('./.harness/managed-index.json');const {execSync}=require('child_process');const p=(i.managedOutputPaths||[]).join(' ');if(p)execSync('git diff --exit-code -- '+p,{stdio:'inherit'})\""
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -38,6 +44,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@madebywild/agent-harness-framework": "^1.10.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
