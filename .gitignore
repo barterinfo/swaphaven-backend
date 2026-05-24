@@ -4,5 +4,4 @@ dist/
 .env.production
 *.local
 .env.test
-# Drizzle Kit generated meta; SQL migrations in drizzle/*.sql are committed
-drizzle/meta/
+# drizzle/*.sql and drizzle/meta/_journal.json must be committed for production migrate
