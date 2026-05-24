@@ -1,10 +1,10 @@
 /**
  * Runs before every test — truncates all tables so each test starts clean.
  */
-import { beforeEach, afterAll } from "vitest";
+import { beforeEach } from "vitest";
 import { sql } from "drizzle-orm";
 import dotenv from "dotenv";
-import { testDb, testPool } from "./db.js";
+import { testDb } from "./db.js";
 
 dotenv.config({ path: ".env.test" });
 
@@ -24,8 +24,4 @@ const TRUNCATE = `
 
 beforeEach(async () => {
   await testDb.execute(sql.raw(TRUNCATE));
-});
-
-afterAll(async () => {
-  await testPool.end();
 });
