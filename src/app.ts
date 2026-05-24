@@ -5,7 +5,7 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import swaggerUi from "swagger-ui-express";
 import { env } from "./config/env.js";
-import { openApiSpec } from "./openapi/spec.js";
+import { getOpenApiSpec, resolveApiServerUrl } from "./openapi/serverUrl.js";
 import { notFoundHandler, errorHandler } from "./middleware/error.js";
 import { listCategories } from "./routes/listings.js";
 import authRouter from "./routes/auth.js";
@@ -121,14 +121,21 @@ export function createApp(): express.Express {
 
   // ─── OpenAPI docs (disabled in production unless ENABLE_API_DOCS=true) ─────────
   if (env.ENABLE_API_DOCS) {
-    app.get("/api/openapi.json", (_req, res) => res.json(openApiSpec));
+    app.get("/api/openapi.json", (req, res) => {
+      res.json(getOpenApiSpec(resolveApiServerUrl(req)));
+    });
     app.use(
       "/api-docs",
       swaggerUi.serve,
-      swaggerUi.setup(openApiSpec, {
-        customSiteTitle: "SwapHaven API Docs",
-        customCss: ".swagger-ui .topbar { background-color: #6366f1; }",
-      }),
+      (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        swaggerUi.setup(
+          getOpenApiSpec(resolveApiServerUrl(req)),
+          {
+            customSiteTitle: "SwapHaven API Docs",
+            customCss: ".swagger-ui .topbar { background-color: #6366f1; }",
+          },
+        )(req, res, next);
+      },
     );
   }
 

@@ -7,9 +7,7 @@ export const openApiSpec = {
     description: "Peer-to-peer item trading platform — Express 5 · PostgreSQL · Drizzle ORM",
     contact: { email: "api@swaphaven.io" },
   },
-  servers: [
-    { url: "http://localhost:3001", description: "Local development" },
-  ],
+  // servers injected at runtime — see getOpenApiSpec() in serverUrl.ts
   components: {
     securitySchemes: {
       bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
