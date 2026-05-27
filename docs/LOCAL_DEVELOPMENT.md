@@ -84,6 +84,14 @@ Browse data:
 npm run db:studio
 ```
 
+Seed sample listings for swipe/discovery testing:
+
+```bash
+npm run seed:listings
+```
+
+See [SEED_LISTINGS.md](./SEED_LISTINGS.md) for local vs Railway usage, options, and troubleshooting.
+
 ---
 
 ## 5. Run the API
