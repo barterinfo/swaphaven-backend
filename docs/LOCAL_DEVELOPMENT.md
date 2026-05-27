@@ -84,15 +84,6 @@ Browse data:
 npm run db:studio
 ```
 
-Seed sample listings for swipe/discovery testing:
-
-```bash
-npm run seed:user -- --random          # create account first
-npm run seed:listings                  # then add listings
-```
-
-See [SEED_USER.md](./SEED_USER.md) and [SEED_LISTINGS.md](./SEED_LISTINGS.md).
-
 ---
 
 ## 5. Run the API
@@ -110,7 +101,20 @@ npm run dev
 
 ---
 
-## 6. Docker stack (API + Postgres)
+## 6. Seed sample data (optional)
+
+Start the API first (§5), or wait until `docker compose up` is healthy if using the Docker stack (§7).
+
+```bash
+npm run seed:user -- --random
+SEED_EMAIL=<printed-email> SEED_PASSWORD='password123' npm run seed:listings
+```
+
+See [SEED_USER.md](./SEED_USER.md) and [SEED_LISTINGS.md](./SEED_LISTINGS.md).
+
+---
+
+## 7. Docker stack (API + Postgres)
 
 ```bash
 docker compose up --build
@@ -120,7 +124,7 @@ Uses `.env` JWT values or compose defaults. Migrations run on container start.
 
 ---
 
-## 7. Connect Flutter (barter-stack mobile)
+## 8. Connect Flutter (barter-stack mobile)
 
 In `barter-stack/mobile/lib/config/env/dev.env`:
 
@@ -134,7 +138,7 @@ API_BASE=http://127.0.0.1:3001
 
 ---
 
-## 8. Common issues
+## 9. Common issues
 
 | Problem | Fix |
 |---------|-----|

@@ -18,10 +18,9 @@ npm run seed:user
 # or: npm run seed:user -- --random
 ```
 
-3. Run the seed script:
+3. Run the seed script (from the repo root):
 
 ```bash
-cd swaphaven-api
 npm run seed:listings
 ```
 
@@ -111,10 +110,10 @@ API_BASE=https://swaphaven-backend-production.up.railway.app npm run seed:listin
 
 ### Non-interactive mode
 
-Skip prompts when both variables are set:
+Skip prompts when both variables are set. Plain usernames (without `@`) are normalized to `username@example.com`, same as [SEED_USER.md](./SEED_USER.md):
 
 ```bash
-SEED_EMAIL=demo@example.com SEED_PASSWORD='your-password' npm run seed:listings
+SEED_EMAIL=demo SEED_PASSWORD='your-password' npm run seed:listings
 ```
 
 Useful for scripts and CI-style automation. **Do not commit real passwords.**
@@ -203,6 +202,7 @@ Then open swipe discovery — seeded listings from other users will appear; your
 
 - Creates **real rows** in the target database (local or Railway).
 - Always use a **dedicated test account** on shared/production APIs.
+- Non-local targets (`--base-url`, `API_BASE`) require typing `yes` at the prompt, or pass `--force` to skip confirmation.
 - Never pass production credentials in shell history — prefer interactive prompts or short-lived env vars.
 - The script does not delete listings; remove test data manually or via API if needed.
 

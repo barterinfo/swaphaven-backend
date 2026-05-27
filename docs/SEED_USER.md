@@ -10,8 +10,9 @@ Calls `POST /api/auth/register` with the same payload as the mobile app signup.
 
 ### Interactive signup (local)
 
+From the repo root (`swaphaven-backend`):
+
 ```bash
-cd swaphaven-api
 npm run seed:user
 ```
 
