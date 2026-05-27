@@ -18,6 +18,7 @@
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "seed:listings": "tsx scripts/seed-listings.ts",
+    "seed:user": "tsx scripts/seed-user.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --reporter=verbose",

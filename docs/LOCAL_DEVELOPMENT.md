@@ -87,10 +87,11 @@ npm run db:studio
 Seed sample listings for swipe/discovery testing:
 
 ```bash
-npm run seed:listings
+npm run seed:user -- --random          # create account first
+npm run seed:listings                  # then add listings
 ```
 
-See [SEED_LISTINGS.md](./SEED_LISTINGS.md) for local vs Railway usage, options, and troubleshooting.
+See [SEED_USER.md](./SEED_USER.md) and [SEED_LISTINGS.md](./SEED_LISTINGS.md).
 
 ---
 

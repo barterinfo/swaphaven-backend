@@ -11,7 +11,13 @@ The script logs in over HTTP, then posts **10 unique listings** (by default) to 
 ### Local
 
 1. Start Postgres and the API (see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md)).
-2. Register a user in the app, or via API.
+2. Register a user in the app, or via the [seed user script](./SEED_USER.md):
+
+```bash
+npm run seed:user
+# or: npm run seed:user -- --random
+```
+
 3. Run the seed script:
 
 ```bash
