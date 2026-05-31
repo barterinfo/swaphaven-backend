@@ -53,6 +53,54 @@ export const createListingBodySchema = z.object({
 
 export type CreateListingBody = z.infer<typeof createListingBodySchema>;
 
+/** Input shape for seed/fixture scripts that build a create-listing request body. */
+export type ListingFixtureInput = {
+  title: string;
+  description: string;
+  category: string;
+  categoryId: string;
+  condition: CreateListingBody["condition"];
+  estimatedValue: number;
+  acceptCashTopUps: boolean;
+  isSwipeOnly: boolean;
+  wantedCategoryIds: string[];
+  wantedCategories: string[];
+  wantedFreeText: string;
+  details: { ageRange: string; brand: string };
+  location: {
+    lat: number;
+    lng: number;
+    address: string;
+    city: string;
+    state: string;
+    country: string;
+    postalCode: string;
+  };
+  imageSeed: string;
+};
+
+export function buildListingPayload(
+  fixture: ListingFixtureInput,
+): CreateListingBody {
+  return {
+    title: fixture.title,
+    description: fixture.description,
+    category: fixture.category,
+    categoryId: fixture.categoryId,
+    condition: fixture.condition,
+    estimatedValue: fixture.estimatedValue,
+    estimatedValueCents: fixture.estimatedValue * 100,
+    acceptCashTopUps: fixture.acceptCashTopUps,
+    isSwipeOnly: fixture.isSwipeOnly,
+    wantedCategoryIds: fixture.wantedCategoryIds,
+    wantedCategories: fixture.wantedCategories,
+    wantedFreeText: fixture.wantedFreeText,
+    details: fixture.details,
+    location: fixture.location,
+    images: [`https://picsum.photos/seed/${fixture.imageSeed}/800/600`],
+  };
+}
+
 export function resolveCategorySlug(data: CreateListingBody): string {
   if (data.category?.trim()) return data.category.trim();
   if (data.categoryId?.trim() && !isUuid(data.categoryId)) {

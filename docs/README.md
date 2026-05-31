@@ -3,6 +3,7 @@
 | Guide | Description |
 |-------|-------------|
 | [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) | Install, database, run locally, Docker |
+| [DB_SCHEMA.md](./DB_SCHEMA.md) | Tables, ER diagram, enums, DB→DTO field mapping |
 | [SEED_USER.md](./SEED_USER.md) | Register a test user via CLI script |
 | [SEED_LISTINGS.md](./SEED_LISTINGS.md) | Bulk-create sample listings via CLI script |
 | [TESTING.md](./TESTING.md) | Unit/integration tests, CI commands |
