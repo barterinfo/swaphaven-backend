@@ -37,6 +37,60 @@ describe("GET /api/inbox/summary", () => {
     expect(buyerRes.body.actionNeededOffers).toBe(0);
   });
 
+  it("counts countered offers for the buyer only, not the seller", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const offerDetail = await request(app)
+      .get(`/api/offers/${offer.id}`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    const offerItemId = offerDetail.body.offeredItems[0].id;
+
+    await request(app)
+      .post(`/api/offers/${offer.id}/counter`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ includedOfferItemIds: [offerItemId] });
+
+    const sellerRes = await request(app)
+      .get("/api/inbox/summary")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(sellerRes.body.actionNeededOffers).toBe(0);
+
+    const buyerRes = await request(app)
+      .get("/api/inbox/summary")
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+    expect(buyerRes.body.actionNeededOffers).toBe(1);
+    expect(buyerRes.body.total).toBe(1);
+  });
+
+  it("drops unreadMessages in summary after PATCH read", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+    const convId = trade.conversationId;
+
+    await request(app)
+      .post(`/api/conversations/${convId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: "Ping" });
+
+    const before = await request(app)
+      .get("/api/inbox/summary")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(before.body.unreadMessages).toBe(1);
+
+    await request(app)
+      .patch(`/api/conversations/${convId}/read`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const after = await request(app)
+      .get("/api/inbox/summary")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(after.body.unreadMessages).toBe(0);
+    expect(after.body.total).toBe(0);
+  });
+
   it("counts unread messages from the other participant", async () => {
     const { seller, buyer, trade } = await fullTradeSetup();
     await request(app)

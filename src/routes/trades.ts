@@ -49,6 +49,43 @@ router.get("/:tradeId", requireAuth, async (req, res) => {
   return res.json(trade);
 });
 
+// ─── PATCH /api/trades/:tradeId/meetup ────────────────────────────────────────
+const meetupSchema = z.object({
+  meetupScheduledAt: z.coerce.date(),
+  meetupLocation:    z.string().min(1).max(500),
+});
+
+router.patch("/:tradeId/meetup", requireAuth, async (req, res) => {
+  const tradeId = p(req.params["tradeId"]);
+  const parsed = meetupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const trade = await db.query.tradesTable.findFirst({
+    where: eq(tradesTable.id, tradeId),
+    with: { offer: true },
+  });
+  if (!trade) return res.status(404).json({ error: "not_found" });
+
+  const userId = req.user!.sub;
+  if (trade.offer.buyerId !== userId && trade.offer.sellerId !== userId) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  const [updated] = await db
+    .update(tradesTable)
+    .set({
+      meetupScheduledAt: parsed.data.meetupScheduledAt,
+      meetupLocation: parsed.data.meetupLocation,
+      updatedAt: new Date(),
+    })
+    .where(eq(tradesTable.id, tradeId))
+    .returning();
+
+  return res.json(updated);
+});
+
 // ─── POST /api/trades/:tradeId/complete ───────────────────────────────────────
 router.post("/:tradeId/complete", requireAuth, async (req, res) => {
   const tradeId = p(req.params["tradeId"]);

@@ -158,7 +158,7 @@ describe("GET /api/offers/:offerId", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(offer.id);
-    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(Array.isArray(res.body.offeredItems)).toBe(true);
   });
 
   it("third party receives 403", async () => {
@@ -304,7 +304,7 @@ describe("Counter-offer lifecycle", () => {
     const offerDetail = await request(app)
       .get(`/api/offers/${offer.id}`)
       .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.items[0].id;
+    const offerItemId = offerDetail.body.offeredItems[0].id;
 
     // Step 1: Seller counters
     const counterRes = await request(app)
@@ -335,7 +335,7 @@ describe("Counter-offer lifecycle", () => {
     const offerDetail = await request(app)
       .get(`/api/offers/${offer.id}`)
       .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.items[0].id;
+    const offerItemId = offerDetail.body.offeredItems[0].id;
 
     await request(app)
       .post(`/api/offers/${offer.id}/counter`)

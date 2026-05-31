@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "./helpers/app.js";
-import { registerUser, fullTradeSetup } from "./helpers/fixtures.js";
+import {
+  registerUser, fullTradeSetup, createListing, createOffer, acceptOffer,
+} from "./helpers/fixtures.js";
 
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 describe("GET /api/conversations", () => {
@@ -22,6 +24,50 @@ describe("GET /api/conversations", () => {
 
     expect(buyerRes.status).toBe(200);
     expect(buyerRes.body.items).toHaveLength(1);
+  });
+
+  it("returns the caller's thread with limit=1 even when other users have conversations", async () => {
+    const { seller, trade } = await fullTradeSetup();
+    await fullTradeSetup();
+
+    const res = await request(app)
+      .get("/api/conversations?limit=1")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].id).toBe(trade.conversationId);
+  });
+
+  it("bubbles a conversation to the top after a new message", async () => {
+    const seller = await registerUser();
+    const buyerA = await registerUser();
+    const buyerB = await registerUser();
+
+    const sellerListing = await createListing(seller.accessToken);
+    const listingA = await createListing(buyerA.accessToken);
+    const listingB = await createListing(buyerB.accessToken);
+
+    const offerA = await createOffer(buyerA.accessToken, sellerListing.id, listingA.id);
+    const tradeA = await acceptOffer(seller.accessToken, offerA.id);
+
+    const offerB = await createOffer(buyerB.accessToken, sellerListing.id, listingB.id);
+    const tradeB = await acceptOffer(seller.accessToken, offerB.id);
+
+    await request(app)
+      .post(`/api/conversations/${tradeA.conversationId}/messages`)
+      .set("Authorization", `Bearer ${buyerA.accessToken}`)
+      .send({ body: "Older thread ping" });
+
+    const res = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(2);
+    expect(res.body.items[0].id).toBe(tradeA.conversationId);
+    expect(res.body.items[0].lastMessage.body).toBe("Older thread ping");
+    expect(res.body.items[1].id).toBe(tradeB.conversationId);
   });
 
   it("returns empty for user with no conversations", async () => {

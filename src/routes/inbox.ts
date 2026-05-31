@@ -17,9 +17,9 @@ router.get("/summary", requireAuth, async (req, res) => {
   const [actionNeededRow] = await db
     .select({ value: count() })
     .from(offersTable)
-    .where(and(
-      eq(offersTable.sellerId, userId),
-      inArray(offersTable.status, ["pending", "countered"]),
+    .where(or(
+      and(eq(offersTable.sellerId, userId), eq(offersTable.status, "pending")),
+      and(eq(offersTable.buyerId, userId), eq(offersTable.status, "countered")),
     ));
 
   // Conversations the user participates in (as buyer or seller of the offer).

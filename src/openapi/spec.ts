@@ -101,6 +101,23 @@ export const openApiSpec = {
           createdAt:      { type: "string", format: "date-time" },
         },
       },
+      OfferListItem: {
+        type: "object",
+        description: "Enriched offer row for the mobile inbox (Offers tab).",
+        properties: {
+          id:             { type: "string", format: "uuid" },
+          status:         { type: "string", enum: ["pending","accepted","denied","countered","expired","withdrawn"] },
+          buyerId:        { type: "string", format: "uuid" },
+          sellerId:       { type: "string", format: "uuid" },
+          listingId:      { type: "string", format: "uuid" },
+          cashTopUpCents: { type: "integer" },
+          createdAt:      { type: "string", format: "date-time" },
+          listing:        { type: "object", nullable: true },
+          buyer:          { type: "object", nullable: true },
+          seller:         { type: "object", nullable: true },
+          offeredItems:   { type: "array", items: { type: "object" } },
+        },
+      },
       CounterOffer: {
         type: "object",
         properties: {
@@ -184,7 +201,7 @@ export const openApiSpec = {
       InboxSummary: {
         type: "object",
         properties: {
-          actionNeededOffers: { type: "integer", description: "Received offers needing a response (pending or countered)" },
+          actionNeededOffers: { type: "integer", description: "Offers needing a response: seller pending, buyer countered" },
           unreadMessages:     { type: "integer", description: "Total unread messages across all conversations" },
           total:              { type: "integer", description: "Nav-badge count (actionNeededOffers + unreadMessages)" },
         },
@@ -487,10 +504,28 @@ export const openApiSpec = {
       },
     },
     "/api/offers/received": {
-      get: { tags: ["Offers"], summary: "Received offers", parameters: [{ $ref: "#/components/parameters/limit" }, { name: "status", in: "query", schema: { type: "string" } }], responses: { "200": { description: "Paginated received offers" } } },
+      get: {
+        tags: ["Offers"], summary: "Received offers",
+        parameters: [{ $ref: "#/components/parameters/limit" }, { name: "status", in: "query", schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Paginated received offers",
+            content: { "application/json": { schema: { type: "object", properties: { items: { type: "array", items: { $ref: "#/components/schemas/OfferListItem" } }, nextCursor: { type: "string", nullable: true } } } } },
+          },
+        },
+      },
     },
     "/api/offers/sent": {
-      get: { tags: ["Offers"], summary: "Sent offers", parameters: [{ $ref: "#/components/parameters/limit" }], responses: { "200": { description: "Paginated sent offers" } } },
+      get: {
+        tags: ["Offers"], summary: "Sent offers",
+        parameters: [{ $ref: "#/components/parameters/limit" }],
+        responses: {
+          "200": {
+            description: "Paginated sent offers",
+            content: { "application/json": { schema: { type: "object", properties: { items: { type: "array", items: { $ref: "#/components/schemas/OfferListItem" } }, nextCursor: { type: "string", nullable: true } } } } },
+          },
+        },
+      },
     },
     "/api/offers/{offerId}": {
       get: { tags: ["Offers"], summary: "Offer detail", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Offer with counter-offer and conversation ID" }, "403": { description: "Forbidden" } } },
@@ -525,6 +560,14 @@ export const openApiSpec = {
     },
     "/api/trades/{tradeId}": {
       get: { tags: ["Trades"], summary: "Trade detail", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } }, "403": { description: "Forbidden" } } },
+    },
+    "/api/trades/{tradeId}/meetup": {
+      patch: {
+        tags: ["Trades"], summary: "Set meetup time and location",
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["meetupScheduledAt","meetupLocation"], properties: { meetupScheduledAt: { type: "string", format: "date-time" }, meetupLocation: { type: "string", maxLength: 500 } } } } } },
+        responses: { "200": { description: "Trade updated", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } }, "403": { description: "Forbidden" } },
+      },
     },
     "/api/trades/{tradeId}/complete": {
       post: { tags: ["Trades"], summary: "Mark trade completed", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade marked complete" } } },

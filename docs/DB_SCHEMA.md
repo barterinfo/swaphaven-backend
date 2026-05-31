@@ -469,7 +469,7 @@ Built from a `users` row joined to its `user_profiles` row via
 
 Client-derived (not stored):
 - **`direction`** = `sent` when `buyer.id === currentUser.id`, else `received`.
-- **Action needed** = `direction === received && status ∈ {pending, countered}`.
+- **Action needed** = seller: `direction === received && status === pending`; buyer: `direction === sent && status === countered`.
 - **Cash delta** = `cashTopUpCents / 100`: positive = buyer pays extra; negative
   = buyer's items are worth more.
 
@@ -510,7 +510,7 @@ inbound, unread rows in that conversation (clears the row's badge).
 
 | DTO field | Source |
 |-----------|--------|
-| `actionNeededOffers` | count of `offers` where `seller_id = currentUser AND status ∈ {pending, countered}` |
+| `actionNeededOffers` | count where `(seller_id = currentUser AND status = pending) OR (buyer_id = currentUser AND status = countered)` |
 | `unreadMessages` | sum of unread inbound `messages` across the user's conversations |
 | `total` | `actionNeededOffers + unreadMessages` |
 

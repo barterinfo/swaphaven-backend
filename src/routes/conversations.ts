@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { and, eq, lt, ne, isNull, inArray, count } from "drizzle-orm";
+import { and, eq, lt, ne, isNull, inArray, count, or, desc, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { conversationsTable, messagesTable } from "../db/schema/index.js";
+import { conversationsTable, messagesTable, offersTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { broadcastToRoom } from "../lib/ws.js";
@@ -12,10 +12,43 @@ const router = Router();
 
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res) => {
-  const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
+  const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
   const userId = req.user!.sub;
 
+  const lastMsgSq = db
+    .select({
+      conversationId: messagesTable.conversationId,
+      lastAt: max(messagesTable.createdAt).as("lastAt"),
+    })
+    .from(messagesTable)
+    .groupBy(messagesTable.conversationId)
+    .as("lm");
+
+  const sortAt = sql<Date>`COALESCE(${lastMsgSq.lastAt}, ${conversationsTable.createdAt})`;
+
+  const conditions = [
+    or(eq(offersTable.buyerId, userId), eq(offersTable.sellerId, userId)),
+  ];
+  if (cursor) conditions.push(lt(sortAt, cursor));
+
+  const idRows = await db
+    .select({ id: conversationsTable.id, sortAt })
+    .from(conversationsTable)
+    .innerJoin(offersTable, eq(conversationsTable.offerId, offersTable.id))
+    .leftJoin(lastMsgSq, eq(conversationsTable.id, lastMsgSq.conversationId))
+    .where(and(...conditions))
+    .orderBy(desc(sortAt))
+    .limit(limit);
+
+  if (idRows.length === 0) {
+    return res.json({ items: [], nextCursor: null });
+  }
+
+  const convIds = idRows.map((r) => r.id);
+  const orderIndex = new Map(convIds.map((id, i) => [id, i]));
+
   const items = await db.query.conversationsTable.findMany({
+    where: inArray(conversationsTable.id, convIds),
     with: {
       offer: {
         columns: { id: true, status: true, buyerId: true, sellerId: true },
@@ -29,33 +62,28 @@ router.get("/", requireAuth, async (req, res) => {
       },
       messages: { limit: 1, orderBy: (t, { desc }) => [desc(t.createdAt)] },
     },
-    limit,
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
+  items.sort((a, b) => orderIndex.get(a.id)! - orderIndex.get(b.id)!);
 
-  const visible = items.filter(
-    (c) => c.offer.buyerId === userId || c.offer.sellerId === userId,
-  );
-
-  // Per-conversation unread counts (messages from the other party not yet read).
   const unreadByConversation = new Map<string, number>();
-  if (visible.length > 0) {
-    const rows = await db
-      .select({ conversationId: messagesTable.conversationId, unread: count() })
-      .from(messagesTable)
-      .where(and(
-        inArray(messagesTable.conversationId, visible.map((c) => c.id)),
-        ne(messagesTable.senderId, userId),
-        isNull(messagesTable.readAt),
-      ))
-      .groupBy(messagesTable.conversationId);
-    for (const row of rows) unreadByConversation.set(row.conversationId, Number(row.unread));
-  }
+  const rows = await db
+    .select({ conversationId: messagesTable.conversationId, unread: count() })
+    .from(messagesTable)
+    .where(and(
+      inArray(messagesTable.conversationId, convIds),
+      ne(messagesTable.senderId, userId),
+      isNull(messagesTable.readAt),
+    ))
+    .groupBy(messagesTable.conversationId);
+  for (const row of rows) unreadByConversation.set(row.conversationId, Number(row.unread));
 
-  const serialized = visible.map((c) =>
+  const serialized = items.map((c) =>
     serializeConversationListItem(c, userId, unreadByConversation.get(c.id) ?? 0),
   );
-  const nextCursor = visible.length === limit ? encodeCursor(visible.at(-1)!.createdAt) : null;
+  const lastSortAt = idRows.at(-1)!.sortAt;
+  const nextCursor = idRows.length === limit
+    ? encodeCursor(lastSortAt instanceof Date ? lastSortAt : new Date(lastSortAt))
+    : null;
   return res.json({ items: serialized, nextCursor });
 });
 
@@ -97,7 +125,7 @@ router.get("/:conversationId/messages", requireAuth, async (req, res) => {
     where: and(...conditions),
     with: { sender: { columns: { id: true, displayName: true, avatarUrl: true } } },
     limit,
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
+    orderBy: (t, { desc: d }) => [d(t.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
   return res.json({ items, nextCursor });

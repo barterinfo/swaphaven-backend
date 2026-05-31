@@ -114,7 +114,7 @@ router.get("/:offerId", requireAuth, async (req, res) => {
   const offerId = p(req.params["offerId"]);
   const offer = await db.query.offersTable.findFirst({
     where: eq(offersTable.id, offerId),
-    with: { items: { with: { listing: { with: { images: true } } } } },
+    with: offerListWith,
   });
   if (!offer) return res.status(404).json({ error: "not_found" });
   if (offer.buyerId !== req.user!.sub && offer.sellerId !== req.user!.sub) {
@@ -128,7 +128,11 @@ router.get("/:offerId", requireAuth, async (req, res) => {
   const conversation = await db.query.conversationsTable.findFirst({
     where: eq(conversationsTable.offerId, offer.id),
   });
-  return res.json({ ...offer, counterOffer, conversationId: conversation?.id ?? null });
+  return res.json({
+    ...serializeOfferListItem(offer),
+    counterOffer,
+    conversationId: conversation?.id ?? null,
+  });
 });
 
 // ─── POST /api/offers/:offerId/accept ─────────────────────────────────────────

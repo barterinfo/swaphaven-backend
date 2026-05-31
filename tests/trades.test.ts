@@ -76,6 +76,42 @@ describe("GET /api/trades/:tradeId", () => {
   });
 });
 
+// ─── PATCH /api/trades/:tradeId/meetup ────────────────────────────────────────
+describe("PATCH /api/trades/:tradeId/meetup", () => {
+  it("participant can set meetup and it appears in conversations", async () => {
+    const { seller, trade } = await fullTradeSetup();
+    const meetupAt = "2026-06-15T14:00:00.000Z";
+
+    const patchRes = await request(app)
+      .patch(`/api/trades/${trade.id}/meetup`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ meetupScheduledAt: meetupAt, meetupLocation: "Central Park" });
+
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.meetupScheduledAt).toBeTruthy();
+    expect(patchRes.body.meetupLocation).toBe("Central Park");
+
+    const listRes = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(listRes.body.items[0].trade.meetupScheduledAt).toBeTruthy();
+    expect(listRes.body.items[0].trade.meetupLocation).toBe("Central Park");
+  });
+
+  it("third party cannot set meetup", async () => {
+    const { trade } = await fullTradeSetup();
+    const third = await registerUser();
+
+    const res = await request(app)
+      .patch(`/api/trades/${trade.id}/meetup`)
+      .set("Authorization", `Bearer ${third.accessToken}`)
+      .send({ meetupScheduledAt: "2026-06-15T14:00:00.000Z", meetupLocation: "Nowhere" });
+
+    expect(res.status).toBe(403);
+  });
+});
+
 // ─── POST /api/trades/:tradeId/complete ───────────────────────────────────────
 describe("POST /api/trades/:tradeId/complete", () => {
   it("participant can mark a trade as completed", async () => {
