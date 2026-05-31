@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createListingBodySchema } from "../src/lib/barter-listing.js";
 import {
   buildListingPayload,
+  createListingBodySchema,
+} from "../src/lib/barter-listing.js";
+import {
   generateListingFixtures,
   MAX_LISTING_FIXTURES,
 } from "../scripts/listing-fixtures.js";
