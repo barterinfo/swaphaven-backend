@@ -34,8 +34,86 @@ describe("GET /api/conversations", () => {
     expect(res.body.items).toHaveLength(0);
   });
 
+  it("enriches each row with offer, trade, otherUser and unreadCount", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+    await request(app)
+      .post(`/api/conversations/${trade.conversationId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: "Hey! Does it come with the original box?" });
+
+    const res = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const row = res.body.items[0];
+    expect(row.offer).toBeDefined();
+    expect(row.offer.status).toBe("accepted");
+    expect(row.trade.status).toBe("pending_meetup");
+    expect(row.trade).toHaveProperty("meetupScheduledAt");
+    expect(row.otherUser.id).toBe(buyer.user.id);
+    expect(row.lastMessage.body).toBe("Hey! Does it come with the original box?");
+    // The seller has not opened the thread yet → buyer's message is unread.
+    expect(row.unreadCount).toBe(1);
+  });
+
+  it("never leaks credentials in otherUser", async () => {
+    const { seller } = await fullTradeSetup();
+    const res = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.body.items[0].otherUser).not.toHaveProperty("passwordHash");
+  });
+
   it("requires authentication", async () => {
     const res = await request(app).get("/api/conversations");
+    expect(res.status).toBe(401);
+  });
+});
+
+// ─── PATCH /api/conversations/:conversationId/read ────────────────────────────
+describe("PATCH /api/conversations/:conversationId/read", () => {
+  it("clears the unread count for the reader", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+    const convId = trade.conversationId;
+
+    await request(app)
+      .post(`/api/conversations/${convId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: "Still interested?" });
+
+    const readRes = await request(app)
+      .patch(`/api/conversations/${convId}/read`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(readRes.status).toBe(204);
+
+    const listRes = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(listRes.body.items[0].unreadCount).toBe(0);
+  });
+
+  it("third party cannot mark read", async () => {
+    const { trade } = await fullTradeSetup();
+    const third = await registerUser();
+    const res = await request(app)
+      .patch(`/api/conversations/${trade.conversationId}/read`)
+      .set("Authorization", `Bearer ${third.accessToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for non-existent conversation", async () => {
+    const { seller } = await fullTradeSetup();
+    const res = await request(app)
+      .patch("/api/conversations/00000000-0000-0000-0000-000000000000/read")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("requires authentication", async () => {
+    const { trade } = await fullTradeSetup();
+    const res = await request(app).patch(`/api/conversations/${trade.conversationId}/read`);
     expect(res.status).toBe(401);
   });
 });

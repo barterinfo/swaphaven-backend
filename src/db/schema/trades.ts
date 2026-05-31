@@ -10,13 +10,15 @@ export const tradeStatusEnum = pgEnum("trade_status", [
 
 // ─── trades ───────────────────────────────────────────────────────────────────
 export const tradesTable = pgTable("trades", {
-  id:             uuid("id").primaryKey().defaultRandom(),
-  offerId:        uuid("offer_id").notNull().unique().references(() => offersTable.id),
-  counterOfferId: uuid("counter_offer_id").references(() => counterOffersTable.id),
-  status:         tradeStatusEnum("status").notNull().default("pending_meetup"),
-  completedAt:    timestamp("completed_at"),
-  createdAt:      timestamp("created_at").notNull().defaultNow(),
-  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+  id:                uuid("id").primaryKey().defaultRandom(),
+  offerId:           uuid("offer_id").notNull().unique().references(() => offersTable.id),
+  counterOfferId:    uuid("counter_offer_id").references(() => counterOffersTable.id),
+  status:            tradeStatusEnum("status").notNull().default("pending_meetup"),
+  meetupScheduledAt: timestamp("meetup_scheduled_at"),
+  meetupLocation:    text("meetup_location"),
+  completedAt:       timestamp("completed_at"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
 });
 
 // ─── trade_reviews ────────────────────────────────────────────────────────────

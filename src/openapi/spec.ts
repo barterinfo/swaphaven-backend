@@ -116,11 +116,13 @@ export const openApiSpec = {
       Trade: {
         type: "object",
         properties: {
-          id:          { type: "string", format: "uuid" },
-          offerId:     { type: "string", format: "uuid" },
-          status:      { type: "string", enum: ["pending_meetup","completed","disputed","cancelled"] },
-          completedAt: { type: "string", format: "date-time", nullable: true },
-          createdAt:   { type: "string", format: "date-time" },
+          id:                { type: "string", format: "uuid" },
+          offerId:           { type: "string", format: "uuid" },
+          status:            { type: "string", enum: ["pending_meetup","completed","disputed","cancelled"] },
+          meetupScheduledAt: { type: "string", format: "date-time", nullable: true },
+          meetupLocation:    { type: "string", nullable: true },
+          completedAt:       { type: "string", format: "date-time", nullable: true },
+          createdAt:         { type: "string", format: "date-time" },
         },
       },
       TradeReview: {
@@ -137,10 +139,54 @@ export const openApiSpec = {
       },
       Conversation: {
         type: "object",
+        description: "Chats-tab row. Enriched with the offer, trade, other participant, last message, and unread count in one call.",
         properties: {
-          id:        { type: "string", format: "uuid" },
-          offerId:   { type: "string", format: "uuid" },
-          createdAt: { type: "string", format: "date-time" },
+          id:    { type: "string", format: "uuid" },
+          offer: {
+            type: "object",
+            properties: {
+              id:           { type: "string", format: "uuid" },
+              status:       { type: "string" },
+              listing:      { type: "object", nullable: true },
+              offeredItems: { type: "array", items: { type: "object" } },
+            },
+          },
+          trade: {
+            type: "object", nullable: true,
+            properties: {
+              id:                { type: "string", format: "uuid" },
+              status:            { type: "string", enum: ["pending_meetup","completed","disputed","cancelled"] },
+              meetupScheduledAt: { type: "string", format: "date-time", nullable: true },
+              meetupLocation:    { type: "string", nullable: true },
+            },
+          },
+          otherUser: {
+            type: "object", nullable: true,
+            properties: {
+              id:          { type: "string", format: "uuid" },
+              displayName: { type: "string" },
+              avatarUrl:   { type: "string", nullable: true },
+              isVerified:  { type: "boolean" },
+            },
+          },
+          lastMessage: {
+            type: "object", nullable: true,
+            properties: {
+              body:     { type: "string" },
+              sentAt:   { type: "string", format: "date-time" },
+              senderId: { type: "string", format: "uuid" },
+            },
+          },
+          unreadCount: { type: "integer" },
+          updatedAt:   { type: "string", format: "date-time" },
+        },
+      },
+      InboxSummary: {
+        type: "object",
+        properties: {
+          actionNeededOffers: { type: "integer", description: "Received offers needing a response (pending or countered)" },
+          unreadMessages:     { type: "integer", description: "Total unread messages across all conversations" },
+          total:              { type: "integer", description: "Nav-badge count (actionNeededOffers + unreadMessages)" },
         },
       },
       Message: {
@@ -493,7 +539,10 @@ export const openApiSpec = {
     },
     // ── Conversations ────────────────────────────────────────────────────────────
     "/api/conversations": {
-      get: { tags: ["Chat"], summary: "All conversations", parameters: [{ $ref: "#/components/parameters/limit" }], responses: { "200": { description: "Paginated conversations" } } },
+      get: { tags: ["Chat"], summary: "All conversations", parameters: [{ $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated conversations", content: { "application/json": { schema: { type: "object", properties: { items: { type: "array", items: { $ref: "#/components/schemas/Conversation" } }, nextCursor: { type: "string", nullable: true } } } } } } } },
+    },
+    "/api/conversations/{conversationId}/read": {
+      patch: { tags: ["Chat"], summary: "Mark conversation read (clears unread badge)", parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Marked read" }, "403": { description: "Forbidden" }, "404": { description: "Not found" } } },
     },
     "/api/conversations/{conversationId}": {
       get: { tags: ["Chat"], summary: "Conversation detail", parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Conversation" } } },
@@ -506,6 +555,10 @@ export const openApiSpec = {
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["body"], properties: { body: { type: "string", maxLength: 2000 }, type: { type: "string", enum: ["text","image"], default: "text" } } } } } },
         responses: { "201": { description: "Message sent", content: { "application/json": { schema: { $ref: "#/components/schemas/Message" } } } } },
       },
+    },
+    // ── Inbox ────────────────────────────────────────────────────────────────────
+    "/api/inbox/summary": {
+      get: { tags: ["Chat"], summary: "Inbox badge counts", responses: { "200": { description: "Counts for the nav badge", content: { "application/json": { schema: { $ref: "#/components/schemas/InboxSummary" } } } } } },
     },
     // ── Notifications ────────────────────────────────────────────────────────────
     "/api/notifications": {

@@ -91,6 +91,27 @@ describe("GET /api/offers/received", () => {
     expect(res.body.items[0].sellerId).toBe(seller.user.id);
   });
 
+  it("enriches rows with listing, buyer, seller and offeredItems for the inbox", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const res = await request(app)
+      .get("/api/offers/received")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const offer = res.body.items[0];
+    expect(offer.listing.id).toBe(sellerListing.id);
+    expect(offer.listing).toHaveProperty("estimatedValueCents");
+    expect(offer.buyer.id).toBe(buyer.user.id);
+    expect(offer.buyer).not.toHaveProperty("passwordHash");
+    expect(offer.seller.id).toBe(seller.user.id);
+    expect(offer.offeredItems[0].listing.id).toBe(buyerListing.id);
+  });
+
   it("returns empty for a user with no received offers", async () => {
     const { accessToken } = await registerUser();
     const res = await request(app)

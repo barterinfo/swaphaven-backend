@@ -10,8 +10,23 @@ import {
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
+import { serializeOfferListItem } from "../lib/inbox-serializers.js";
 
 const router = Router();
+
+/** Relations needed to render an offer row in the mobile inbox. */
+const offerListWith = {
+  listing: {
+    columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true },
+    with: {
+      images: true,
+      user: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
+    },
+  },
+  buyer: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
+  seller: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
+  items: { with: { listing: { columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true }, with: { images: true } } } },
+} as const;
 
 // ─── POST /api/offers ─────────────────────────────────────────────────────────
 const createOfferSchema = z.object({
@@ -68,12 +83,12 @@ router.get("/received", requireAuth, async (req, res) => {
 
   const items = await db.query.offersTable.findMany({
     where: and(...conditions),
-    with: { items: { with: { listing: { with: { images: true } } } } },
+    with: offerListWith,
     limit,
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
-  return res.json({ items, nextCursor });
+  return res.json({ items: items.map(serializeOfferListItem), nextCursor });
 });
 
 // ─── GET /api/offers/sent ─────────────────────────────────────────────────────
@@ -86,12 +101,12 @@ router.get("/sent", requireAuth, async (req, res) => {
 
   const items = await db.query.offersTable.findMany({
     where: and(...conditions),
-    with: { items: { with: { listing: { with: { images: true } } } } },
+    with: offerListWith,
     limit,
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
-  return res.json({ items, nextCursor });
+  return res.json({ items: items.map(serializeOfferListItem), nextCursor });
 });
 
 // ─── GET /api/offers/:offerId ─────────────────────────────────────────────────
