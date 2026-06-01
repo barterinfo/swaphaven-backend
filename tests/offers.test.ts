@@ -91,6 +91,27 @@ describe("GET /api/offers/received", () => {
     expect(res.body.items[0].sellerId).toBe(seller.user.id);
   });
 
+  it("enriches rows with listing, buyer, seller and offeredItems for the inbox", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const res = await request(app)
+      .get("/api/offers/received")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const offer = res.body.items[0];
+    expect(offer.listing.id).toBe(sellerListing.id);
+    expect(offer.listing).toHaveProperty("estimatedValueCents");
+    expect(offer.buyer.id).toBe(buyer.user.id);
+    expect(offer.buyer).not.toHaveProperty("passwordHash");
+    expect(offer.seller.id).toBe(seller.user.id);
+    expect(offer.offeredItems[0].listing.id).toBe(buyerListing.id);
+  });
+
   it("returns empty for a user with no received offers", async () => {
     const { accessToken } = await registerUser();
     const res = await request(app)
@@ -137,7 +158,7 @@ describe("GET /api/offers/:offerId", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(offer.id);
-    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(Array.isArray(res.body.offeredItems)).toBe(true);
   });
 
   it("third party receives 403", async () => {
@@ -283,7 +304,7 @@ describe("Counter-offer lifecycle", () => {
     const offerDetail = await request(app)
       .get(`/api/offers/${offer.id}`)
       .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.items[0].id;
+    const offerItemId = offerDetail.body.offeredItems[0].id;
 
     // Step 1: Seller counters
     const counterRes = await request(app)
@@ -314,7 +335,7 @@ describe("Counter-offer lifecycle", () => {
     const offerDetail = await request(app)
       .get(`/api/offers/${offer.id}`)
       .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.items[0].id;
+    const offerItemId = offerDetail.body.offeredItems[0].id;
 
     await request(app)
       .post(`/api/offers/${offer.id}/counter`)
