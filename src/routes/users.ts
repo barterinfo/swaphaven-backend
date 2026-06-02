@@ -22,10 +22,14 @@ router.get("/me", requireAuth, async (req, res) => {
 const updateProfileSchema = z.object({
   displayName:  z.string().min(1).max(80).optional(),
   bio:          z.string().max(500).optional(),
-  avatarUrl:    z.string().url().optional(),
+  avatarUrl:    z.string().max(2048).optional(),
   locationCity: z.string().max(100).optional(),
   locationLat:  z.number().min(-90).max(90).optional(),
   locationLng:  z.number().min(-180).max(180).optional(),
+  tradeScore:   z.number().int().optional(),
+  totalTrades:  z.number().int().optional(),
+  ratingSum:    z.number().int().optional(),
+  ratingCount:  z.number().int().optional(),
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
