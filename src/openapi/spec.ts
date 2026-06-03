@@ -301,7 +301,11 @@ export const openApiSpec = {
     },
     "/api/auth/social": {
       post: {
-        tags: ["Auth"], summary: "Log in or sign up with a social provider", security: [],
+        tags: ["Auth"],
+        summary: "Log in or sign up with a social provider",
+        description:
+          "Verifies a Google ID token or Facebook access token. When the provider email matches an existing account (including email/password registration), tokens are issued for that account without a password check; the password remains valid until reset. Google requires a verified email.",
+        security: [],
         requestBody: {
           required: true,
           content: { "application/json": { schema: { type: "object", required: ["provider","idToken"], properties: { provider: { type: "string", enum: ["google","facebook"] }, idToken: { type: "string", description: "Google ID token or Facebook access token" } } } } },

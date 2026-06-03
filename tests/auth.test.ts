@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import { createHash } from "crypto";
+import { DatabaseError } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { registerUser, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
+import { db } from "../src/db/client.js";
 import { usersTable } from "../src/db/schema/index.js";
 import { SocialAuthError, verifySocialToken } from "../src/lib/social-auth.js";
 
@@ -145,6 +147,48 @@ describe("POST /api/auth/social", () => {
       .from(usersTable)
       .where(eq(usersTable.email, email));
     expect(count).toBe(1);
+  });
+
+  it("logs into an existing password account when social email matches", async () => {
+    const email = `link-${uid()}@test.com`;
+    await registerUser({ email });
+    mockVerify.mockResolvedValueOnce({ email, name: "Linked" });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe(email);
+    expect(res.body.accessToken).toBeTruthy();
+  });
+
+  it("recovers from concurrent sign-up when insert hits unique email constraint", async () => {
+    const email = `race-${uid()}@test.com`;
+    const { user: existing } = await registerUser({ email });
+    mockVerify.mockResolvedValueOnce({ email, name: "Race User" });
+
+    const findFirstSpy = vi
+      .spyOn(db.query.usersTable, "findFirst")
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(existing);
+
+    const insertSpy = vi.spyOn(db, "insert").mockImplementation(() => {
+      throw Object.assign(new DatabaseError("duplicate key", 0, "error"), { code: "23505" });
+    });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.id).toBe(existing.id);
+    expect(res.body.user.email).toBe(email);
+    expect(insertSpy).toHaveBeenCalled();
+    expect(findFirstSpy).toHaveBeenCalledTimes(2);
+
+    findFirstSpy.mockRestore();
+    insertSpy.mockRestore();
   });
 
   it("normalises the provider email to lowercase", async () => {
