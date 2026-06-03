@@ -149,7 +149,7 @@ describe("POST /api/auth/social", () => {
     expect(count).toBe(1);
   });
 
-  it("logs into an existing password account when social email matches", async () => {
+  it("rejects social sign-in when email is already registered with password", async () => {
     const email = `link-${uid()}@test.com`;
     await registerUser({ email });
     mockVerify.mockResolvedValueOnce({ email, name: "Linked" });
@@ -158,15 +158,21 @@ describe("POST /api/auth/social", () => {
       .post("/api/auth/social")
       .send({ provider: "google", idToken: "tok" });
 
-    expect(res.status).toBe(200);
-    expect(res.body.user.email).toBe(email);
-    expect(res.body.accessToken).toBeTruthy();
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("conflict");
+    expect(res.body.message).toContain("sign in with password");
   });
 
   it("recovers from concurrent sign-up when insert hits unique email constraint", async () => {
     const email = `race-${uid()}@test.com`;
-    const { user: existing } = await registerUser({ email });
-    mockVerify.mockResolvedValueOnce({ email, name: "Race User" });
+    mockVerify.mockResolvedValue({ email, name: "Race User" });
+
+    const socialRes = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "first" });
+    expect(socialRes.status).toBe(200);
+    const existing = await db.query.usersTable.findFirst({ where: eq(usersTable.email, email) });
+    if (!existing) throw new Error("expected social user");
 
     const findFirstSpy = vi
       .spyOn(db.query.usersTable, "findFirst")
@@ -244,6 +250,48 @@ describe("POST /api/auth/social", () => {
 
     expect(res.status).toBe(503);
     expect(res.body.error).toBe("unavailable");
+  });
+
+  it("maps Facebook not configured to 503", async () => {
+    mockVerify.mockRejectedValueOnce(
+      new SocialAuthError("Facebook sign-in is not configured", 503, "unavailable"),
+    );
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "facebook", idToken: "tok" });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("unavailable");
+  });
+
+  it("maps provider unreachable to 502", async () => {
+    mockVerify.mockRejectedValueOnce(
+      new SocialAuthError("Could not reach Google", 502, "bad_gateway"),
+    );
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe("bad_gateway");
+  });
+
+  it("truncates an over-long provider name to 80 characters", async () => {
+    const email = `longname-${uid()}@test.com`;
+    const longName = "A".repeat(100);
+    mockVerify.mockResolvedValueOnce({ email, name: longName });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toHaveLength(80);
+
+    const row = await db.query.usersTable.findFirst({ where: eq(usersTable.email, email) });
+    expect(row?.name).toHaveLength(80);
   });
 });
 

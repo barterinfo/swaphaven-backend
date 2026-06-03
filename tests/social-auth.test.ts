@@ -13,7 +13,7 @@ const FB_APP_ID = "12345";
 const FB_APP_SECRET = "fb-secret";
 
 type EnvOverrides = {
-  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_IDS?: string[];
   FACEBOOK_APP_ID?: string;
   FACEBOOK_APP_SECRET?: string;
 };
@@ -29,7 +29,7 @@ function setupMocks(envOverrides: EnvOverrides = {}) {
 
   vi.doMock("../src/config/env.js", () => ({
     env: {
-      GOOGLE_CLIENT_ID: "test-client-id",
+      GOOGLE_CLIENT_IDS: ["test-client-id"],
       FACEBOOK_APP_ID: undefined,
       FACEBOOK_APP_SECRET: undefined,
       ...envOverrides,
@@ -122,6 +122,24 @@ describe("verifySocialToken — Google", () => {
     await expect(verifySocialToken("google", "tok")).resolves.toEqual({
       email: "g@test.com",
       name: "G User",
+    });
+  });
+
+  it("accepts a token whose audience is any configured client ID", async () => {
+    const { verifySocialToken } = await loadLibWithEnv({
+      GOOGLE_CLIENT_IDS: ["web-client-id", "ios-client-id"],
+    });
+    verifyIdToken.mockResolvedValueOnce({
+      getPayload: () => ({ email: "g@test.com", email_verified: true, name: "G User" }),
+    });
+
+    await expect(verifySocialToken("google", "tok")).resolves.toEqual({
+      email: "g@test.com",
+      name: "G User",
+    });
+    expect(verifyIdToken).toHaveBeenCalledWith({
+      idToken: "tok",
+      audience: ["web-client-id", "ios-client-id"],
     });
   });
 });
@@ -245,5 +263,43 @@ describe("verifySocialToken — Facebook", () => {
     expect(err).toBeInstanceOf(SocialAuthError);
     expect(err.status).toBe(502);
     expect(err.code).toBe("bad_gateway");
+  });
+
+  it("maps debug_token upstream 5xx to 502 bad_gateway", async () => {
+    mockFacebookFetch({ debugStatus: 503 });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(502);
+    expect(err.code).toBe("bad_gateway");
+  });
+
+  it("maps /me upstream 5xx to 502 bad_gateway", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes("/debug_token")) {
+        return new Response(
+          JSON.stringify({ data: { is_valid: true, app_id: FB_APP_ID } }),
+          { status: 200 },
+        );
+      }
+      if (u.includes("/me")) {
+        return new Response("{}", { status: 503 });
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(502);
+    fetchSpy.mockRestore();
   });
 });

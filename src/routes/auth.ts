@@ -11,6 +11,9 @@ import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
 
 const router = Router();
 
+/** Marker hashed into social-only accounts so repeat social sign-in is allowed but password rows are not linked. */
+const SOCIAL_ONLY_PASSWORD_MARKER = "__SWAPHAVEN_SOCIAL__";
+
 function sha256Hex(value: string): string {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
 }
@@ -104,10 +107,19 @@ router.post("/social", async (req, res) => {
 
   let user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
 
+  if (user) {
+    const isSocialOnly = await bcrypt.compare(SOCIAL_ONLY_PASSWORD_MARKER, user.passwordHash);
+    if (!isSocialOnly) {
+      return res.status(409).json({
+        error: "conflict",
+        message: "Email already registered — sign in with password",
+      });
+    }
+  }
+
   if (!user) {
-    // Social accounts have no local password — store an unguessable random hash so
-    // password login is effectively disabled until the user sets one via reset-password.
-    const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
+    // Social accounts have no local password — sentinel hash blocks password login until reset.
+    const passwordHash = await bcrypt.hash(SOCIAL_ONLY_PASSWORD_MARKER, 12);
     try {
       [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name }).returning();
       await db.insert(userProfilesTable).values({ id: user.id, displayName: name });

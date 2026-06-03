@@ -157,7 +157,7 @@ SQL files live in `drizzle/*.sql` and `**drizzle/meta/_journal.json**` must be i
 | `TRUST_PROXY`        | Yes on Railway | `true`                          |
 | `ENABLE_API_DOCS`    | No             | Default off in production       |
 | `PUBLIC_API_URL`     | No             | e.g. your Railway domain        |
-| `GOOGLE_CLIENT_ID`   | For Google     | Required for `provider=google` at POST `/api/auth/social` |
+| `GOOGLE_CLIENT_IDS`  | For Google     | Comma-separated OAuth client IDs for POST `/api/auth/social` (`GOOGLE_CLIENT_ID` single-ID alias still supported) |
 | `FACEBOOK_APP_ID`    | For Facebook   | Both required for `provider=facebook` (app token binding) |
 | `FACEBOOK_APP_SECRET`| For Facebook   | Pair with `FACEBOOK_APP_ID`     |
 | `PORT`               | Auto           | Set by Railway                  |

@@ -304,18 +304,19 @@ export const openApiSpec = {
         tags: ["Auth"],
         summary: "Log in or sign up with a social provider",
         description:
-          "Verifies a Google ID token or Facebook access token. When the provider email matches an existing account (including email/password registration), tokens are issued for that account without a password check; the password remains valid until reset. Google requires a verified email.",
+          "Verifies a Google ID token or Facebook access token. Creates a new account when the verified email is not registered; repeat sign-in works for social-only accounts. Returns 409 when the email is already registered with a password. Google requires a verified email.",
         security: [],
         requestBody: {
           required: true,
           content: { "application/json": { schema: { type: "object", required: ["provider","idToken"], properties: { provider: { type: "string", enum: ["google","facebook"] }, idToken: { type: "string", description: "Google ID token or Facebook access token" } } } } },
         },
         responses: {
-          "200": { description: "Tokens issued (existing or newly created account)", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
+          "200": { description: "Tokens issued (new or existing social-only account)", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
           "400": { description: "Validation error" },
           "401": { description: "Invalid social token" },
+          "409": { description: "Email already registered with password" },
           "502": { description: "Provider unreachable" },
-          "503": { description: "Provider not configured" },
+          "503": { description: "Provider not configured — Google: GOOGLE_CLIENT_ID(S); Facebook: FACEBOOK_APP_ID + FACEBOOK_APP_SECRET (both required, or mismatched pair returns 503)" },
         },
       },
     },

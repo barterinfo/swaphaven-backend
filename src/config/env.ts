@@ -39,7 +39,9 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   /** Public base URL for docs / clients (e.g. https://api.swaphaven.io). */
   PUBLIC_API_URL: z.string().url().optional(),
-  /** Google OAuth Client ID — required to verify Google ID tokens at POST /api/auth/social. */
+  /** Google OAuth client ID(s) — comma-separated list or single ID for POST /api/auth/social. */
+  GOOGLE_CLIENT_IDS: z.string().optional(),
+  /** @deprecated Use GOOGLE_CLIENT_IDS; kept for backward compatibility. */
   GOOGLE_CLIENT_ID: z.string().optional(),
   /** Facebook app credentials — when both set, social login confirms tokens were issued to this app. */
   FACEBOOK_APP_ID: z.string().optional(),
@@ -72,8 +74,15 @@ if (data.DATABASE_URL.includes("${{")) {
   process.exit(1);
 }
 
+function parseGoogleClientIds(ids?: string, legacyId?: string): string[] {
+  const raw = ids ?? legacyId;
+  if (!raw) return [];
+  return raw.split(",").map((id) => id.trim()).filter(Boolean);
+}
+
 export const env = {
   ...data,
+  GOOGLE_CLIENT_IDS: parseGoogleClientIds(data.GOOGLE_CLIENT_IDS, data.GOOGLE_CLIENT_ID),
   // Vitest registers many users against one app instance — avoid 429s in CI/local test runs.
   AUTH_RATE_LIMIT_MAX: data.NODE_ENV === "test" ? 10_000 : data.AUTH_RATE_LIMIT_MAX,
   API_RATE_LIMIT_MAX: data.NODE_ENV === "test" ? 100_000 : data.API_RATE_LIMIT_MAX,

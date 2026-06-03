@@ -20,7 +20,8 @@ export class SocialAuthError extends Error {
   }
 }
 
-const googleClient = env.GOOGLE_CLIENT_ID ? new OAuth2Client(env.GOOGLE_CLIENT_ID) : null;
+const googleClientIds = env.GOOGLE_CLIENT_IDS;
+const googleClient = googleClientIds.length > 0 ? new OAuth2Client(googleClientIds[0]) : null;
 
 /** Pinned Graph API version so behaviour does not drift with Facebook's rolling default. */
 const FB_GRAPH = "https://graph.facebook.com/v21.0";
@@ -28,6 +29,14 @@ const FB_GRAPH = "https://graph.facebook.com/v21.0";
 const TRANSPORT_CODES = new Set([
   "ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "EPIPE",
 ]);
+
+/** Map Facebook Graph HTTP failures — upstream 5xx are retryable, client errors are not. */
+function facebookHttpError(res: Response, clientMessage: string): never {
+  if (res.status >= 500) {
+    throw new SocialAuthError("Could not reach Facebook", 502, "bad_gateway");
+  }
+  throw new SocialAuthError(clientMessage, 401, "unauthorized");
+}
 
 /** True when an error looks like a network/transport failure rather than an invalid token. */
 function isTransportError(err: unknown): boolean {
@@ -45,13 +54,13 @@ function nameFor(name: string | undefined | null, email: string): string {
 }
 
 async function verifyGoogle(idToken: string): Promise<SocialProfile> {
-  if (!googleClient) {
+  if (!googleClient || googleClientIds.length === 0) {
     throw new SocialAuthError("Google sign-in is not configured", 503, "unavailable");
   }
 
   let payload;
   try {
-    const ticket = await googleClient.verifyIdToken({ idToken, audience: env.GOOGLE_CLIENT_ID });
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: googleClientIds });
     payload = ticket.getPayload();
   } catch (err) {
     // Distinguish "Google is unreachable" from "the token is invalid" so clients can retry.
@@ -95,7 +104,7 @@ async function assertFacebookAppToken(accessToken: string): Promise<void> {
   }
 
   if (!res.ok) {
-    throw new SocialAuthError("Invalid Facebook token", 401, "unauthorized");
+    throw facebookHttpError(res, "Invalid Facebook token");
   }
 
   const body = (await res.json()) as { data?: { is_valid?: boolean; app_id?: string | number } };
@@ -118,7 +127,7 @@ async function verifyFacebook(accessToken: string): Promise<SocialProfile> {
   }
 
   if (!res.ok) {
-    throw new SocialAuthError("Invalid Facebook token", 401, "unauthorized");
+    throw facebookHttpError(res, "Invalid Facebook token");
   }
 
   const data = (await res.json()) as { id?: string; name?: string; email?: string };

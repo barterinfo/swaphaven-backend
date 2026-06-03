@@ -54,8 +54,9 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 |--------|-------------|------|
 | 400 | `validation` | `provider` not `google`/`facebook`, or `idToken` missing |
 | 401 | `unauthorized` | Invalid or expired provider token, unverified Google email, or FB token not issued to this app |
+| 409 | `conflict` | Verified email already registered with email + password |
 | 502 | `bad_gateway` | Google or Facebook is temporarily unreachable — client should retry |
-| 503 | `unavailable` | `GOOGLE_CLIENT_ID` is not configured on the server |
+| 503 | `unavailable` | Google: no `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_IDS` configured. Facebook: credentials missing, or only one of `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` set |
 
 ---
 
@@ -64,29 +65,30 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 ### Google
 
 1. `google-auth-library`'s `OAuth2Client.verifyIdToken` validates the ID token signature,
-   expiry, and audience against `GOOGLE_CLIENT_ID`.
+   expiry, and audience against `GOOGLE_CLIENT_IDS` (comma-separated env) or legacy `GOOGLE_CLIENT_ID`.
 2. The payload's `email_verified` flag must be `true`.
 3. Network / 5xx errors from Google's cert endpoint surface as `502` so the client can retry;
    signature / audience errors are `401`.
 
 ### Facebook
 
-1. **Optional app-token check** — when both `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` are
-   set, `GET /v21.0/debug_token` confirms the token is valid and was issued to *this* app.
-   Without the secrets the step is skipped (best-effort mode; any valid Facebook user token
-   is accepted).
+1. **App-token check** — both `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` must be set.
+   `GET /v21.0/debug_token` confirms the token is valid and was issued to *this* app.
+   If either credential is missing, or only one is set, `provider: "facebook"` returns `503`.
 2. `GET /v21.0/me?fields=id,name,email` with the token in the `Authorization: Bearer` header
    (not the query string, to prevent token leakage in proxy / APM logs).
-3. The response must include an `email` field; Facebook accounts without a confirmed email
+3. Graph API upstream `5xx` responses map to `502` (retryable); invalid tokens are `401`.
+4. The response must include an `email` field; Facebook accounts without a confirmed email
    return `401`.
 
 ### Account creation / linking
 
-- If no SwapHaven account exists for the verified email, one is created automatically.  
-  The `password_hash` column is filled with a random unguessable value so password login is
-  effectively disabled until the user sets a password via `POST /api/auth/forgot-password`.
-- If an account already exists (e.g. the user previously registered with email + password),
-  the social login merges into that row — the existing password is untouched.
+- If no SwapHaven account exists for the verified email, one is created automatically.
+  The `password_hash` column stores a sentinel value so password login is disabled until
+  the user sets a password via `POST /api/auth/forgot-password` / `reset-password`.
+- If an account already exists from **email + password registration**, social sign-in returns
+  `409 conflict` — the verified provider email does not prove ownership of that local account.
+- If an account was created by a previous social sign-in (same email), tokens are issued again.
 - Display name from the provider is trimmed and capped at 80 characters, matching the
   `POST /api/auth/register` limit.
 - Concurrent double-submits (common on mobile) are safe: the second request that hits the
@@ -98,14 +100,15 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `GOOGLE_CLIENT_ID` | For Google | Web/Android/iOS OAuth client ID from Google Cloud Console. Without it, `provider: "google"` always returns 503. |
-| `FACEBOOK_APP_ID` | No | Facebook App ID. Both `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET` must be set to enable app-token validation. |
-| `FACEBOOK_APP_SECRET` | No | Facebook App Secret. Omit for best-effort FB verification. |
+| `GOOGLE_CLIENT_IDS` | For Google | Comma-separated OAuth client IDs (Web, Android, iOS). Legacy `GOOGLE_CLIENT_ID` (single ID) still works. Without any ID, `provider: "google"` returns 503. |
+| `GOOGLE_CLIENT_ID` | For Google | Deprecated alias for a single client ID. |
+| `FACEBOOK_APP_ID` | For Facebook | Both `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` required for `provider: "facebook"`. |
+| `FACEBOOK_APP_SECRET` | For Facebook | Pair with `FACEBOOK_APP_ID`; half-configured credentials return 503. |
 
 Add to `.env` (local) or Railway variables (production):
 
 ```env
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_IDS=web-id.apps.googleusercontent.com,ios-id.apps.googleusercontent.com
 FACEBOOK_APP_ID=your-facebook-app-id
 FACEBOOK_APP_SECRET=your-facebook-app-secret
 ```
@@ -115,8 +118,8 @@ FACEBOOK_APP_SECRET=your-facebook-app-secret
 1. [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services** → **Credentials**.
 2. **Create credentials** → **OAuth client ID**.
 3. Choose **Android**, **iOS**, or **Web application** to match your mobile client.
-4. Copy the client ID — no extra console setup is needed beyond this; the server only
-   verifies tokens, it never redirects users.
+4. Copy each client ID into `GOOGLE_CLIENT_IDS` (comma-separated) — the server only
+   verifies tokens; it never redirects users.
 
 ### Getting Facebook app credentials
 
@@ -143,13 +146,14 @@ The route tests (`tests/auth.test.ts`) mock `verifySocialToken` to avoid live pr
 |------|---------------|
 | New account created, tokens returned | Happy path — new user |
 | Concurrent double-submit returns same `user.id` | 23505 race recovery |
-| Existing password account logs in (account linking) | Pre-existing user |
+| Password account + same email social sign-in | `409 conflict` |
 | Over-long provider name truncated to 80 chars | Display name cap |
 | 502 returned when provider unreachable | Transport failure |
 | 400 for unknown provider (`"twitter"`) | Zod validation |
 | 400 for missing `idToken` | Zod validation |
 | 401 for invalid token | Provider rejection |
-| 503 when `GOOGLE_CLIENT_ID` not configured | Missing env |
+| 503 when Google not configured | Missing env |
+| 503 when Facebook not configured | Missing / half-configured FB creds |
 
 The lib unit tests (`tests/social-auth.test.ts`) test `src/lib/social-auth.ts` directly with a
 mocked `OAuth2Client` and a `fetch` spy:
@@ -160,8 +164,10 @@ mocked `OAuth2Client` and a `fetch` spy:
 | 5xx response → 502 | Google upstream HTTP failure |
 | Signature error → 401 | Google invalid token |
 | Valid token → profile returned | Google happy path |
+| Multiple client IDs in audience | `GOOGLE_CLIENT_IDS` |
 | Token sent via `Authorization` header, not URL | Facebook header security |
 | `fetch` throws → 502 | Facebook transport failure |
+| debug_token / `/me` 5xx → 502 | Facebook upstream HTTP failure |
 
 ### Manual smoke test (real tokens required)
 
@@ -199,8 +205,10 @@ curl -s http://localhost:3001/api/auth/me \
 
 | Symptom | Likely cause |
 |---------|-------------|
-| `503 unavailable` | `GOOGLE_CLIENT_ID` not set in `.env` |
-| `401 unauthorized` (Google) | Token expired (they expire in ~1 hour) or wrong client ID |
+| `503 unavailable` (Google) | `GOOGLE_CLIENT_IDS` / `GOOGLE_CLIENT_ID` not set in `.env` |
+| `503 unavailable` (Facebook) | `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` missing or only one set |
+| `409 conflict` | Email already registered with password — use password login |
+| `401 unauthorized` (Google) | Token expired (they expire in ~1 hour) or client ID not in `GOOGLE_CLIENT_IDS` |
 | `401 unauthorized` (Facebook) | Token expired, or `FACEBOOK_APP_ID` mismatch in debug_token check |
 | `401 Facebook account has no email` | FB account has no confirmed email; ask user to add one in Facebook settings |
 | `502 bad_gateway` | Transient network issue hitting Google or Facebook — retry |
