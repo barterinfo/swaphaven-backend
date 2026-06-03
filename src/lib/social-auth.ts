@@ -22,6 +22,22 @@ export class SocialAuthError extends Error {
 
 const googleClient = env.GOOGLE_CLIENT_ID ? new OAuth2Client(env.GOOGLE_CLIENT_ID) : null;
 
+/** Pinned Graph API version so behaviour does not drift with Facebook's rolling default. */
+const FB_GRAPH = "https://graph.facebook.com/v21.0";
+
+const TRANSPORT_CODES = new Set([
+  "ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "EPIPE",
+]);
+
+/** True when an error looks like a network/transport failure rather than an invalid token. */
+function isTransportError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  if (code && TRANSPORT_CODES.has(code)) return true;
+  // Gaxios surfaces upstream HTTP failures (e.g. Google cert endpoint 5xx) on `response.status`.
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return typeof status === "number" && status >= 500;
+}
+
 /** Derive a display name from a profile name, falling back to the email local-part. */
 function nameFor(name: string | undefined | null, email: string): string {
   const trimmed = name?.trim();
@@ -37,7 +53,11 @@ async function verifyGoogle(idToken: string): Promise<SocialProfile> {
   try {
     const ticket = await googleClient.verifyIdToken({ idToken, audience: env.GOOGLE_CLIENT_ID });
     payload = ticket.getPayload();
-  } catch {
+  } catch (err) {
+    // Distinguish "Google is unreachable" from "the token is invalid" so clients can retry.
+    if (isTransportError(err)) {
+      throw new SocialAuthError("Could not reach Google", 502, "bad_gateway");
+    }
     throw new SocialAuthError("Invalid Google token", 401, "unauthorized");
   }
 
@@ -48,12 +68,44 @@ async function verifyGoogle(idToken: string): Promise<SocialProfile> {
   return { email: payload.email, name: nameFor(payload.name, payload.email) };
 }
 
-async function verifyFacebook(accessToken: string): Promise<SocialProfile> {
-  const url = `https://graph.facebook.com/me?fields=id,name,email&access_token=${encodeURIComponent(accessToken)}`;
+/**
+ * When app credentials are configured, confirm the user access token was actually issued to
+ * *our* Facebook app (Graph `/me` alone accepts any valid token from any app).
+ */
+async function assertFacebookAppToken(accessToken: string): Promise<void> {
+  if (!env.FACEBOOK_APP_ID || !env.FACEBOOK_APP_SECRET) return;
+
+  const appToken = `${env.FACEBOOK_APP_ID}|${env.FACEBOOK_APP_SECRET}`;
+  const url =
+    `${FB_GRAPH}/debug_token?input_token=${encodeURIComponent(accessToken)}` +
+    `&access_token=${encodeURIComponent(appToken)}`;
 
   let res: Response;
   try {
     res = await fetch(url);
+  } catch {
+    throw new SocialAuthError("Could not reach Facebook", 502, "bad_gateway");
+  }
+
+  if (!res.ok) {
+    throw new SocialAuthError("Invalid Facebook token", 401, "unauthorized");
+  }
+
+  const body = (await res.json()) as { data?: { is_valid?: boolean; app_id?: string } };
+  if (!body.data?.is_valid || body.data.app_id !== env.FACEBOOK_APP_ID) {
+    throw new SocialAuthError("Facebook token was not issued for this app", 401, "unauthorized");
+  }
+}
+
+async function verifyFacebook(accessToken: string): Promise<SocialProfile> {
+  await assertFacebookAppToken(accessToken);
+
+  let res: Response;
+  try {
+    // Send the token in the Authorization header — query-string tokens leak into proxy/APM logs.
+    res = await fetch(`${FB_GRAPH}/me?fields=id,name,email`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
   } catch {
     throw new SocialAuthError("Could not reach Facebook", 502, "bad_gateway");
   }

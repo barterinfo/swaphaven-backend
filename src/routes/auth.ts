@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import { DatabaseError } from "pg";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
@@ -98,14 +99,28 @@ router.post("/social", async (req, res) => {
   }
 
   const normalized = profile.email.toLowerCase();
+  // Keep the display name within the same bounds as /register so it can't diverge downstream.
+  const name = profile.name.trim().slice(0, 80);
+
   let user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
 
   if (!user) {
     // Social accounts have no local password — store an unguessable random hash so
     // password login is effectively disabled until the user sets one via reset-password.
     const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
-    [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name: profile.name }).returning();
-    await db.insert(userProfilesTable).values({ id: user.id, displayName: profile.name });
+    try {
+      [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name }).returning();
+      await db.insert(userProfilesTable).values({ id: user.id, displayName: name });
+    } catch (err) {
+      // Concurrent sign-up (mobile clients often double-submit): the loser of the race hits the
+      // unique-email constraint — recover by reading the row the winning request just created.
+      if (err instanceof DatabaseError && err.code === "23505") {
+        user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+        if (!user) throw err;
+      } else {
+        throw err;
+      }
+    }
   }
 
   const tokens = signTokens(user.id, user.email);
