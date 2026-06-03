@@ -43,6 +43,7 @@ curl -s http://localhost:3001/api/healthz
 | GET | `/api/auth/me` | ✓ |
 | POST | `/api/auth/forgot-password` | — |
 | POST | `/api/auth/reset-password` | — |
+| POST | `/api/auth/social` | — |
 | POST | `/api/auth/device-token` | ✓ |
 
 ### Register
@@ -66,6 +67,24 @@ curl -s -X POST http://localhost:3001/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"alice@example.com","password":"password123"}'
 ```
+
+### Social login (Google / Facebook)
+
+```bash
+# Google
+curl -s -X POST http://localhost:3001/api/auth/social \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"google","idToken":"<google-id-token>"}'
+
+# Facebook
+curl -s -X POST http://localhost:3001/api/auth/social \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"facebook","idToken":"<facebook-access-token>"}'
+```
+
+Returns the same `{ accessToken, refreshToken, user }` shape as login. Creates the account
+automatically if it does not exist yet. See [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md) for setup,
+error codes, and test instructions.
 
 ### Refresh
 

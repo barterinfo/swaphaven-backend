@@ -59,7 +59,8 @@ npm test
 
 | Path | Purpose |
 |------|---------|
-| `tests/auth.test.ts` | Register, login, refresh, password flows |
+| `tests/auth.test.ts` | Register, login, social login, refresh, password flows |
+| `tests/social-auth.test.ts` | Unit tests for `src/lib/social-auth.ts` (Google + Facebook verification) |
 | `tests/listings.test.ts` | Listings CRUD, barter-shaped create body |
 | `tests/offers.test.ts` | Offer lifecycle |
 | `tests/trades.test.ts` | Trade completion, reviews |
