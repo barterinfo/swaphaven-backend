@@ -39,6 +39,11 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   /** Public base URL for docs / clients (e.g. https://api.swaphaven.io). */
   PUBLIC_API_URL: z.string().url().optional(),
+  /** Google OAuth Client ID — required to verify Google ID tokens at POST /api/auth/social. */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  /** Facebook app credentials — when both set, social login confirms tokens were issued to this app. */
+  FACEBOOK_APP_ID: z.string().optional(),
+  FACEBOOK_APP_SECRET: z.string().optional(),
   // ─── S3 media (optional — presigned uploads at POST /api/media/presign) ───
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),

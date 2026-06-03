@@ -14,6 +14,8 @@ export default defineConfig({
     hookTimeout: 30_000,
     // Run test files sequentially — they share a single database
     fileParallelism: false,
+    // Force a fresh vm context per file so vi.mock/vi.doMock don't leak across files.
+    poolOptions: { threads: { isolate: true } },
     reporters: ["verbose"],
     coverage: {
       provider: "v8",

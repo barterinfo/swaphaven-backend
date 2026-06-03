@@ -1,11 +1,24 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import { createHash } from "crypto";
-import { eq } from "drizzle-orm";
+import { DatabaseError } from "pg";
+import { eq, sql } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { registerUser, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
+import { db } from "../src/db/client.js";
 import { usersTable } from "../src/db/schema/index.js";
+import { SocialAuthError, verifySocialToken } from "../src/lib/social-auth.js";
+
+// Mock the provider verification so tests never hit Google / Facebook.
+vi.mock("../src/lib/social-auth.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/lib/social-auth.js")>(
+    "../src/lib/social-auth.js",
+  );
+  return { ...actual, verifySocialToken: vi.fn() };
+});
+
+const mockVerify = vi.mocked(verifySocialToken);
 
 // ─── POST /api/auth/register ──────────────────────────────────────────────────
 describe("POST /api/auth/register", () => {
@@ -90,6 +103,147 @@ describe("POST /api/auth/login", () => {
     expect(res.status).toBe(401);
     // Must be the same message regardless of whether the user exists
     expect(res.body.message).toBe("Invalid email or password");
+  });
+});
+
+// ─── POST /api/auth/social ────────────────────────────────────────────────────
+describe("POST /api/auth/social", () => {
+  beforeEach(() => mockVerify.mockReset());
+
+  it("creates a new account and returns tokens", async () => {
+    const email = `social-${uid()}@test.com`;
+    mockVerify.mockResolvedValueOnce({ email, name: "Social Sam" });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "google-id-token" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.accessToken).toBeTruthy();
+    expect(res.body.refreshToken).toBeTruthy();
+    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.name).toBe("Social Sam");
+    expect(res.body.user.passwordHash).toBeUndefined();
+    expect(mockVerify).toHaveBeenCalledWith("google", "google-id-token");
+  });
+
+  it("logs in an existing account without creating a duplicate", async () => {
+    const email = `social-dup-${uid()}@test.com`;
+    mockVerify.mockResolvedValue({ email, name: "Repeat User" });
+
+    const first = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "facebook", idToken: "fb-token" });
+    const second = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "facebook", idToken: "fb-token" });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.body.user.id).toBe(first.body.user.id);
+
+    const [{ count }] = await testDb
+      .select({ count: sql<number>`count(*)::int` })
+      .from(usersTable)
+      .where(eq(usersTable.email, email));
+    expect(count).toBe(1);
+  });
+
+  it("logs into an existing password account when social email matches", async () => {
+    const email = `link-${uid()}@test.com`;
+    await registerUser({ email });
+    mockVerify.mockResolvedValueOnce({ email, name: "Linked" });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe(email);
+    expect(res.body.accessToken).toBeTruthy();
+  });
+
+  it("recovers from concurrent sign-up when insert hits unique email constraint", async () => {
+    const email = `race-${uid()}@test.com`;
+    const { user: existing } = await registerUser({ email });
+    mockVerify.mockResolvedValueOnce({ email, name: "Race User" });
+
+    const findFirstSpy = vi
+      .spyOn(db.query.usersTable, "findFirst")
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(existing);
+
+    const insertSpy = vi.spyOn(db, "insert").mockImplementation(() => {
+      throw Object.assign(new DatabaseError("duplicate key", 0, "error"), { code: "23505" });
+    });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.id).toBe(existing.id);
+    expect(res.body.user.email).toBe(email);
+    expect(insertSpy).toHaveBeenCalled();
+    expect(findFirstSpy).toHaveBeenCalledTimes(2);
+
+    findFirstSpy.mockRestore();
+    insertSpy.mockRestore();
+  });
+
+  it("normalises the provider email to lowercase", async () => {
+    const email = `SOCIAL-UP-${uid()}@Test.COM`;
+    mockVerify.mockResolvedValueOnce({ email, name: "Upper" });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe(email.toLowerCase());
+  });
+
+  it("rejects an unsupported provider with 400", async () => {
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "twitter", idToken: "tok" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation");
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing idToken with 400", async () => {
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation");
+  });
+
+  it("maps an invalid social token to 401", async () => {
+    mockVerify.mockRejectedValueOnce(new SocialAuthError("Invalid Google token", 401, "unauthorized"));
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "bad-token" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("unauthorized");
+  });
+
+  it("maps an unconfigured provider to 503", async () => {
+    mockVerify.mockRejectedValueOnce(
+      new SocialAuthError("Google sign-in is not configured", 503, "unavailable"),
+    );
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "google", idToken: "tok" });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("unavailable");
   });
 });
 
