@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { usersTable, userProfilesTable, deviceTokensTable } from "../db/schema/index.js";
 import { requireAuth, signTokens, verifyRefreshToken } from "../middleware/auth.js";
+import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
 
 const router = Router();
 
@@ -66,6 +67,45 @@ router.post("/login", async (req, res) => {
 
   if (!user || !valid) {
     return res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
+  }
+
+  const tokens = signTokens(user.id, user.email);
+  return res.json({ ...tokens, user: userPublic(user) });
+});
+
+// ─── POST /api/auth/social ────────────────────────────────────────────────────
+const socialSchema = z.object({
+  provider: z.enum(["google", "facebook"]),
+  idToken:  z.string().min(1),
+});
+
+router.post("/social", async (req, res) => {
+  const parsed = socialSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const { provider, idToken } = parsed.data;
+
+  let profile;
+  try {
+    profile = await verifySocialToken(provider, idToken);
+  } catch (err) {
+    if (err instanceof SocialAuthError) {
+      return res.status(err.status).json({ error: err.code, message: err.message });
+    }
+    throw err;
+  }
+
+  const normalized = profile.email.toLowerCase();
+  let user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+
+  if (!user) {
+    // Social accounts have no local password — store an unguessable random hash so
+    // password login is effectively disabled until the user sets one via reset-password.
+    const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
+    [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name: profile.name }).returning();
+    await db.insert(userProfilesTable).values({ id: user.id, displayName: profile.name });
   }
 
   const tokens = signTokens(user.id, user.email);

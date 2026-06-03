@@ -299,6 +299,22 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/auth/social": {
+      post: {
+        tags: ["Auth"], summary: "Log in or sign up with a social provider", security: [],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", required: ["provider","idToken"], properties: { provider: { type: "string", enum: ["google","facebook"] }, idToken: { type: "string", description: "Google ID token or Facebook access token" } } } } },
+        },
+        responses: {
+          "200": { description: "Tokens issued (existing or newly created account)", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
+          "400": { description: "Validation error" },
+          "401": { description: "Invalid social token" },
+          "502": { description: "Provider unreachable" },
+          "503": { description: "Provider not configured" },
+        },
+      },
+    },
     "/api/auth/refresh": {
       post: {
         tags: ["Auth"], summary: "Refresh access token", security: [],
