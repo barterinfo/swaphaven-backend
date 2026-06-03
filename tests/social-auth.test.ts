@@ -1,17 +1,24 @@
 /**
  * Unit tests for src/lib/social-auth.ts.
  *
- * We use vi.resetModules() + vi.doMock() + dynamic import inside beforeEach so the
- * module is freshly initialised for every test. This avoids the "cached module" problem
- * that can appear when auth.test.ts calls vi.importActual("social-auth.js") earlier in
- * the suite and the cached instance ignores our google-auth-library / env mocks.
+ * We use vi.resetModules() + vi.doMock() + dynamic import per test so the module is
+ * freshly initialised with the env under test. Avoid a shared beforeEach that resets
+ * mocks — it races with per-test setupMocks() and can leave Facebook creds unset.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import type { SocialAuthError as SocialAuthErrorType, verifySocialToken as VerifyFn } from "../src/lib/social-auth.js";
 
 const verifyIdToken = vi.fn();
+const FB_APP_ID = "12345";
+const FB_APP_SECRET = "fb-secret";
 
-beforeEach(async () => {
+type EnvOverrides = {
+  GOOGLE_CLIENT_ID?: string;
+  FACEBOOK_APP_ID?: string;
+  FACEBOOK_APP_SECRET?: string;
+};
+
+function setupMocks(envOverrides: EnvOverrides = {}) {
   vi.resetModules();
 
   vi.doMock("google-auth-library", () => ({
@@ -25,27 +32,61 @@ beforeEach(async () => {
       GOOGLE_CLIENT_ID: "test-client-id",
       FACEBOOK_APP_ID: undefined,
       FACEBOOK_APP_SECRET: undefined,
+      ...envOverrides,
     },
   }));
 
   verifyIdToken.mockReset();
-});
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function loadLib() {
+async function loadLibWithEnv(envOverrides: EnvOverrides = {}) {
+  setupMocks(envOverrides);
   return import("../src/lib/social-auth.js") as Promise<{
     verifySocialToken: typeof VerifyFn;
     SocialAuthError: typeof SocialAuthErrorType;
   }>;
 }
 
+function mockFacebookFetch(opts: {
+  debugToken?: { is_valid: boolean; app_id?: string | number };
+  debugStatus?: number;
+  debugThrows?: boolean;
+  me?: { id: string; name: string; email: string };
+  meThrows?: boolean;
+}) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.includes("/debug_token")) {
+      if (opts.debugThrows) throw new Error("ECONNREFUSED");
+      if (opts.debugStatus !== undefined && opts.debugStatus !== 200) {
+        return new Response("{}", { status: opts.debugStatus });
+      }
+      return new Response(
+        JSON.stringify({
+          data: opts.debugToken ?? { is_valid: true, app_id: FB_APP_ID },
+        }),
+        { status: 200 },
+      );
+    }
+    if (u.includes("/me")) {
+      if (opts.meThrows) throw new Error("ECONNREFUSED");
+      return new Response(
+        JSON.stringify(opts.me ?? { id: "1", name: "FB User", email: "fb@test.com" }),
+        { status: 200 },
+      );
+    }
+    throw new Error(`Unexpected fetch: ${u}`);
+  });
+}
+
 describe("verifySocialToken — Google", () => {
   it("maps a network-code rejection to 502 bad_gateway", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
     verifyIdToken.mockRejectedValueOnce(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }));
-    const { verifySocialToken, SocialAuthError } = await loadLib();
 
     const err = await verifySocialToken("google", "tok").catch((e) => e);
     expect(err).toBeInstanceOf(SocialAuthError);
@@ -54,8 +95,8 @@ describe("verifySocialToken — Google", () => {
   });
 
   it("maps an upstream 5xx rejection to 502 bad_gateway", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
     verifyIdToken.mockRejectedValueOnce({ response: { status: 503 } });
-    const { verifySocialToken, SocialAuthError } = await loadLib();
 
     const err = await verifySocialToken("google", "tok").catch((e) => e);
     expect(err).toBeInstanceOf(SocialAuthError);
@@ -63,8 +104,8 @@ describe("verifySocialToken — Google", () => {
   });
 
   it("maps an invalid-token rejection to 401 unauthorized", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
     verifyIdToken.mockRejectedValueOnce(new Error("Invalid token signature"));
-    const { verifySocialToken, SocialAuthError } = await loadLib();
 
     const err = await verifySocialToken("google", "tok").catch((e) => e);
     expect(err).toBeInstanceOf(SocialAuthError);
@@ -73,10 +114,10 @@ describe("verifySocialToken — Google", () => {
   });
 
   it("returns the verified profile for a valid token", async () => {
+    const { verifySocialToken } = await loadLibWithEnv();
     verifyIdToken.mockResolvedValueOnce({
       getPayload: () => ({ email: "g@test.com", email_verified: true, name: "G User" }),
     });
-    const { verifySocialToken } = await loadLib();
 
     await expect(verifySocialToken("google", "tok")).resolves.toEqual({
       email: "g@test.com",
@@ -86,19 +127,106 @@ describe("verifySocialToken — Google", () => {
 });
 
 describe("verifySocialToken — Facebook", () => {
-  it("sends the access token via the Authorization header, not the query string", async () => {
-    const { verifySocialToken } = await loadLib();
+  it("returns 503 when Facebook credentials are absent", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
 
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "1", name: "FB User", email: "fb@test.com" }), { status: 200 }),
-    );
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(503);
+    expect(err.code).toBe("unavailable");
+    expect(err.message).toBe("Facebook sign-in is not configured");
+  });
+
+  it("returns 503 when only one Facebook credential is set", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+    });
+
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(503);
+    expect(err.message).toBe("Facebook sign-in is misconfigured");
+  });
+
+  it("returns 401 when debug_token reports is_valid false", async () => {
+    mockFacebookFetch({ debugToken: { is_valid: false, app_id: FB_APP_ID } });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("Facebook token was not issued for this app");
+  });
+
+  it("returns 401 when debug_token app_id mismatches", async () => {
+    mockFacebookFetch({ debugToken: { is_valid: true, app_id: "other-app" } });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(401);
+  });
+
+  it("accepts numeric app_id from debug_token when env id is a string", async () => {
+    mockFacebookFetch({ debugToken: { is_valid: true, app_id: 12345 } });
+    const { verifySocialToken } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: "12345",
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    await expect(verifySocialToken("facebook", "tok")).resolves.toEqual({
+      email: "fb@test.com",
+      name: "FB User",
+    });
+  });
+
+  it("returns profile when debug_token and /me succeed", async () => {
+    mockFacebookFetch({});
+    const { verifySocialToken } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    await expect(verifySocialToken("facebook", "tok")).resolves.toEqual({
+      email: "fb@test.com",
+      name: "FB User",
+    });
+  });
+
+  it("maps debug_token network failure to 502 bad_gateway", async () => {
+    mockFacebookFetch({ debugThrows: true });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
+
+    const err = await verifySocialToken("facebook", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(502);
+    expect(err.code).toBe("bad_gateway");
+  });
+
+  it("sends the access token via the Authorization header, not the query string", async () => {
+    const fetchSpy = mockFacebookFetch({});
+    const { verifySocialToken } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
 
     await expect(verifySocialToken("facebook", "secret-token")).resolves.toEqual({
       email: "fb@test.com",
       name: "FB User",
     });
 
-    const [calledUrl, opts] = fetchSpy.mock.calls[0];
+    const meCall = fetchSpy.mock.calls.find(([url]) => String(url).includes("/me"));
+    expect(meCall).toBeTruthy();
+    const [calledUrl, opts] = meCall!;
     expect(String(calledUrl)).toContain("/v21.0/me");
     expect(String(calledUrl)).not.toContain("secret-token");
     expect((opts as RequestInit | undefined)?.headers).toMatchObject({
@@ -106,10 +234,12 @@ describe("verifySocialToken — Facebook", () => {
     });
   });
 
-  it("maps a transport failure to 502 bad_gateway", async () => {
-    const { verifySocialToken, SocialAuthError } = await loadLib();
-
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("ECONNREFUSED"));
+  it("maps a /me transport failure to 502 bad_gateway", async () => {
+    mockFacebookFetch({ meThrows: true });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      FACEBOOK_APP_ID: FB_APP_ID,
+      FACEBOOK_APP_SECRET: FB_APP_SECRET,
+    });
 
     const err = await verifySocialToken("facebook", "tok").catch((e) => e);
     expect(err).toBeInstanceOf(SocialAuthError);

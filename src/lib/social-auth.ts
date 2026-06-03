@@ -73,7 +73,14 @@ async function verifyGoogle(idToken: string): Promise<SocialProfile> {
  * *our* Facebook app (Graph `/me` alone accepts any valid token from any app).
  */
 async function assertFacebookAppToken(accessToken: string): Promise<void> {
-  if (!env.FACEBOOK_APP_ID || !env.FACEBOOK_APP_SECRET) return;
+  const hasId = Boolean(env.FACEBOOK_APP_ID);
+  const hasSecret = Boolean(env.FACEBOOK_APP_SECRET);
+  if (hasId !== hasSecret) {
+    throw new SocialAuthError("Facebook sign-in is misconfigured", 503, "unavailable");
+  }
+  if (!hasId) {
+    throw new SocialAuthError("Facebook sign-in is not configured", 503, "unavailable");
+  }
 
   const appToken = `${env.FACEBOOK_APP_ID}|${env.FACEBOOK_APP_SECRET}`;
   const url =
@@ -91,8 +98,8 @@ async function assertFacebookAppToken(accessToken: string): Promise<void> {
     throw new SocialAuthError("Invalid Facebook token", 401, "unauthorized");
   }
 
-  const body = (await res.json()) as { data?: { is_valid?: boolean; app_id?: string } };
-  if (!body.data?.is_valid || body.data.app_id !== env.FACEBOOK_APP_ID) {
+  const body = (await res.json()) as { data?: { is_valid?: boolean; app_id?: string | number } };
+  if (!body.data?.is_valid || String(body.data.app_id) !== env.FACEBOOK_APP_ID) {
     throw new SocialAuthError("Facebook token was not issued for this app", 401, "unauthorized");
   }
 }

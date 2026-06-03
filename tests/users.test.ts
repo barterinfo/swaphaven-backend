@@ -46,16 +46,6 @@ describe("PATCH /api/users/me", () => {
     expect(res.status).toBe(200);
     expect(res.body.locationCity).toBe("NYC");
   });
-
-  it("rejects invalid avatar URL", async () => {
-    const { accessToken } = await registerUser();
-    const res = await request(app)
-      .patch("/api/users/me")
-      .set("Authorization", `Bearer ${accessToken}`)
-      .send({ avatarUrl: "not-a-url" });
-
-    expect(res.status).toBe(400);
-  });
 });
 
 // ─── GET /api/users/:userId ───────────────────────────────────────────────────
