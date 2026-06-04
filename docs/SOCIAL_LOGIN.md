@@ -55,7 +55,7 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 | 400 | `validation` | `provider` not `google`/`facebook`, or `idToken` missing |
 | 401 | `unauthorized` | Invalid or expired provider token, unverified Google email, or FB token not issued to this app |
 | 502 | `bad_gateway` | Google or Facebook is temporarily unreachable — client should retry |
-| 503 | `unavailable` | `GOOGLE_CLIENT_ID` is not configured on the server |
+| 503 | `unavailable` | No Google client ID env vars are configured on the server |
 
 ---
 
@@ -64,7 +64,8 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 ### Google
 
 1. `google-auth-library`'s `OAuth2Client.verifyIdToken` validates the ID token signature,
-   expiry, and audience against `GOOGLE_CLIENT_ID`.
+   expiry, and audience (`aud`) against **any configured** of `GOOGLE_CLIENT_ID`,
+   `GOOGLE_IOS_CLIENT_ID`, and `GOOGLE_ANDROID_CLIENT_ID`.
 2. The payload's `email_verified` flag must be `true`.
 3. Network / 5xx errors from Google's cert endpoint surface as `502` so the client can retry;
    signature / audience errors are `401`.
@@ -98,14 +99,20 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `GOOGLE_CLIENT_ID` | For Google | Web/Android/iOS OAuth client ID from Google Cloud Console. Without it, `provider: "google"` always returns 503. |
+| `GOOGLE_CLIENT_ID` | For web Google sign-in | Web OAuth client ID from Google Cloud Console. Primary audience when the mobile app uses `GIDServerClientID`. |
+| `GOOGLE_IOS_CLIENT_ID` | For native iOS without `GIDServerClientID` | iOS OAuth client ID. Required when the iOS app issues tokens with `aud` = the iOS client ID. |
+| `GOOGLE_ANDROID_CLIENT_ID` | For native Android without server client ID | Android OAuth client ID. Required when the Android app issues tokens with `aud` = the Android client ID. |
 | `FACEBOOK_APP_ID` | No | Facebook App ID. Both `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET` must be set to enable app-token validation. |
 | `FACEBOOK_APP_SECRET` | No | Facebook App Secret. Omit for best-effort FB verification. |
+
+At least one Google client ID must be set for `provider: "google"`; otherwise the endpoint returns 503.
 
 Add to `.env` (local) or Railway variables (production):
 
 ```env
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+GOOGLE_IOS_CLIENT_ID=your-ios-client-id.apps.googleusercontent.com
+GOOGLE_ANDROID_CLIENT_ID=your-android-client-id.apps.googleusercontent.com
 FACEBOOK_APP_ID=your-facebook-app-id
 FACEBOOK_APP_SECRET=your-facebook-app-secret
 ```
@@ -149,7 +156,7 @@ The route tests (`tests/auth.test.ts`) mock `verifySocialToken` to avoid live pr
 | 400 for unknown provider (`"twitter"`) | Zod validation |
 | 400 for missing `idToken` | Zod validation |
 | 401 for invalid token | Provider rejection |
-| 503 when `GOOGLE_CLIENT_ID` not configured | Missing env |
+| 503 when no Google client IDs configured | Missing env |
 
 The lib unit tests (`tests/social-auth.test.ts`) test `src/lib/social-auth.ts` directly with a
 mocked `OAuth2Client` and a `fetch` spy:
@@ -160,6 +167,8 @@ mocked `OAuth2Client` and a `fetch` spy:
 | 5xx response → 502 | Google upstream HTTP failure |
 | Signature error → 401 | Google invalid token |
 | Valid token → profile returned | Google happy path |
+| Multiple / mobile-only audiences passed to `verifyIdToken` | Google multi-client ID regression guard |
+| No Google client IDs → 503 | Google unconfigured |
 | Token sent via `Authorization` header, not URL | Facebook header security |
 | `fetch` throws → 502 | Facebook transport failure |
 
@@ -199,8 +208,8 @@ curl -s http://localhost:3001/api/auth/me \
 
 | Symptom | Likely cause |
 |---------|-------------|
-| `503 unavailable` | `GOOGLE_CLIENT_ID` not set in `.env` |
-| `401 unauthorized` (Google) | Token expired (they expire in ~1 hour) or wrong client ID |
+| `503 unavailable` | No Google client ID env vars set (need at least one of web / iOS / Android) |
+| `401 unauthorized` (Google) | Token expired (they expire in ~1 hour), or token `aud` does not match any configured client ID |
 | `401 unauthorized` (Facebook) | Token expired, or `FACEBOOK_APP_ID` mismatch in debug_token check |
 | `401 Facebook account has no email` | FB account has no confirmed email; ask user to add one in Facebook settings |
 | `502 bad_gateway` | Transient network issue hitting Google or Facebook — retry |
