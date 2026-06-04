@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
+import { swipesTable, swipeStreaksTable, listingsTable, offersTable, offerItemsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
@@ -17,7 +17,37 @@ router.get("/deck", requireAuth, async (req, res) => {
     .select({ listingId: swipesTable.listingId })
     .from(swipesTable)
     .where(eq(swipesTable.swiperId, userId));
-  const excludeIds = alreadySwiped.map((s) => s.listingId);
+
+  // Case A: user made an offer as buyer → hide the listing they offered on.
+  const offeredByUser = await db
+    .select({ listingId: offersTable.listingId })
+    .from(offersTable)
+    .where(
+      and(
+        eq(offersTable.buyerId, userId),
+        inArray(offersTable.status, ["pending", "countered"]),
+      ),
+    );
+
+  // Case B: user received an offer as seller → hide the items the other party
+  // is offering (those listings belong to the buyer and are in active negotiation
+  // with this user, so they should not appear in this user's swipe deck).
+  const offeredToUser = await db
+    .select({ listingId: offerItemsTable.listingId })
+    .from(offerItemsTable)
+    .innerJoin(offersTable, eq(offerItemsTable.offerId, offersTable.id))
+    .where(
+      and(
+        eq(offersTable.sellerId, userId),
+        inArray(offersTable.status, ["pending", "countered"]),
+      ),
+    );
+
+  const excludeIds = [
+    ...alreadySwiped.map((s) => s.listingId),
+    ...offeredByUser.map((o) => o.listingId),
+    ...offeredToUser.map((o) => o.listingId),
+  ];
 
   const conditions: Parameters<typeof and>[0][] = [
     eq(listingsTable.status, "active"),
