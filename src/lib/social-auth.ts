@@ -20,7 +20,14 @@ export class SocialAuthError extends Error {
   }
 }
 
-const googleClient = env.GOOGLE_CLIENT_ID ? new OAuth2Client(env.GOOGLE_CLIENT_ID) : null;
+/** All accepted Google OAuth client IDs (web + any mobile clients). */
+function googleAudiences(): string[] {
+  return [env.GOOGLE_CLIENT_ID, env.GOOGLE_IOS_CLIENT_ID, env.GOOGLE_ANDROID_CLIENT_ID].filter(
+    (id): id is string => Boolean(id),
+  );
+}
+
+const googleClient = googleAudiences().length > 0 ? new OAuth2Client() : null;
 
 /** Pinned Graph API version so behaviour does not drift with Facebook's rolling default. */
 const FB_GRAPH = "https://graph.facebook.com/v21.0";
@@ -45,13 +52,14 @@ function nameFor(name: string | undefined | null, email: string): string {
 }
 
 async function verifyGoogle(idToken: string): Promise<SocialProfile> {
-  if (!googleClient) {
+  const audiences = googleAudiences();
+  if (!googleClient || audiences.length === 0) {
     throw new SocialAuthError("Google sign-in is not configured", 503, "unavailable");
   }
 
   let payload;
   try {
-    const ticket = await googleClient.verifyIdToken({ idToken, audience: env.GOOGLE_CLIENT_ID });
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: audiences });
     payload = ticket.getPayload();
   } catch (err) {
     // Distinguish "Google is unreachable" from "the token is invalid" so clients can retry.
