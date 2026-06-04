@@ -11,6 +11,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
 import { serializeOfferListItem } from "../lib/inbox-serializers.js";
+import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
 
 const router = Router();
 
@@ -182,7 +183,7 @@ router.post("/:offerId/withdraw", requireAuth, async (req, res) => {
   const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
   if (!offer) return res.status(404).json({ error: "not_found" });
   if (offer.buyerId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-  if (!["pending", "countered"].includes(offer.status)) {
+  if (!(ACTIVE_OFFER_STATUSES as readonly string[]).includes(offer.status)) {
     return res.status(409).json({ error: "conflict", message: `Cannot withdraw an offer with status ${offer.status}` });
   }
 

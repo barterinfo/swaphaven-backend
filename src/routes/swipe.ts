@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { swipesTable, swipeStreaksTable, listingsTable, offersTable, offerItemsTable } from "../db/schema/index.js";
+import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
+import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 
 const router = Router();
 
@@ -18,35 +19,13 @@ router.get("/deck", requireAuth, async (req, res) => {
     .from(swipesTable)
     .where(eq(swipesTable.swiperId, userId));
 
-  // Case A: user made an offer as buyer → hide the listing they offered on.
-  const offeredByUser = await db
-    .select({ listingId: offersTable.listingId })
-    .from(offersTable)
-    .where(
-      and(
-        eq(offersTable.buyerId, userId),
-        inArray(offersTable.status, ["pending", "countered"]),
-      ),
-    );
-
-  // Case B: user received an offer as seller → hide the items the other party
-  // is offering (those listings belong to the buyer and are in active negotiation
-  // with this user, so they should not appear in this user's swipe deck).
-  const offeredToUser = await db
-    .select({ listingId: offerItemsTable.listingId })
-    .from(offerItemsTable)
-    .innerJoin(offersTable, eq(offerItemsTable.offerId, offersTable.id))
-    .where(
-      and(
-        eq(offersTable.sellerId, userId),
-        inArray(offersTable.status, ["pending", "countered"]),
-      ),
-    );
+  const activeOfferListingIds = await getActiveNegotiationListingIds(userId);
 
   const excludeIds = [
-    ...alreadySwiped.map((s) => s.listingId),
-    ...offeredByUser.map((o) => o.listingId),
-    ...offeredToUser.map((o) => o.listingId),
+    ...new Set([
+      ...alreadySwiped.map((s) => s.listingId),
+      ...activeOfferListingIds,
+    ]),
   ];
 
   const conditions: Parameters<typeof and>[0][] = [
@@ -99,6 +78,14 @@ router.post("/", requireAuth, async (req, res) => {
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId === req.user!.sub) {
     return res.status(400).json({ error: "bad_request", message: "Cannot swipe on your own listing" });
+  }
+
+  const activeOfferListingIds = await getActiveNegotiationListingIds(req.user!.sub);
+  if (activeOfferListingIds.includes(listingId)) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Listing is already in an active offer negotiation",
+    });
   }
 
   const [swipe] = await db
