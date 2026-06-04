@@ -14,6 +14,8 @@ const FB_APP_SECRET = "fb-secret";
 
 type EnvOverrides = {
   GOOGLE_CLIENT_ID?: string;
+  GOOGLE_IOS_CLIENT_ID?: string;
+  GOOGLE_ANDROID_CLIENT_ID?: string;
   FACEBOOK_APP_ID?: string;
   FACEBOOK_APP_SECRET?: string;
 };
@@ -30,6 +32,8 @@ function setupMocks(envOverrides: EnvOverrides = {}) {
   vi.doMock("../src/config/env.js", () => ({
     env: {
       GOOGLE_CLIENT_ID: "test-client-id",
+      GOOGLE_IOS_CLIENT_ID: undefined,
+      GOOGLE_ANDROID_CLIENT_ID: undefined,
       FACEBOOK_APP_ID: undefined,
       FACEBOOK_APP_SECRET: undefined,
       ...envOverrides,
@@ -123,6 +127,61 @@ describe("verifySocialToken — Google", () => {
       email: "g@test.com",
       name: "G User",
     });
+    expect(verifyIdToken).toHaveBeenCalledWith({
+      idToken: "tok",
+      audience: ["test-client-id"],
+    });
+  });
+
+  it("passes all configured Google client IDs as verifyIdToken audiences", async () => {
+    const { verifySocialToken } = await loadLibWithEnv({
+      GOOGLE_CLIENT_ID: "web-id",
+      GOOGLE_IOS_CLIENT_ID: "ios-id",
+      GOOGLE_ANDROID_CLIENT_ID: "android-id",
+    });
+    verifyIdToken.mockResolvedValueOnce({
+      getPayload: () => ({ email: "g@test.com", email_verified: true, name: "G User" }),
+    });
+
+    await expect(verifySocialToken("google", "tok")).resolves.toEqual({
+      email: "g@test.com",
+      name: "G User",
+    });
+    expect(verifyIdToken).toHaveBeenCalledWith({
+      idToken: "tok",
+      audience: ["web-id", "ios-id", "android-id"],
+    });
+  });
+
+  it("succeeds with only a mobile Google client ID configured", async () => {
+    const { verifySocialToken } = await loadLibWithEnv({
+      GOOGLE_CLIENT_ID: undefined,
+      GOOGLE_IOS_CLIENT_ID: "ios-id",
+    });
+    verifyIdToken.mockResolvedValueOnce({
+      getPayload: () => ({ email: "g@test.com", email_verified: true, name: "G User" }),
+    });
+
+    await expect(verifySocialToken("google", "tok")).resolves.toEqual({
+      email: "g@test.com",
+      name: "G User",
+    });
+    expect(verifyIdToken).toHaveBeenCalledWith({
+      idToken: "tok",
+      audience: ["ios-id"],
+    });
+  });
+
+  it("returns 503 when no Google client IDs are configured", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      GOOGLE_CLIENT_ID: undefined,
+    });
+
+    const err = await verifySocialToken("google", "tok").catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(503);
+    expect(err.code).toBe("unavailable");
+    expect(err.message).toBe("Google sign-in is not configured");
   });
 });
 
