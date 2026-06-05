@@ -77,6 +77,7 @@ export const openApiSpec = {
           createdAt:           { type: "string", format: "date-time" },
           updatedAt:           { type: "string", format: "date-time" },
           images:              { type: "array", items: { $ref: "#/components/schemas/ListingImage" } },
+          rightSwipeCount:     { type: "integer", description: "Total number of right swipes (interest signals) this listing has received." },
         },
       },
       ListingImage: {

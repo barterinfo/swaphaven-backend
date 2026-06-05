@@ -6,6 +6,7 @@ import { userProfilesTable, listingsTable, tradeReviewsTable } from "../db/schem
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
+import { fetchRightSwipeCounts } from "../lib/right-swipe-count.js";
 
 const router = Router();
 
@@ -69,13 +70,15 @@ router.get("/:userId", async (req, res) => {
 // ─── GET /api/users/:userId/listings ─────────────────────────────────────────
 router.get("/:userId/listings", async (req, res) => {
   const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
-  const items = await db.query.listingsTable.findMany({
+  const rawItems = await db.query.listingsTable.findMany({
     where: eq(listingsTable.userId, p(req.params["userId"])),
     with: { images: true, categoryRow: true },
     limit,
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
-  const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
+  const countMap = await fetchRightSwipeCounts(rawItems.map((r) => r.id));
+  const items = rawItems.map((row) => ({ ...row, rightSwipeCount: countMap.get(row.id) ?? 0 }));
+  const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
   return res.json({ items, nextCursor });
 });
 

@@ -21,6 +21,7 @@ import {
   resolveLocation,
   serializeListingBarter,
 } from "../lib/barter-listing.js";
+import { fetchRightSwipeCounts } from "../lib/right-swipe-count.js";
 
 const router = Router();
 
@@ -56,24 +57,28 @@ router.get("/", optionalAuth, async (req, res) => {
     conditions.push(ne(listingsTable.userId, req.user.sub));
   }
 
-  const items = await db.query.listingsTable.findMany({
+  const rawItems = await db.query.listingsTable.findMany({
     where: and(...conditions),
     with: { images: true, categoryRow: true },
     limit,
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
 
+  const countMap = await fetchRightSwipeCounts(rawItems.map((r) => r.id));
+
   const listings = await Promise.all(
-    items.map(async (row) =>
+    rawItems.map(async (row) =>
       serializeListingBarter(row, {
         images: row.images?.length
           ? row.images.sort((a, b) => a.position - b.position).map((i) => i.url)
           : await loadListingImages(row.id),
+        rightSwipeCount: countMap.get(row.id) ?? 0,
       }),
     ),
   );
 
-  const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
+  const items = rawItems.map((row) => ({ ...row, rightSwipeCount: countMap.get(row.id) ?? 0 }));
+  const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
   return res.json({ listings, items, nextCursor });
 });
 
@@ -177,7 +182,12 @@ router.get("/:listingId", async (req, res) => {
   const ownerName =
     listing.user && "name" in listing.user ? String(listing.user.name) : "";
 
-  const payload = serializeListingBarter(listing, { ownerName, images });
+  const countMap = await fetchRightSwipeCounts([listing.id]);
+  const payload = serializeListingBarter(listing, {
+    ownerName,
+    images,
+    rightSwipeCount: countMap.get(listing.id) ?? 0,
+  });
   const listingDetail = {
     ...payload,
     owner_email:
@@ -283,7 +293,11 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     .returning();
 
   const images = await loadListingImages(updated.id);
-  const serialized = serializeListingBarter(updated, { images });
+  const patchCountMap = await fetchRightSwipeCounts([updated.id]);
+  const serialized = serializeListingBarter(updated, {
+    images,
+    rightSwipeCount: patchCountMap.get(updated.id) ?? 0,
+  });
   return res.json({
     listing: serialized,
     id: updated.id,
