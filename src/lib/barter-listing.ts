@@ -191,7 +191,7 @@ export function buildReviewSnapshot(
 /** barter-stack `serializeListing` wire shape (snake_case). */
 export function serializeListingBarter(
   listing: Listing,
-  options: { ownerName?: string; images?: string[] } = {},
+  options: { ownerName?: string; images?: string[]; rightSwipeCount?: number } = {},
 ) {
   const lat =
     listing.locationLat != null ? Number(listing.locationLat) : null;
@@ -227,5 +227,6 @@ export function serializeListingBarter(
     status: listing.status,
     created_at: listing.createdAt,
     owner_name: options.ownerName ?? "",
+    right_swipe_count: options.rightSwipeCount ?? 0,
   };
 }

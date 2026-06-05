@@ -5,6 +5,7 @@ import { db } from "../db/client.js";
 import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
+import { fetchRightSwipeCounts } from "../lib/right-swipe-count.js";
 
 const router = Router();
 
@@ -46,12 +47,14 @@ router.get("/deck", requireAuth, async (req, res) => {
     where: eq(swipeStreaksTable.userId, userId),
   });
 
+  const deckCountMap = await fetchRightSwipeCounts(cards.map((c) => c.id));
+
   return res.json({
     cards: cards.map((c) => ({
-      listing: c,
+      listing: { ...c, rightSwipeCount: deckCountMap.get(c.id) ?? 0 },
       matchReason: null,
       mutualFitScore: 0.5,  // Populate from AI service
-      hotCount: 0,          // Populate from aggregate cache
+      hotCount: deckCountMap.get(c.id) ?? 0,
     })),
     remainingSwipesToday: DAILY_SWIPE_LIMIT,
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,

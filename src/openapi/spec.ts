@@ -77,6 +77,54 @@ export const openApiSpec = {
           createdAt:           { type: "string", format: "date-time" },
           updatedAt:           { type: "string", format: "date-time" },
           images:              { type: "array", items: { $ref: "#/components/schemas/ListingImage" } },
+          rightSwipeCount:     { type: "integer", description: "Total number of right swipes (interest signals) this listing has received." },
+        },
+      },
+      BarterListing: {
+        type: "object",
+        description: "barter-stack wire shape (snake_case) from serializeListingBarter.",
+        properties: {
+          id:                  { type: "string", format: "uuid" },
+          user_id:             { type: "string", format: "uuid" },
+          title:               { type: "string" },
+          description:         { type: "string" },
+          category:            { type: "string", nullable: true },
+          condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
+          estimated_value:     { type: "integer" },
+          accept_cash_top_ups: { type: "boolean" },
+          wanted_category_ids: { type: "array", items: { type: "string" } },
+          wanted_categories:   { type: "array", items: { type: "string" } },
+          images:              { type: "array", items: { type: "string" } },
+          status:              { type: "string", enum: ["active","traded","paused","deleted"] },
+          created_at:          { type: "string", format: "date-time" },
+          owner_name:          { type: "string" },
+          right_swipe_count:   { type: "integer", description: "Total number of right swipes (interest signals) this listing has received." },
+        },
+      },
+      ListingFeedResponse: {
+        type: "object",
+        properties: {
+          listings:   { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
+          items:      { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+          nextCursor: { type: "string", nullable: true },
+        },
+      },
+      SwipeDeckCard: {
+        type: "object",
+        properties: {
+          listing:        { $ref: "#/components/schemas/Listing" },
+          matchReason:    { type: "string", nullable: true },
+          mutualFitScore: { type: "number" },
+          hotCount:       { type: "integer", description: "Number of right swipes on this listing (mirrors listing.rightSwipeCount)." },
+        },
+      },
+      SwipeDeckResponse: {
+        type: "object",
+        properties: {
+          cards:                { type: "array", items: { $ref: "#/components/schemas/SwipeDeckCard" } },
+          remainingSwipesToday: { type: "integer" },
+          bonusSwipesAvailable: { type: "integer" },
+          refreshesAt:          { type: "string", format: "date-time" },
         },
       },
       ListingImage: {
@@ -372,7 +420,7 @@ export const openApiSpec = {
       get: { tags: ["Users"], summary: "Get public profile", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Public profile" }, "404": { description: "Not found" } } },
     },
     "/api/users/{userId}/listings": {
-      get: { tags: ["Users"], summary: "List a user's active listings", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated listings" } } },
+      get: { tags: ["Users"], summary: "List a user's active listings", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated listings", content: { "application/json": { schema: { type: "object", properties: { items: { type: "array", items: { $ref: "#/components/schemas/Listing" } }, nextCursor: { type: "string", nullable: true } } } } } } } },
     },
     "/api/users/{userId}/reviews": {
       get: { tags: ["Users"], summary: "List a user's trade reviews", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated reviews" } } },
@@ -445,7 +493,7 @@ export const openApiSpec = {
           { name: "categoryId", in: "query", schema: { type: "string", format: "uuid" } },
           { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" },
         ],
-        responses: { "200": { description: "Paginated listings" } },
+        responses: { "200": { description: "Paginated listings", content: { "application/json": { schema: { $ref: "#/components/schemas/ListingFeedResponse" } } } } },
       },
       post: {
         tags: ["Listings"], summary: "Create a listing",
@@ -487,12 +535,12 @@ export const openApiSpec = {
             },
           },
         },
-        responses: { "201": { description: "Listing created", content: { "application/json": { schema: { $ref: "#/components/schemas/Listing" } } } } },
+        responses: { "201": { description: "Listing created", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } } },
       },
     },
     "/api/listings/{listingId}": {
-      get: { tags: ["Listings"], summary: "Get listing detail", security: [], parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Listing", content: { "application/json": { schema: { $ref: "#/components/schemas/Listing" } } } }, "404": { description: "Not found" } } },
-      patch: { tags: ["Listings"], summary: "Update listing", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/Listing" } } } }, responses: { "200": { description: "Updated listing" }, "403": { description: "Forbidden" } } },
+      get: { tags: ["Listings"], summary: "Get listing detail", security: [], parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } }, "404": { description: "Not found" } } },
+      patch: { tags: ["Listings"], summary: "Update listing", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/Listing" } } } }, responses: { "200": { description: "Updated listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } }, "403": { description: "Forbidden" } } },
       delete: { tags: ["Listings"], summary: "Delete listing (soft)", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Deleted" }, "403": { description: "Forbidden" } } },
     },
     "/api/listings/{listingId}/images": {
@@ -503,7 +551,7 @@ export const openApiSpec = {
     },
     // ── Swipe ────────────────────────────────────────────────────────────────────
     "/api/swipe/deck": {
-      get: { tags: ["Swipe"], summary: "Get today's curated swipe deck", responses: { "200": { description: "Swipe cards" } } },
+      get: { tags: ["Swipe"], summary: "Get today's curated swipe deck", responses: { "200": { description: "Swipe cards", content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeDeckResponse" } } } } } },
     },
     "/api/swipe": {
       post: {

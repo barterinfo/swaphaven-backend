@@ -1,0 +1,1 @@
+CREATE INDEX "swipes_listing_id_direction_idx" ON "swipes" USING btree ("listing_id","direction");

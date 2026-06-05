@@ -2,8 +2,6 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer } from "./helpers/fixtures.js";
-
-// ─── GET /api/swipe/deck ──────────────────────────────────────────────────────
 describe("GET /api/swipe/deck", () => {
   it("returns active listings not owned by the user", async () => {
     const { accessToken: userToken } = await registerUser();
@@ -182,6 +180,21 @@ describe("POST /api/swipe", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.direction).toBe("right");
+
+    const detailRes = await request(app).get(`/api/listings/${listing.id}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.listing.right_swipe_count).toBe(1);
+
+    const viewer = await registerUser();
+    const deckRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    const card = deckRes.body.cards.find(
+      (c: { listing: { id: string } }) => c.listing.id === listing.id,
+    );
+    expect(card).toBeTruthy();
+    expect(card.hotCount).toBe(1);
+    expect(card.listing.rightSwipeCount).toBe(1);
   });
 
   it("records a left swipe", async () => {
