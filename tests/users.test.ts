@@ -86,6 +86,25 @@ describe("GET /api/users/:userId/listings", () => {
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(2);
     expect(res.body.nextCursor).toBeNull();
+    for (const item of res.body.items) {
+      expect(item.rightSwipeCount).toBe(0);
+    }
+  });
+
+  it("includes rightSwipeCount reflecting received right swipes", async () => {
+    const { user, accessToken } = await registerUser();
+    const swiper = await registerUser();
+    const listing = await createListing(accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${swiper.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+
+    const res = await request(app).get(`/api/users/${user.id}/listings`);
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].rightSwipeCount).toBe(1);
   });
 
   it("returns empty for user with no listings", async () => {

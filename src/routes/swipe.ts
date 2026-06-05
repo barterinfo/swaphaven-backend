@@ -54,7 +54,7 @@ router.get("/deck", requireAuth, async (req, res) => {
       listing: { ...c, rightSwipeCount: deckCountMap.get(c.id) ?? 0 },
       matchReason: null,
       mutualFitScore: 0.5,  // Populate from AI service
-      hotCount: 0,          // Populate from aggregate cache
+      hotCount: deckCountMap.get(c.id) ?? 0,
     })),
     remainingSwipesToday: DAILY_SWIPE_LIMIT,
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,

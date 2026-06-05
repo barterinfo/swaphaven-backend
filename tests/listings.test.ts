@@ -58,6 +58,29 @@ describe("GET /api/listings", () => {
     expect(res.body.items).toHaveLength(3);
     expect(res.body.nextCursor).not.toBeNull();
   });
+
+  it("includes right swipe counts on listings and items arrays", async () => {
+    const owner = await registerUser();
+    const swiper1 = await registerUser();
+    const swiper2 = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${swiper1.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${swiper2.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+
+    const res = await request(app).get("/api/listings");
+    expect(res.status).toBe(200);
+    const barter = res.body.listings.find((l: { id: string }) => l.id === listing.id);
+    const item = res.body.items.find((l: { id: string }) => l.id === listing.id);
+    expect(barter.right_swipe_count).toBe(2);
+    expect(item.rightSwipeCount).toBe(2);
+  });
 });
 
 // ─── POST /api/listings ───────────────────────────────────────────────────────
