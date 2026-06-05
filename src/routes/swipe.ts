@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
+import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 
 const router = Router();
 
@@ -17,7 +18,15 @@ router.get("/deck", requireAuth, async (req, res) => {
     .select({ listingId: swipesTable.listingId })
     .from(swipesTable)
     .where(eq(swipesTable.swiperId, userId));
-  const excludeIds = alreadySwiped.map((s) => s.listingId);
+
+  const activeOfferListingIds = await getActiveNegotiationListingIds(userId);
+
+  const excludeIds = [
+    ...new Set([
+      ...alreadySwiped.map((s) => s.listingId),
+      ...activeOfferListingIds,
+    ]),
+  ];
 
   const conditions: Parameters<typeof and>[0][] = [
     eq(listingsTable.status, "active"),
@@ -69,6 +78,14 @@ router.post("/", requireAuth, async (req, res) => {
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId === req.user!.sub) {
     return res.status(400).json({ error: "bad_request", message: "Cannot swipe on your own listing" });
+  }
+
+  const activeOfferListingIds = await getActiveNegotiationListingIds(req.user!.sub);
+  if (activeOfferListingIds.includes(listingId)) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Listing is already in an active offer negotiation",
+    });
   }
 
   const [swipe] = await db

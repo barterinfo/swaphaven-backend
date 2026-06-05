@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "./helpers/app.js";
-import { registerUser, createListing } from "./helpers/fixtures.js";
+import { registerUser, createListing, createOffer } from "./helpers/fixtures.js";
 
 // ─── GET /api/swipe/deck ──────────────────────────────────────────────────────
 describe("GET /api/swipe/deck", () => {
@@ -28,6 +28,69 @@ describe("GET /api/swipe/deck", () => {
     expect(res.status).toBe(401);
   });
 
+  it("hides a listing from the buyer who already has an active offer on it", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    // buyer makes an offer on seller's listing
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    // buyer's own deck must NOT include the listing they already offered on
+    const buyerRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+
+    expect(buyerRes.status).toBe(200);
+    const buyerCardIds = buyerRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(buyerCardIds).not.toContain(sellerListing.id);
+  });
+
+  it("hides the buyer's listing from the seller when they have received an active offer", async () => {
+    // User Y (buyer) swipes right on X's product and offers their Aircon.
+    // User X (seller) has received the offer → X must not see Aircon in their deck.
+    const userX = await registerUser(); // seller
+    const userY = await registerUser(); // buyer
+
+    const xProduct = await createListing(userX.accessToken);
+    const aircon   = await createListing(userY.accessToken); // Y's item being offered
+
+    // Y offers their Aircon in exchange for X's product
+    await createOffer(userY.accessToken, xProduct.id, aircon.id);
+
+    const xDeckRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${userX.accessToken}`);
+
+    expect(xDeckRes.status).toBe(200);
+    const xCardIds = xDeckRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    // X received an offer where Aircon is the offered item → must be hidden from X's deck
+    expect(xCardIds).not.toContain(aircon.id);
+  });
+
+  it("still shows an offered listing to other users who have no offer on it", async () => {
+    const seller  = await registerUser();
+    const buyer   = await registerUser();
+    const swiper  = await registerUser();
+
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    // buyer has an offer — but swiper does not
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const swiperRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${swiper.accessToken}`);
+
+    expect(swiperRes.status).toBe(200);
+    const swiperCardIds = swiperRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    // swiper has no offer on sellerListing → it must still appear
+    expect(swiperCardIds).toContain(sellerListing.id);
+  });
+
   it("returns empty deck when no other listings exist", async () => {
     const { accessToken } = await registerUser();
     await createListing(accessToken);
@@ -38,6 +101,70 @@ describe("GET /api/swipe/deck", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.cards).toHaveLength(0);
+  });
+
+  it("shows a listing again in the buyer deck after the offer is withdrawn", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const hiddenRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+    const hiddenIds = hiddenRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(hiddenIds).not.toContain(sellerListing.id);
+
+    await request(app)
+      .post(`/api/offers/${offer.id}/withdraw`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .expect(204);
+
+    const restoredRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+    const restoredIds = restoredRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(restoredIds).toContain(sellerListing.id);
+  });
+
+  it("shows counter-excluded offer items in the seller deck after a counter", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+
+    const sellerListing = await createListing(seller.accessToken);
+    const includedItem = await createListing(buyer.accessToken);
+    const excludedItem = await createListing(buyer.accessToken);
+
+    const offerRes = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({
+        listingId: sellerListing.id,
+        offeredListingIds: [includedItem.id, excludedItem.id],
+      });
+    expect(offerRes.status).toBe(201);
+
+    const offerDetail = await request(app)
+      .get(`/api/offers/${offerRes.body.id}`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    const includedOfferItemId = offerDetail.body.offeredItems.find(
+      (item: { listing: { id: string } }) => item.listing.id === includedItem.id,
+    ).id;
+
+    await request(app)
+      .post(`/api/offers/${offerRes.body.id}/counter`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ includedOfferItemIds: [includedOfferItemId] })
+      .expect(201);
+
+    const deckRes = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    const cardIds = deckRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(cardIds).not.toContain(includedItem.id);
+    expect(cardIds).toContain(excludedItem.id);
   });
 });
 
@@ -81,6 +208,23 @@ describe("POST /api/swipe", () => {
       .send({ listingId: listing.id, direction: "right" });
 
     expect(res.status).toBe(400);
+  });
+
+  it("returns 409 when swiping a listing in an active offer negotiation", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing = await createListing(buyer.accessToken);
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const res = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ listingId: sellerListing.id, direction: "right" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/active offer/i);
   });
 
   it("is idempotent — duplicate swipes do not crash", async () => {
