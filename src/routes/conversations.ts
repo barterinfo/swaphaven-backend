@@ -2,11 +2,12 @@ import { Router } from "express";
 import { and, eq, lt, ne, isNull, inArray, count, or, desc, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { conversationsTable, messagesTable, offersTable } from "../db/schema/index.js";
+import { conversationsTable, messagesTable, offersTable, tradesTable, userProfilesTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { broadcastToRoom } from "../lib/ws.js";
 import { serializeConversationListItem } from "../lib/inbox-serializers.js";
+import { fetchTransitSuggestions } from "../lib/overpass.js";
 
 const router = Router();
 
@@ -193,6 +194,97 @@ router.patch("/:conversationId/read", requireAuth, async (req, res) => {
     ));
 
   return res.status(204).send();
+});
+
+// ─── GET /api/conversations/:conversationId/meetup-suggestions ────────────────
+// Calculates the geographic midpoint between the buyer and seller and returns
+// nearby transit stops from OpenStreetMap. Both users must have location data
+// set on their profiles; otherwise responds with reason:"location_unavailable".
+router.get("/:conversationId/meetup-suggestions", requireAuth, async (req, res) => {
+  const convId = req.params["conversationId"] as string;
+  const conv = await db.query.conversationsTable.findFirst({
+    where: eq(conversationsTable.id, convId),
+    with: { offer: { columns: { buyerId: true, sellerId: true } } },
+  });
+  if (!conv) return res.status(404).json({ error: "not_found" });
+
+  const userId = req.user!.sub;
+  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  const [buyerProfile, sellerProfile] = await Promise.all([
+    db.query.userProfilesTable.findFirst({ where: eq(userProfilesTable.id, conv.offer.buyerId) }),
+    db.query.userProfilesTable.findFirst({ where: eq(userProfilesTable.id, conv.offer.sellerId) }),
+  ]);
+
+  const buyerLat  = buyerProfile?.locationLat  != null ? Number(buyerProfile.locationLat)  : null;
+  const buyerLng  = buyerProfile?.locationLng  != null ? Number(buyerProfile.locationLng)  : null;
+  const sellerLat = sellerProfile?.locationLat != null ? Number(sellerProfile.locationLat) : null;
+  const sellerLng = sellerProfile?.locationLng != null ? Number(sellerProfile.locationLng) : null;
+
+  if (buyerLat == null || buyerLng == null || sellerLat == null || sellerLng == null) {
+    return res.json({ midpoint: null, suggestions: [], reason: "location_unavailable" });
+  }
+
+  const midLat = (buyerLat + sellerLat) / 2;
+  const midLng = (buyerLng + sellerLng) / 2;
+
+  try {
+    const suggestions = await fetchTransitSuggestions(midLat, midLng);
+    return res.json({
+      midpoint: { lat: midLat, lng: midLng },
+      suggestions,
+      ...(suggestions.length === 0 ? { reason: "none_found" } : {}),
+    });
+  } catch {
+    return res.json({ midpoint: { lat: midLat, lng: midLng }, suggestions: [], reason: "overpass_error" });
+  }
+});
+
+// ─── PATCH /api/conversations/:conversationId/meetup ──────────────────────────
+// Convenience wrapper around PATCH /api/trades/:id/meetup — mobile only needs
+// the conversationId so it does not have to track a separate tradeId.
+// meetupScheduledAt defaults to now when omitted (location-only set).
+const conversationMeetupSchema = z.object({
+  meetupLocation:    z.string().min(1).max(500),
+  meetupScheduledAt: z.coerce.date().optional(),
+});
+
+router.patch("/:conversationId/meetup", requireAuth, async (req, res) => {
+  const convId = req.params["conversationId"] as string;
+  const parsed = conversationMeetupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const conv = await db.query.conversationsTable.findFirst({
+    where: eq(conversationsTable.id, convId),
+    with: { offer: { columns: { id: true, buyerId: true, sellerId: true } } },
+  });
+  if (!conv) return res.status(404).json({ error: "not_found" });
+
+  const userId = req.user!.sub;
+  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  const trade = await db.query.tradesTable.findFirst({
+    where: eq(tradesTable.offerId, conv.offer.id),
+  });
+  if (!trade) return res.status(409).json({ error: "trade_not_found" });
+
+  const [updated] = await db
+    .update(tradesTable)
+    .set({
+      meetupLocation:    parsed.data.meetupLocation,
+      meetupScheduledAt: parsed.data.meetupScheduledAt ?? new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(tradesTable.id, trade.id))
+    .returning();
+
+  return res.json(updated);
 });
 
 export default router;

@@ -1,9 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import { app } from "./helpers/app.js";
 import {
   registerUser, fullTradeSetup, createListing, createOffer, acceptOffer,
 } from "./helpers/fixtures.js";
+
+// Mock Overpass so tests are deterministic and don't hit the public endpoint.
+vi.mock("../src/lib/overpass.js", () => ({
+  fetchTransitSuggestions: vi.fn().mockResolvedValue([
+    { name: "Central Station", lat: 37.765, lng: -122.415, type: "Train Station", distanceMeters: 320 },
+    { name: "Market St & 4th Bus Stop", lat: 37.768, lng: -122.403, type: "Bus Stop", distanceMeters: 890 },
+  ]),
+}));
 
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 describe("GET /api/conversations", () => {
@@ -222,6 +230,165 @@ describe("GET /api/conversations/:conversationId/messages", () => {
       .set("Authorization", `Bearer ${third.accessToken}`);
 
     expect(res.status).toBe(403);
+  });
+});
+
+// ─── GET /api/conversations/:conversationId/meetup-suggestions ────────────────
+describe("GET /api/conversations/:conversationId/meetup-suggestions", () => {
+  it("returns location_unavailable when neither user has location set", async () => {
+    const { seller, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.midpoint).toBeNull();
+    expect(res.body.suggestions).toHaveLength(0);
+    expect(res.body.reason).toBe("location_unavailable");
+  });
+
+  it("returns suggestions when both users have location set", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ locationLat: 37.7749, locationLng: -122.4194 });
+
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ locationLat: 37.7580, locationLng: -122.4382 });
+
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.midpoint).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number) });
+    expect(res.body.suggestions.length).toBeGreaterThan(0);
+    expect(res.body.suggestions[0]).toHaveProperty("name");
+    expect(res.body.suggestions[0]).toHaveProperty("type");
+    expect(res.body.suggestions[0]).toHaveProperty("distanceMeters");
+  });
+
+  it("buyer can also fetch suggestions", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await Promise.all([
+      request(app).patch("/api/users/me").set("Authorization", `Bearer ${seller.accessToken}`).send({ locationLat: 37.7749, locationLng: -122.4194 }),
+      request(app).patch("/api/users/me").set("Authorization", `Bearer ${buyer.accessToken}`).send({ locationLat: 37.7580, locationLng: -122.4382 }),
+    ]);
+
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions.length).toBeGreaterThan(0);
+  });
+
+  it("third party receives 403", async () => {
+    const { trade } = await fullTradeSetup();
+    const third = await registerUser();
+
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`)
+      .set("Authorization", `Bearer ${third.accessToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for non-existent conversation", async () => {
+    const { seller } = await fullTradeSetup();
+    const res = await request(app)
+      .get("/api/conversations/00000000-0000-0000-0000-000000000000/meetup-suggestions")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("requires authentication", async () => {
+    const { trade } = await fullTradeSetup();
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`);
+    expect(res.status).toBe(401);
+  });
+});
+
+// ─── PATCH /api/conversations/:conversationId/meetup ──────────────────────────
+describe("PATCH /api/conversations/:conversationId/meetup", () => {
+  it("sets meetup location on the linked trade", async () => {
+    const { seller, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .patch(`/api/conversations/${trade.conversationId}/meetup`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ meetupLocation: "Central Station" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meetupLocation).toBe("Central Station");
+    expect(res.body.meetupScheduledAt).toBeTruthy();
+  });
+
+  it("accepts an explicit meetupScheduledAt", async () => {
+    const { seller, trade } = await fullTradeSetup();
+    const futureDate = new Date(Date.now() + 86_400_000).toISOString();
+
+    const res = await request(app)
+      .patch(`/api/conversations/${trade.conversationId}/meetup`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ meetupLocation: "Market St Bus Stop", meetupScheduledAt: futureDate });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meetupLocation).toBe("Market St Bus Stop");
+    expect(new Date(res.body.meetupScheduledAt).toISOString()).toBe(futureDate);
+  });
+
+  it("buyer can also set meetup", async () => {
+    const { buyer, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .patch(`/api/conversations/${trade.conversationId}/meetup`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ meetupLocation: "Union Square" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meetupLocation).toBe("Union Square");
+  });
+
+  it("rejects empty meetupLocation", async () => {
+    const { seller, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .patch(`/api/conversations/${trade.conversationId}/meetup`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ meetupLocation: "" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("third party receives 403", async () => {
+    const { trade } = await fullTradeSetup();
+    const third = await registerUser();
+
+    const res = await request(app)
+      .patch(`/api/conversations/${trade.conversationId}/meetup`)
+      .set("Authorization", `Bearer ${third.accessToken}`)
+      .send({ meetupLocation: "Somewhere" });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for non-existent conversation", async () => {
+    const { seller } = await fullTradeSetup();
+    const res = await request(app)
+      .patch("/api/conversations/00000000-0000-0000-0000-000000000000/meetup")
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ meetupLocation: "Somewhere" });
+
+    expect(res.status).toBe(404);
   });
 });
 
