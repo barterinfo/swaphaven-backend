@@ -98,10 +98,14 @@ router.post("/", requireAuth, async (req, res) => {
   // onConflictDoNothing returns nothing on a duplicate, so swipe being defined
   // guarantees we're counting each (user, listing) pair at most once.
   if (swipe && direction === "right") {
-    db.update(listingsTable)
-      .set({ rightSwipeCount: sql`${listingsTable.rightSwipeCount} + 1` })
-      .where(eq(listingsTable.id, listingId))
-      .catch(console.error);
+    try {
+      await db.update(listingsTable)
+        .set({ rightSwipeCount: sql`${listingsTable.rightSwipeCount} + 1` })
+        .where(eq(listingsTable.id, listingId));
+    } catch (err) {
+      console.error("[swipe] right_swipe_count increment failed:", err);
+      throw err;
+    }
   }
 
   // Streak logic

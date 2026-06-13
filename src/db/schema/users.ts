@@ -31,8 +31,11 @@ export const userProfilesTable = pgTable("user_profiles", {
   ratingSum:    integer("rating_sum").notNull().default(0),
   ratingCount:  integer("rating_count").notNull().default(0),
   isVerified:          boolean("is_verified").notNull().default(false),
+  // TODO(server-managed): populated by phone verification flow (follow-up PR).
   isPhoneVerified:     boolean("is_phone_verified").notNull().default(false),
+  // TODO(server-managed): populated from trade completion stats (follow-up PR).
   completionRate:      integer("completion_rate"),
+  // TODO(server-managed): populated from messaging response times (follow-up PR).
   avgResponseMinutes:  integer("avg_response_minutes"),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),

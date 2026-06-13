@@ -60,13 +60,26 @@ router.get("/:userId", async (req, res) => {
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "User not found" });
 
-  // lat/lng are private; expose a flag so clients know distance is computable
-  const { locationLat, locationLng, ...publicProfile } = profile;
+  const { locationLat } = profile;
   const rating =
     profile.ratingCount > 0
       ? Math.round((profile.ratingSum / profile.ratingCount) * 10) / 10
       : null;
-  return res.json({ ...publicProfile, hasLocation: locationLat != null, rating });
+  return res.json({
+    id: profile.id,
+    displayName: profile.displayName,
+    bio: profile.bio,
+    avatarUrl: profile.avatarUrl,
+    locationCity: profile.locationCity,
+    hasLocation: locationLat != null,
+    totalTrades: profile.totalTrades,
+    rating,
+    isVerified: profile.isVerified,
+    isPhoneVerified: profile.isPhoneVerified,
+    completionRate: profile.completionRate,
+    avgResponseMinutes: profile.avgResponseMinutes,
+    createdAt: profile.createdAt,
+  });
 });
 
 // ─── GET /api/users/:userId/listings ─────────────────────────────────────────
