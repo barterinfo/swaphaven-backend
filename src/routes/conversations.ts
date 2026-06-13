@@ -173,20 +173,19 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   // on the device — iOS/Android handle that deduplication natively.
   const otherUserId =
     conv.offer.buyerId === userId ? conv.offer.sellerId : conv.offer.buyerId;
+  const messageBody = parsed.data.body;
 
-  const senderProfile = await db.query.userProfilesTable.findFirst({
-    where: eq(userProfilesTable.id, userId),
-    columns: { displayName: true },
-  });
-  const senderName = senderProfile?.displayName ?? "Someone";
-
-  sendPushToUser(otherUserId, {
-    title: senderName,
-    body: parsed.data.body.length > 100
-      ? `${parsed.data.body.slice(0, 100)}…`
-      : parsed.data.body,
-    data: { type: "new_message", conversationId: convId },
-  }).catch(console.error);
+  void (async () => {
+    const senderProfile = await db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, userId),
+      columns: { displayName: true },
+    });
+    await sendPushToUser(otherUserId, {
+      title: senderProfile?.displayName ?? "Someone",
+      body: messageBody.length > 100 ? `${messageBody.slice(0, 100)}…` : messageBody,
+      data: { type: "new_message", conversationId: convId },
+    });
+  })().catch(console.error);
 
   return res.status(201).json(message);
 });

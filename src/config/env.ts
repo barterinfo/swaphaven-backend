@@ -79,6 +79,26 @@ if (data.DATABASE_URL.includes("${{")) {
   process.exit(1);
 }
 
+if (data.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  try {
+    const sa = JSON.parse(data.FIREBASE_SERVICE_ACCOUNT_JSON) as Record<string, unknown>;
+    if (
+      sa.type !== "service_account" ||
+      typeof sa.project_id !== "string" ||
+      typeof sa.private_key !== "string"
+    ) {
+      throw new Error("missing type, project_id, or private_key");
+    }
+  } catch (err) {
+    console.error(
+      "❌  FIREBASE_SERVICE_ACCOUNT_JSON is set but invalid.\n" +
+        "   Paste the full Firebase service-account JSON as a single line (no wrapping quotes).\n" +
+        `   ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
+}
+
 export const env = {
   ...data,
   // Vitest registers many users against one app instance — avoid 429s in CI/local test runs.

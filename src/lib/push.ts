@@ -8,28 +8,36 @@ import { env } from "../config/env.js";
 // FIREBASE_SERVICE_ACCOUNT_JSON is absent (dev / test / CI).
 
 let _messagingReady = false;
+let _initFailed = false;
 let _getMessaging: (() => import("firebase-admin/messaging").Messaging) | null =
   null;
 
 async function getMessagingInstance() {
+  if (_initFailed) return null;
   if (_messagingReady) return _getMessaging!();
 
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     return null;
   }
 
-  const { initializeApp, cert, getApps } = await import("firebase-admin/app");
-  const { getMessaging } = await import("firebase-admin/messaging");
+  try {
+    const { initializeApp, cert, getApps } = await import("firebase-admin/app");
+    const { getMessaging } = await import("firebase-admin/messaging");
 
-  if (getApps().length === 0) {
-    initializeApp({
-      credential: cert(JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)),
-    });
+    if (getApps().length === 0) {
+      initializeApp({
+        credential: cert(JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+      });
+    }
+
+    _getMessaging = getMessaging;
+    _messagingReady = true;
+    return getMessaging();
+  } catch (err) {
+    _initFailed = true;
+    console.error("[push] Firebase init failed:", err);
+    return null;
   }
-
-  _getMessaging = getMessaging;
-  _messagingReady = true;
-  return getMessaging();
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

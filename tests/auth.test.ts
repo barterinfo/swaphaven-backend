@@ -7,7 +7,7 @@ import { app } from "./helpers/app.js";
 import { registerUser, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { db } from "../src/db/client.js";
-import { usersTable } from "../src/db/schema/index.js";
+import { usersTable, deviceTokensTable } from "../src/db/schema/index.js";
 import { SocialAuthError, verifySocialToken } from "../src/lib/social-auth.js";
 
 // Mock the provider verification so tests never hit Google / Facebook.
@@ -399,6 +399,33 @@ describe("POST /api/auth/device-token", () => {
       .send(payload);
 
     expect(res.status).toBe(204);
+  });
+
+  it("reassigns token to new user when another account registers the same device token", async () => {
+    const userA = await registerUser();
+    const userB = await registerUser();
+    const token = "shared-fcm-token-xyz";
+
+    await request(app)
+      .post("/api/auth/device-token")
+      .set("Authorization", `Bearer ${userA.accessToken}`)
+      .send({ token, platform: "android" });
+
+    const res = await request(app)
+      .post("/api/auth/device-token")
+      .set("Authorization", `Bearer ${userB.accessToken}`)
+      .send({ token, platform: "ios" });
+
+    expect(res.status).toBe(204);
+
+    const rows = await testDb
+      .select()
+      .from(deviceTokensTable)
+      .where(eq(deviceTokensTable.token, token));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.userId).toBe(userB.user.id);
+    expect(rows[0]!.platform).toBe("ios");
   });
 
   it("rejects invalid platform", async () => {
