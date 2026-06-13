@@ -12,6 +12,7 @@ import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
 import { serializeOfferListItem } from "../lib/inbox-serializers.js";
 import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
+import { sendPushToUser } from "../lib/push.js";
 
 const router = Router();
 
@@ -71,6 +72,11 @@ router.post("/", requireAuth, async (req, res) => {
     body: "Someone wants to trade for your item.",
     relatedOfferId: offer.id,
   });
+  sendPushToUser(listing.userId, {
+    title: "New swap offer! 🔄",
+    body: "Someone wants to trade for your item.",
+    data: { type: "offer", offerId: offer.id },
+  }).catch(console.error);
   return res.status(201).json(offer);
 });
 
@@ -155,6 +161,11 @@ router.post("/:offerId/accept", requireAuth, async (req, res) => {
     title: "Offer accepted! 🎉", body: "Your trade offer was accepted. Start chatting now.",
     relatedOfferId: offer.id, relatedTradeId: trade.id, relatedConversationId: conv.id,
   });
+  sendPushToUser(offer.buyerId, {
+    title: "Offer accepted! 🎉",
+    body: "Your trade offer was accepted. Start chatting now.",
+    data: { type: "offer_accepted", conversationId: conv.id },
+  }).catch(console.error);
   return res.json({ ...trade, conversationId: conv.id });
 });
 
@@ -236,6 +247,11 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
     title: "Counter-offer received", body: "The seller proposed new terms. Review and respond.",
     relatedOfferId: offer.id,
   });
+  sendPushToUser(offer.buyerId, {
+    title: "Counter-offer received 🔁",
+    body: "The seller proposed new terms. Review and respond.",
+    data: { type: "counter_offer", offerId: offer.id },
+  }).catch(console.error);
   return res.status(201).json(counter);
 });
 
@@ -282,6 +298,11 @@ router.post("/:offerId/counter/accept", requireAuth, async (req, res) => {
     title: "Counter-offer accepted! 🎉", body: "The buyer accepted your counter. Time to arrange the swap.",
     relatedOfferId: offer.id, relatedTradeId: trade.id,
   });
+  sendPushToUser(offer.sellerId, {
+    title: "Counter-offer accepted! 🎉",
+    body: "The buyer accepted your counter. Time to arrange the swap.",
+    data: { type: "offer_accepted", conversationId: conv.id },
+  }).catch(console.error);
   return res.json({ ...trade, conversationId: conv.id });
 });
 

@@ -56,6 +56,9 @@ const envSchema = z.object({
   S3_MEDIA_PREFIX: z.string().default("listings"),
   S3_PRESIGN_EXPIRES_SEC: z.coerce.number().int().min(60).max(3600).default(300),
   CDN_BASE_URL: z.string().url().optional(),
+  /** Firebase Admin service-account JSON (stringified). When set, push
+   *  notifications are delivered via FCM. Omit in dev/test to disable push. */
+  FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));
