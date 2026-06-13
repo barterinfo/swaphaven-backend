@@ -29,6 +29,27 @@
       "when": 1780653349686,
       "tag": "0003_lush_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781371709391,
+      "tag": "0004_item_detail_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781372406953,
+      "tag": "0005_perf_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781373080053,
+      "tag": "0006_denormalize_right_swipe_count",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,6 @@ import { db } from "../db/client.js";
 import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
-import { fetchRightSwipeCounts } from "../lib/right-swipe-count.js";
 
 const router = Router();
 
@@ -47,14 +46,12 @@ router.get("/deck", requireAuth, async (req, res) => {
     where: eq(swipeStreaksTable.userId, userId),
   });
 
-  const deckCountMap = await fetchRightSwipeCounts(cards.map((c) => c.id));
-
   return res.json({
     cards: cards.map((c) => ({
-      listing: { ...c, rightSwipeCount: deckCountMap.get(c.id) ?? 0 },
+      listing: c,
       matchReason: null,
       mutualFitScore: 0.5,  // Populate from AI service
-      hotCount: deckCountMap.get(c.id) ?? 0,
+      hotCount: c.rightSwipeCount,
     })),
     remainingSwipesToday: DAILY_SWIPE_LIMIT,
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,
@@ -96,6 +93,16 @@ router.post("/", requireAuth, async (req, res) => {
     .values({ swiperId: req.user!.sub, listingId, direction })
     .onConflictDoNothing()
     .returning();
+
+  // Increment the denormalized counter only when a new right-swipe was recorded.
+  // onConflictDoNothing returns nothing on a duplicate, so swipe being defined
+  // guarantees we're counting each (user, listing) pair at most once.
+  if (swipe && direction === "right") {
+    db.update(listingsTable)
+      .set({ rightSwipeCount: sql`${listingsTable.rightSwipeCount} + 1` })
+      .where(eq(listingsTable.id, listingId))
+      .catch(console.error);
+  }
 
   // Streak logic
   const today = new Date().toISOString().slice(0, 10);

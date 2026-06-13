@@ -1,0 +1,1 @@
+ALTER TABLE "listings" ADD COLUMN "right_swipe_count" integer DEFAULT 0 NOT NULL;

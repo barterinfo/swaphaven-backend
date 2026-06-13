@@ -1,12 +1,11 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { and, count, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { userProfilesTable, listingsTable, tradeReviewsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
-import { fetchRightSwipeCounts } from "../lib/right-swipe-count.js";
 
 const router = Router();
 
@@ -20,6 +19,9 @@ router.get("/me", requireAuth, async (req, res) => {
 });
 
 // ─── PATCH /api/users/me ──────────────────────────────────────────────────────
+// Only user-editable profile fields. Stats (totalTrades, ratingSum, ratingCount,
+// tradeScore, isPhoneVerified, completionRate, avgResponseMinutes) are managed
+// exclusively by server-side flows and are intentionally absent here.
 const updateProfileSchema = z.object({
   displayName:  z.string().min(1).max(80).optional(),
   bio:          z.string().max(500).optional(),
@@ -27,10 +29,6 @@ const updateProfileSchema = z.object({
   locationCity: z.string().max(100).optional(),
   locationLat:  z.number().min(-90).max(90).optional(),
   locationLng:  z.number().min(-180).max(180).optional(),
-  tradeScore:   z.number().int().optional(),
-  totalTrades:  z.number().int().optional(),
-  ratingSum:    z.number().int().optional(),
-  ratingCount:  z.number().int().optional(),
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
@@ -62,24 +60,41 @@ router.get("/:userId", async (req, res) => {
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "User not found" });
 
-  // Hide private fields from public profile
+  // lat/lng are private; expose a flag so clients know distance is computable
   const { locationLat, locationLng, ...publicProfile } = profile;
-  return res.json({ ...publicProfile, hasLocation: locationLat != null });
+  const rating =
+    profile.ratingCount > 0
+      ? Math.round((profile.ratingSum / profile.ratingCount) * 10) / 10
+      : null;
+  return res.json({ ...publicProfile, hasLocation: locationLat != null, rating });
 });
 
 // ─── GET /api/users/:userId/listings ─────────────────────────────────────────
 router.get("/:userId/listings", async (req, res) => {
+  const userId = p(req.params["userId"]);
   const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
-  const rawItems = await db.query.listingsTable.findMany({
-    where: eq(listingsTable.userId, p(req.params["userId"])),
-    with: { images: true, categoryRow: true },
-    limit,
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
-  });
-  const countMap = await fetchRightSwipeCounts(rawItems.map((r) => r.id));
-  const items = rawItems.map((row) => ({ ...row, rightSwipeCount: countMap.get(row.id) ?? 0 }));
+
+  const activeFilter = and(
+    eq(listingsTable.userId, userId),
+    ne(listingsTable.status, "deleted"),
+  );
+
+  const [totalRow, rawItems] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(listingsTable)
+      .where(activeFilter)
+      .then((r) => r[0]!),
+    db.query.listingsTable.findMany({
+      where: activeFilter,
+      with: { images: true, categoryRow: true },
+      limit,
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+    }),
+  ]);
+
   const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
-  return res.json({ items, nextCursor });
+  return res.json({ items: rawItems, nextCursor, total: Number(totalRow.total) });
 });
 
 // ─── GET /api/users/:userId/reviews ──────────────────────────────────────────
