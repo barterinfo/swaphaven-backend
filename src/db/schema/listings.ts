@@ -1,6 +1,6 @@
 import {
   pgTable, uuid, text, boolean, integer,
-  timestamp, pgEnum, decimal, jsonb,
+  timestamp, pgEnum, decimal, jsonb, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
 
@@ -35,6 +35,8 @@ export const listingsTable = pgTable("listings", {
   details:             jsonb("details").$type<ListingDetails>().notNull().default({ ageRange: "", brand: "" }),
   reviewSnapshot:      jsonb("review_snapshot").$type<Record<string, unknown>>().notNull().default({}),
   isSwipeOnly:         boolean("is_swipe_only").notNull().default(false),
+  viewCount:           integer("view_count").notNull().default(0),
+  rightSwipeCount:     integer("right_swipe_count").notNull().default(0),
   status:              listingStatusEnum("status").notNull().default("active"),
   locationCity:        text("location_city").notNull().default(""),
   locationLat:         decimal("location_lat", { precision: 9, scale: 6 }),
@@ -45,7 +47,12 @@ export const listingsTable = pgTable("listings", {
   locationPostalCode:  text("location_postal_code").notNull().default(""),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // feed query: WHERE status != 'deleted' ORDER BY created_at DESC
+  index("listings_status_created_at_idx").on(t.status, t.createdAt),
+  // closet query: WHERE user_id = ? + count
+  index("listings_user_id_idx").on(t.userId),
+]);
 
 // ─── listing_images ───────────────────────────────────────────────────────────
 export const listingImagesTable = pgTable("listing_images", {
@@ -54,7 +61,9 @@ export const listingImagesTable = pgTable("listing_images", {
   url:       text("url").notNull(),
   position:  integer("position").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("listing_images_listing_id_idx").on(t.listingId),
+]);
 
 // ─── listing_wants ────────────────────────────────────────────────────────────
 export const listingWantsTable = pgTable("listing_wants", {
@@ -62,7 +71,9 @@ export const listingWantsTable = pgTable("listing_wants", {
   listingId:  uuid("listing_id").notNull().references(() => listingsTable.id, { onDelete: "cascade" }),
   categoryId: uuid("category_id").references(() => categoriesTable.id),
   freeText:   text("free_text"),
-});
+}, (t) => [
+  index("listing_wants_listing_id_idx").on(t.listingId),
+]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type Category     = typeof categoriesTable.$inferSelect;

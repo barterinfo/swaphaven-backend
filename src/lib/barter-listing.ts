@@ -191,7 +191,7 @@ export function buildReviewSnapshot(
 /** barter-stack `serializeListing` wire shape (snake_case). */
 export function serializeListingBarter(
   listing: Listing,
-  options: { ownerName?: string; images?: string[]; rightSwipeCount?: number } = {},
+  options: { ownerName?: string; images?: string[]; seller?: SellerSnapshot | null } = {},
 ) {
   const lat =
     listing.locationLat != null ? Number(listing.locationLat) : null;
@@ -227,6 +227,22 @@ export function serializeListingBarter(
     status: listing.status,
     created_at: listing.createdAt,
     owner_name: options.ownerName ?? "",
-    right_swipe_count: options.rightSwipeCount ?? 0,
+    right_swipe_count: listing.rightSwipeCount ?? 0,
+    view_count: listing.viewCount ?? 0,
+    seller: options.seller ?? null,
   };
 }
+
+export type SellerSnapshot = {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_verified: boolean;
+  is_phone_verified: boolean;
+  total_trades: number;
+  rating: number | null;
+  location_city: string | null;
+  completion_rate: number | null;
+  avg_response_minutes: number | null;
+  member_since: Date;
+};

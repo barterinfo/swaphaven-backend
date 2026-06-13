@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
-import { categoriesTable } from "../src/db/schema/index.js";
+import { categoriesTable, listingsTable } from "../src/db/schema/index.js";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── GET /api/categories ──────────────────────────────────────────────────────
 describe("GET /api/categories", () => {
@@ -165,6 +168,74 @@ describe("GET /api/listings/:id", () => {
   it("returns 404 for non-existent listing", async () => {
     const res = await request(app).get("/api/listings/00000000-0000-0000-0000-000000000000");
     expect(res.status).toBe(404);
+  });
+
+  it("returns seller card with snake_case fields and no owner_email", async () => {
+    const { user, accessToken } = await registerUser();
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ displayName: "Seller Name", locationCity: "Austin" });
+    const listing = await createListing(accessToken);
+
+    const res = await request(app).get(`/api/listings/${listing.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listing.owner_email).toBeUndefined();
+    expect(res.body.listing.seller).toMatchObject({
+      id: user.id,
+      display_name: "Seller Name",
+      location_city: "Austin",
+      is_verified: false,
+      is_phone_verified: false,
+      total_trades: 0,
+      rating: null,
+    });
+    expect(res.body.listing.seller.member_since).toBeTruthy();
+  });
+
+  it("returns view_count and right_swipe_count on listing detail", async () => {
+    const owner = await registerUser();
+    const swiper = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${swiper.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+
+    const res = await request(app).get(`/api/listings/${listing.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listing.view_count).toBe(0);
+    expect(res.body.listing.right_swipe_count).toBe(1);
+  });
+});
+
+// ─── POST /api/listings/:id/view ──────────────────────────────────────────────
+describe("POST /api/listings/:id/view", () => {
+  it("returns 204 when authenticated and increments view_count", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    const res = await request(app)
+      .post(`/api/listings/${listing.id}/view`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ viewCount: listingsTable.viewCount })
+      .from(listingsTable)
+      .where(eq(listingsTable.id, listing.id));
+    expect(row?.viewCount).toBe(1);
+  });
+
+  it("returns 401 without auth", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+
+    const res = await request(app).post(`/api/listings/${listing.id}/view`);
+    expect(res.status).toBe(401);
   });
 });
 
