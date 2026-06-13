@@ -88,25 +88,23 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  const [swipe] = await db
-    .insert(swipesTable)
-    .values({ swiperId: req.user!.sub, listingId, direction })
-    .onConflictDoNothing()
-    .returning();
+  const swipe = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(swipesTable)
+      .values({ swiperId: req.user!.sub, listingId, direction })
+      .onConflictDoNothing()
+      .returning();
 
-  // Increment the denormalized counter only when a new right-swipe was recorded.
-  // onConflictDoNothing returns nothing on a duplicate, so swipe being defined
-  // guarantees we're counting each (user, listing) pair at most once.
-  if (swipe && direction === "right") {
-    try {
-      await db.update(listingsTable)
+    // Increment only when a new right-swipe was recorded; same transaction
+    // ensures a failed increment rolls back the insert so retries can succeed.
+    if (row && direction === "right") {
+      await tx
+        .update(listingsTable)
         .set({ rightSwipeCount: sql`${listingsTable.rightSwipeCount} + 1` })
         .where(eq(listingsTable.id, listingId));
-    } catch (err) {
-      console.error("[swipe] right_swipe_count increment failed:", err);
-      throw err;
     }
-  }
+    return row;
+  });
 
   // Streak logic
   const today = new Date().toISOString().slice(0, 10);

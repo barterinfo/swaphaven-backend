@@ -258,6 +258,29 @@ describe("POST /api/swipe", () => {
 
     expect([200, 201, 204, 409]).toContain(res.status);
   });
+
+  it("does not double-increment right_swipe_count on duplicate right swipe", async () => {
+    const { accessToken } = await registerUser();
+    const { accessToken: otherToken } = await registerUser();
+    const listing = await createListing(otherToken);
+    const payload = { listingId: listing.id, direction: "right" };
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send(payload)
+      .expect(201);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send(payload)
+      .expect(201);
+
+    const detailRes = await request(app).get(`/api/listings/${listing.id}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.listing.right_swipe_count).toBe(1);
+  });
 });
 
 // ─── GET /api/swipe/streak ────────────────────────────────────────────────────

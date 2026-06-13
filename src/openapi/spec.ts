@@ -175,7 +175,7 @@ export const openApiSpec = {
           created_at:        { type: "string", format: "date-time" },
           owner_name:        { type: "string" },
           right_swipe_count: { type: "integer", description: "Denormalized right-swipe count." },
-          view_count:        { type: "integer", description: "Approximate page-view count." },
+          view_count:        { type: "integer", description: "Approximate page-view count; not deduplicated per user." },
           seller:            { allOf: [{ $ref: "#/components/schemas/SellerSnapshot" }], nullable: true, description: "Embedded seller card. Present on GET /api/listings/:id; null on feed/closet responses." },
         },
       },
@@ -721,7 +721,7 @@ export const openApiSpec = {
     "/api/listings/{listingId}/view": {
       post: {
         tags: ["Listings"], summary: "Increment view counter",
-        description: "Fire-and-forget view ping. Responds 204 immediately; the DB write is async. Requires auth to prevent anonymous view-count inflation. Clients should call this once per unique detail-page visit.",
+        description: "Fire-and-forget view ping. Responds 204 immediately; the DB write is async. Requires auth to prevent anonymous view-count inflation. Counts are approximate: there is no per-user deduplication, so repeated POSTs from the same user increment the counter. Clients should call this once per unique detail-page visit.",
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "View counted (or silently ignored for deleted listings)." },

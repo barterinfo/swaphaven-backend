@@ -8,6 +8,23 @@ import { categoriesTable, listingsTable } from "../src/db/schema/index.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function pollViewCount(listingId: string, expected: number, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const [row] = await testDb
+      .select({ viewCount: listingsTable.viewCount })
+      .from(listingsTable)
+      .where(eq(listingsTable.id, listingId));
+    if (row?.viewCount === expected) return;
+    await sleep(10);
+  }
+  const [row] = await testDb
+    .select({ viewCount: listingsTable.viewCount })
+    .from(listingsTable)
+    .where(eq(listingsTable.id, listingId));
+  expect(row?.viewCount).toBe(expected);
+}
+
 // ─── GET /api/categories ──────────────────────────────────────────────────────
 describe("GET /api/categories", () => {
   it("returns an empty array when no categories exist", async () => {
@@ -222,12 +239,25 @@ describe("POST /api/listings/:id/view", () => {
       .set("Authorization", `Bearer ${viewer.accessToken}`);
     expect(res.status).toBe(204);
 
-    await sleep(50);
-    const [row] = await testDb
-      .select({ viewCount: listingsTable.viewCount })
-      .from(listingsTable)
-      .where(eq(listingsTable.id, listing.id));
-    expect(row?.viewCount).toBe(1);
+    await pollViewCount(listing.id, 1);
+  });
+
+  it("returns 204 for deleted listing but does not increment view_count", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    await request(app)
+      .delete(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .expect(204);
+
+    const res = await request(app)
+      .post(`/api/listings/${listing.id}/view`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(res.status).toBe(204);
+
+    await pollViewCount(listing.id, 0);
   });
 
   it("returns 401 without auth", async () => {
