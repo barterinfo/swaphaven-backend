@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, boolean, timestamp, pgEnum,
+  pgTable, uuid, text, boolean, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
 
@@ -31,7 +31,12 @@ export const notificationsTable = pgTable("notifications", {
   relatedConversationId: uuid("related_conversation_id"),
   isRead:                boolean("is_read").notNull().default(false),
   createdAt:             timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // notification bell badge + list: WHERE user_id = ? ORDER BY created_at DESC
+  index("notifications_user_id_created_at_idx").on(t.userId, t.createdAt),
+  // unread badge count: WHERE user_id = ? AND is_read = false
+  index("notifications_user_id_is_read_idx").on(t.userId, t.isRead),
+]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type Notification = typeof notificationsTable.$inferSelect;

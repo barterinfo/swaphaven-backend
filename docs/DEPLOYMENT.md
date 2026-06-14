@@ -55,6 +55,11 @@ Listing images: S3 presigned uploads — see **[S3_SETUP.md](./S3_SETUP.md)**.
 | `ENABLE_API_DOCS`    | `true` (team testing) or `false` (locked down)        |
 | `TRUST_PROXY`        | Optional — auto **`true`** in production (`railway.toml` sets it) |
 
+### Optional — push notifications
+
+| Variable | Value |
+| --- | --- |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Full Firebase service-account JSON as a single line (no wrapping quotes in Railway UI). Required for FCM delivery; omit in CI/dev. |
 
 Generate secrets:
 

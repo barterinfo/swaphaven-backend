@@ -1,10 +1,10 @@
 import { Router } from "express";
-import { and, eq, ilike, lt, ne } from "drizzle-orm";
+import { and, eq, ilike, lt, ne, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
-  listingsTable, listingImagesTable, listingWantsTable, categoriesTable,
+  listingsTable, listingImagesTable, listingWantsTable, categoriesTable, userProfilesTable,
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
@@ -20,8 +20,8 @@ import {
   resolveEstimatedValue,
   resolveLocation,
   serializeListingBarter,
+  type SellerSnapshot,
 } from "../lib/barter-listing.js";
-import { fetchRightSwipeCounts } from "../lib/right-swipe-count.js";
 
 const router = Router();
 
@@ -64,22 +64,18 @@ router.get("/", optionalAuth, async (req, res) => {
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
 
-  const countMap = await fetchRightSwipeCounts(rawItems.map((r) => r.id));
-
   const listings = await Promise.all(
     rawItems.map(async (row) =>
       serializeListingBarter(row, {
         images: row.images?.length
           ? row.images.sort((a, b) => a.position - b.position).map((i) => i.url)
           : await loadListingImages(row.id),
-        rightSwipeCount: countMap.get(row.id) ?? 0,
       }),
     ),
   );
 
-  const items = rawItems.map((row) => ({ ...row, rightSwipeCount: countMap.get(row.id) ?? 0 }));
   const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
-  return res.json({ listings, items, nextCursor });
+  return res.json({ listings, items: rawItems, nextCursor });
 });
 
 // ─── POST /api/listings ───────────────────────────────────────────────────────
@@ -168,9 +164,10 @@ router.post("/", requireAuth, async (req, res) => {
 // ─── GET /api/listings/:listingId ─────────────────────────────────────────────
 router.get("/:listingId", async (req, res) => {
   const listingId = p(req.params["listingId"]);
+  // No `user` join — email must never be exposed on a public endpoint.
   const listing = await db.query.listingsTable.findFirst({
     where: and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")),
-    with: { images: true, categoryRow: true, wants: true, user: true },
+    with: { images: true, categoryRow: true, wants: true },
   });
   if (!listing) {
     return res.status(404).json({ error: "Listing not found" });
@@ -179,29 +176,54 @@ router.get("/:listingId", async (req, res) => {
   const images = listing.images?.length
     ? listing.images.sort((a, b) => a.position - b.position).map((i) => i.url)
     : await loadListingImages(listing.id);
-  const ownerName =
-    listing.user && "name" in listing.user ? String(listing.user.name) : "";
 
-  const countMap = await fetchRightSwipeCounts([listing.id]);
-  const payload = serializeListingBarter(listing, {
-    ownerName,
-    images,
-    rightSwipeCount: countMap.get(listing.id) ?? 0,
+  const sellerProfile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, listing.userId),
   });
-  const listingDetail = {
-    ...payload,
-    owner_email:
-      listing.user && "email" in listing.user
-        ? String(listing.user.email)
-        : undefined,
-  };
+
+  let seller: SellerSnapshot | null = null;
+  if (sellerProfile) {
+    const rating =
+      sellerProfile.ratingCount > 0
+        ? Math.round((sellerProfile.ratingSum / sellerProfile.ratingCount) * 10) / 10
+        : null;
+    seller = {
+      id: sellerProfile.id,
+      display_name: sellerProfile.displayName,
+      avatar_url: sellerProfile.avatarUrl ?? null,
+      is_verified: sellerProfile.isVerified,
+      is_phone_verified: sellerProfile.isPhoneVerified,
+      total_trades: sellerProfile.totalTrades,
+      rating,
+      location_city: sellerProfile.locationCity ?? null,
+      completion_rate: sellerProfile.completionRate ?? null,
+      avg_response_minutes: sellerProfile.avgResponseMinutes ?? null,
+      member_since: sellerProfile.createdAt,
+    };
+  }
+
+  const ownerName = sellerProfile?.displayName ?? "";
+  const payload = serializeListingBarter(listing, { ownerName, images, seller });
   return res.json({
-    listing: listingDetail,
+    listing: payload,
     id: listing.id,
     title: listing.title,
     status: listing.status,
     images,
   });
+});
+
+// ─── POST /api/listings/:listingId/view ───────────────────────────────────────
+// Requires auth to prevent anonymous view-count inflation. Responds immediately
+// with 204; the DB write is fire-and-forget so the client is never blocked.
+router.post("/:listingId/view", requireAuth, (req, res) => {
+  const listingId = p(req.params["listingId"]);
+  // Respond before the write so mobile scrolling is never delayed.
+  res.status(204).send();
+  db.update(listingsTable)
+    .set({ viewCount: sql`${listingsTable.viewCount} + 1` })
+    .where(and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")))
+    .catch(console.error);
 });
 
 // ─── PATCH /api/listings/:listingId ───────────────────────────────────────────
@@ -293,11 +315,7 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     .returning();
 
   const images = await loadListingImages(updated.id);
-  const patchCountMap = await fetchRightSwipeCounts([updated.id]);
-  const serialized = serializeListingBarter(updated, {
-    images,
-    rightSwipeCount: patchCountMap.get(updated.id) ?? 0,
-  });
+  const serialized = serializeListingBarter(updated, { images });
   return res.json({
     listing: serialized,
     id: updated.id,

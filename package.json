@@ -39,6 +39,7 @@
     "drizzle-orm": "^0.41.0",
     "express": "^5.0.0",
     "express-rate-limit": "^7.4.1",
+    "firebase-admin": "^14.0.0",
     "google-auth-library": "^10.6.2",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",

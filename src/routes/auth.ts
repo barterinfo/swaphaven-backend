@@ -255,7 +255,10 @@ router.post("/device-token", requireAuth, async (req, res) => {
 
   await db.insert(deviceTokensTable)
     .values({ userId: req.user!.sub, ...parsed.data })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: deviceTokensTable.token,
+      set: { userId: req.user!.sub, platform: parsed.data.platform },
+    });
 
   return res.status(204).send();
 });

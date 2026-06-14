@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, integer, timestamp, pgEnum,
+  pgTable, uuid, text, integer, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
 import { offersTable, counterOffersTable } from "./offers.js";
@@ -30,7 +30,10 @@ export const tradeReviewsTable = pgTable("trade_reviews", {
   rating:     integer("rating").notNull(),
   comment:    text("comment"),
   createdAt:  timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // GET /api/users/:userId/reviews: WHERE reviewee_id = ? ORDER BY created_at DESC
+  index("trade_reviews_reviewee_id_created_at_idx").on(t.revieweeId, t.createdAt),
+]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type Trade       = typeof tradesTable.$inferSelect;

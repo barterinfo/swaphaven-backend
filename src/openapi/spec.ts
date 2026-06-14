@@ -38,17 +38,71 @@ export const openApiSpec = {
       },
       UserProfile: {
         type: "object",
+        description: "Full profile (own user, GET /api/users/me).",
         properties: {
-          id:           { type: "string", format: "uuid" },
-          displayName:  { type: "string" },
-          bio:          { type: "string", nullable: true },
-          avatarUrl:    { type: "string", nullable: true },
-          locationCity: { type: "string", nullable: true },
-          tradeScore:   { type: "integer" },
-          totalTrades:  { type: "integer" },
-          ratingSum:    { type: "integer" },
-          ratingCount:  { type: "integer" },
-          isVerified:   { type: "boolean" },
+          id:                 { type: "string", format: "uuid" },
+          displayName:        { type: "string" },
+          bio:                { type: "string", nullable: true },
+          avatarUrl:          { type: "string", nullable: true },
+          locationCity:       { type: "string", nullable: true },
+          tradeScore:         { type: "integer" },
+          totalTrades:        { type: "integer" },
+          ratingSum:          { type: "integer" },
+          ratingCount:        { type: "integer" },
+          isVerified:         { type: "boolean" },
+          isPhoneVerified:    { type: "boolean" },
+          completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Percent of trades completed (server-managed)." },
+          avgResponseMinutes: { type: "integer", nullable: true, description: "Average response time in minutes (server-managed)." },
+          createdAt:          { type: "string", format: "date-time" },
+          updatedAt:          { type: "string", format: "date-time" },
+        },
+      },
+      PublicUserProfile: {
+        type: "object",
+        description: "Public profile (GET /api/users/:userId). Private lat/lng stripped; computed rating and hasLocation added.",
+        properties: {
+          id:                 { type: "string", format: "uuid" },
+          displayName:        { type: "string" },
+          bio:                { type: "string", nullable: true },
+          avatarUrl:          { type: "string", nullable: true },
+          locationCity:       { type: "string", nullable: true },
+          hasLocation:        { type: "boolean", description: "True when lat/lng are on file; exact coords are private." },
+          totalTrades:        { type: "integer" },
+          rating:             { type: "number", nullable: true, description: "Computed from ratingSum / ratingCount, rounded to 1 decimal. Null when no reviews yet." },
+          isVerified:         { type: "boolean" },
+          isPhoneVerified:    { type: "boolean", description: "Reserved; not populated yet (defaults to false)." },
+          completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Reserved; not populated yet (null until trade stats flow lands)." },
+          avgResponseMinutes: { type: "integer", nullable: true, description: "Reserved; not populated yet (null until messaging stats flow lands)." },
+          createdAt:          { type: "string", format: "date-time" },
+        },
+      },
+      UpdateProfileRequest: {
+        type: "object",
+        description: "Fields a user may change on their own profile. Stats and trust signals are server-managed and cannot be set here.",
+        properties: {
+          displayName:  { type: "string", minLength: 1, maxLength: 80 },
+          bio:          { type: "string", maxLength: 500 },
+          avatarUrl:    { type: "string", maxLength: 2048 },
+          locationCity: { type: "string", maxLength: 100 },
+          locationLat:  { type: "number", minimum: -90, maximum: 90 },
+          locationLng:  { type: "number", minimum: -180, maximum: 180 },
+        },
+      },
+      SellerSnapshot: {
+        type: "object",
+        description: "Seller mini-card embedded in GET /api/listings/:id to avoid a second round-trip.",
+        properties: {
+          id:                 { type: "string", format: "uuid" },
+          display_name:       { type: "string" },
+          avatar_url:         { type: "string", nullable: true },
+          is_verified:        { type: "boolean" },
+          is_phone_verified:  { type: "boolean", description: "Reserved; not populated yet (defaults to false)." },
+          total_trades:       { type: "integer" },
+          rating:             { type: "number", nullable: true },
+          location_city:      { type: "string", nullable: true },
+          completion_rate:    { type: "integer", nullable: true, description: "Reserved; not populated yet." },
+          avg_response_minutes: { type: "integer", nullable: true, description: "Reserved; not populated yet." },
+          member_since:       { type: "string", format: "date-time" },
         },
       },
       Category: {
@@ -63,6 +117,7 @@ export const openApiSpec = {
       },
       Listing: {
         type: "object",
+        description: "Raw DB-shape listing row (camelCase). Returned in items[] arrays alongside the serialized listings[] array.",
         properties: {
           id:                  { type: "string", format: "uuid" },
           userId:              { type: "string", format: "uuid" },
@@ -70,19 +125,21 @@ export const openApiSpec = {
           title:               { type: "string" },
           description:         { type: "string", nullable: true },
           condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
+          estimatedValue:      { type: "integer" },
           estimatedValueCents: { type: "integer", nullable: true },
           isSwipeOnly:         { type: "boolean" },
           status:              { type: "string", enum: ["active","traded","paused","deleted"] },
           locationCity:        { type: "string", nullable: true },
+          viewCount:           { type: "integer", description: "Approximate page-view count. Incremented by POST /api/listings/:id/view." },
+          rightSwipeCount:     { type: "integer", description: "Denormalized right-swipe count. Incremented atomically on each new right swipe." },
           createdAt:           { type: "string", format: "date-time" },
           updatedAt:           { type: "string", format: "date-time" },
           images:              { type: "array", items: { $ref: "#/components/schemas/ListingImage" } },
-          rightSwipeCount:     { type: "integer", description: "Total number of right swipes (interest signals) this listing has received." },
         },
       },
       BarterListing: {
         type: "object",
-        description: "barter-stack wire shape (snake_case) from serializeListingBarter.",
+        description: "barter-stack wire shape (snake_case) from serializeListingBarter. Returned in listings[] arrays and single-item detail responses.",
         properties: {
           id:                  { type: "string", format: "uuid" },
           user_id:             { type: "string", format: "uuid" },
@@ -94,11 +151,32 @@ export const openApiSpec = {
           accept_cash_top_ups: { type: "boolean" },
           wanted_category_ids: { type: "array", items: { type: "string" } },
           wanted_categories:   { type: "array", items: { type: "string" } },
-          images:              { type: "array", items: { type: "string" } },
-          status:              { type: "string", enum: ["active","traded","paused","deleted"] },
-          created_at:          { type: "string", format: "date-time" },
-          owner_name:          { type: "string" },
-          right_swipe_count:   { type: "integer", description: "Total number of right swipes (interest signals) this listing has received." },
+          images:              { type: "array", items: { type: "string", format: "uri" } },
+          details: {
+            type: "object",
+            properties: {
+              ageRange: { type: "string" },
+              brand:    { type: "string" },
+            },
+          },
+          location: {
+            type: "object",
+            properties: {
+              address:     { type: "string" },
+              city:        { type: "string" },
+              state:       { type: "string" },
+              country:     { type: "string" },
+              postal_code: { type: "string" },
+              lat:         { type: "number", nullable: true },
+              lng:         { type: "number", nullable: true },
+            },
+          },
+          status:            { type: "string", enum: ["active","traded","paused","deleted"] },
+          created_at:        { type: "string", format: "date-time" },
+          owner_name:        { type: "string" },
+          right_swipe_count: { type: "integer", description: "Denormalized right-swipe count." },
+          view_count:        { type: "integer", description: "Approximate page-view count." },
+          seller:            { allOf: [{ $ref: "#/components/schemas/SellerSnapshot" }], nullable: true, description: "Embedded seller card. Present on GET /api/listings/:id; null on feed/closet responses." },
         },
       },
       ListingFeedResponse: {
@@ -435,18 +513,55 @@ export const openApiSpec = {
     },
     // ── Users ────────────────────────────────────────────────────────────────────
     "/api/users/me": {
-      get: { tags: ["Users"], summary: "Get own profile", responses: { "200": { description: "User profile", content: { "application/json": { schema: { $ref: "#/components/schemas/UserProfile" } } } } } },
+      get: {
+        tags: ["Users"], summary: "Get own profile",
+        responses: { "200": { description: "Full profile", content: { "application/json": { schema: { $ref: "#/components/schemas/UserProfile" } } } } },
+      },
       patch: {
         tags: ["Users"], summary: "Update own profile",
-        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/UserProfile" } } } },
-        responses: { "200": { description: "Updated profile" } },
+        description: "Accepts only user-editable fields. Stats (totalTrades, ratingSum, ratingCount, isPhoneVerified, completionRate, avgResponseMinutes) are server-managed and will be ignored if sent.",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/UpdateProfileRequest" } } } },
+        responses: { "200": { description: "Updated profile", content: { "application/json": { schema: { $ref: "#/components/schemas/UserProfile" } } } } },
       },
     },
     "/api/users/{userId}": {
-      get: { tags: ["Users"], summary: "Get public profile", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Public profile" }, "404": { description: "Not found" } } },
+      get: {
+        tags: ["Users"], summary: "Get public profile", security: [],
+        description: "Returns public fields only. lat/lng are stripped; a computed `rating` (ratingSum / ratingCount) and a `hasLocation` flag are added.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Public profile", content: { "application/json": { schema: { $ref: "#/components/schemas/PublicUserProfile" } } } },
+          "404": { description: "Not found" },
+        },
+      },
     },
     "/api/users/{userId}/listings": {
-      get: { tags: ["Users"], summary: "List a user's active listings", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated listings", content: { "application/json": { schema: { type: "object", properties: { items: { type: "array", items: { $ref: "#/components/schemas/Listing" } }, nextCursor: { type: "string", nullable: true } } } } } } } },
+      get: {
+        tags: ["Users"], summary: "List a user's non-deleted listings (seller closet)",
+        security: [],
+        parameters: [
+          { name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated listings with a total count for the closet header.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items:      { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                    nextCursor: { type: "string", nullable: true },
+                    total:      { type: "integer", description: "Total non-deleted listings for this user (for the '8 listings' header)." },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     "/api/users/{userId}/reviews": {
       get: { tags: ["Users"], summary: "List a user's trade reviews", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated reviews" } } },
@@ -565,9 +680,80 @@ export const openApiSpec = {
       },
     },
     "/api/listings/{listingId}": {
-      get: { tags: ["Listings"], summary: "Get listing detail", security: [], parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } }, "404": { description: "Not found" } } },
-      patch: { tags: ["Listings"], summary: "Update listing", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/Listing" } } } }, responses: { "200": { description: "Updated listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } }, "403": { description: "Forbidden" } } },
+      get: {
+        tags: ["Listings"], summary: "Get listing detail", security: [],
+        description: "Returns the full BarterListing with an embedded `seller` card (SellerSnapshot). No extra round-trip needed for the seller mini-card. seller is null only if the user profile is missing.",
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Listing detail",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listing: { $ref: "#/components/schemas/BarterListing" },
+                    id:      { type: "string", format: "uuid", description: "Legacy flat field — use listing.id." },
+                    title:   { type: "string",                 description: "Legacy flat field — use listing.title." },
+                    status:  { type: "string",                 description: "Legacy flat field — use listing.status." },
+                    images:  { type: "array", items: { type: "string", format: "uri" }, description: "Legacy flat field — use listing.images." },
+                  },
+                },
+              },
+            },
+          },
+          "404": { description: "Not found" },
+        },
+      },
+      patch: {
+        tags: ["Listings"], summary: "Update listing",
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  title:           { type: "string", maxLength: 200 },
+                  description:     { type: "string", maxLength: 10000 },
+                  condition:       { type: "string", enum: ["new","like_new","great","good","fair"] },
+                  estimatedValue:  { type: "integer" },
+                  acceptCashTopUps: { type: "boolean" },
+                  isSwipeOnly:     { type: "boolean" },
+                  status:          { type: "string", enum: ["active","traded","paused","deleted"] },
+                  locationCity:    { type: "string", maxLength: 100 },
+                  location: {
+                    type: "object",
+                    properties: {
+                      lat: { type: "number" }, lng: { type: "number" },
+                      address: { type: "string" }, city: { type: "string" },
+                      state: { type: "string" }, country: { type: "string" },
+                      postalCode: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } },
+          "403": { description: "Forbidden" },
+        },
+      },
       delete: { tags: ["Listings"], summary: "Delete listing (soft)", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Deleted" }, "403": { description: "Forbidden" } } },
+    },
+    "/api/listings/{listingId}/view": {
+      post: {
+        tags: ["Listings"], summary: "Increment view counter",
+        description: "Fire-and-forget view ping. Responds 204 immediately; the DB write is async. Requires auth to prevent anonymous view-count inflation. Clients should call this once per unique detail-page visit.",
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "View counted (or silently ignored for deleted listings)." },
+          "401": { description: "Unauthorized" },
+        },
+      },
     },
     "/api/listings/{listingId}/images": {
       post: { tags: ["Listings"], summary: "Add photo to listing", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" }, position: { type: "integer" } } } } } }, responses: { "201": { description: "Image added" } } },
