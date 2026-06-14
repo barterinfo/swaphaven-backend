@@ -177,14 +177,37 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   const messageBody = parsed.data.body;
 
   void (async () => {
-    const senderProfile = await db.query.userProfilesTable.findFirst({
-      where: eq(userProfilesTable.id, userId),
-      columns: { displayName: true },
-    });
+    const [senderProfile, convDetail] = await Promise.all([
+      db.query.userProfilesTable.findFirst({
+        where: eq(userProfilesTable.id, userId),
+        columns: { displayName: true, avatarUrl: true },
+      }),
+      db.query.conversationsTable.findFirst({
+        where: eq(conversationsTable.id, convId),
+        with: {
+          offer: {
+            with: {
+              listing: { columns: { title: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const senderName = senderProfile?.displayName ?? "Someone";
+    const listingTitle = convDetail?.offer.listing?.title;
+    const tradeTitle = listingTitle ? `${listingTitle} Trade` : undefined;
+
     await sendPushToUser(otherUserId, {
-      title: senderProfile?.displayName ?? "Someone",
+      title: senderName,
       body: messageBody.length > 100 ? `${messageBody.slice(0, 100)}…` : messageBody,
-      data: { type: "new_message", conversationId: convId },
+      data: {
+        type: "new_message",
+        conversationId: convId,
+        senderName,
+        ...(tradeTitle ? { tradeTitle } : {}),
+        ...(senderProfile?.avatarUrl ? { senderAvatarUrl: senderProfile.avatarUrl } : {}),
+      },
     });
   })().catch(console.error);
 

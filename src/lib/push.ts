@@ -51,6 +51,9 @@ export interface PushPayload {
     type: "offer" | "counter_offer" | "offer_accepted" | "new_message";
     offerId?: string;
     conversationId?: string;
+    senderName?: string;
+    tradeTitle?: string;
+    senderAvatarUrl?: string;
   };
 }
 
@@ -92,7 +95,22 @@ export async function sendPushToUser(
     tokens: rows.map((r) => r.token),
     notification: { title: payload.title, body: payload.body },
     data: stringData,
-    apns: { payload: { aps: { sound: "default" } } },
+    apns: {
+      payload: {
+        aps: {
+          sound: "default",
+          ...(payload.data.tradeTitle
+            ? {
+                alert: {
+                  title: payload.title,
+                  subtitle: payload.data.tradeTitle,
+                  body: payload.body,
+                },
+              }
+            : {}),
+        },
+      },
+    },
     android: { priority: "high" },
   });
 

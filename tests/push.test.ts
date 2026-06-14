@@ -286,7 +286,14 @@ describe("route push integration", () => {
       expect(pushModule.sendPushToUser).toHaveBeenCalledWith(
         seller.user.id,
         expect.objectContaining({
-          data: { type: "new_message", conversationId: convId },
+          title: expect.any(String),
+          body: "Hello there!",
+          data: expect.objectContaining({
+            type: "new_message",
+            conversationId: convId,
+            senderName: expect.any(String),
+            tradeTitle: expect.stringMatching(/ Trade$/),
+          }),
         }),
       );
     });
