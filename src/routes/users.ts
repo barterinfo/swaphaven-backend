@@ -6,6 +6,7 @@ import { userProfilesTable, listingsTable, tradeReviewsTable } from "../db/schem
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
+import { findProfaneField } from "../lib/moderation.js";
 
 const router = Router();
 
@@ -35,6 +36,17 @@ router.patch("/me", requireAuth, async (req, res) => {
   const parsed = updateProfileSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const profaneField = findProfaneField([
+    { field: "displayName", value: parsed.data.displayName },
+    { field: "bio", value: parsed.data.bio },
+  ]);
+  if (profaneField) {
+    return res.status(400).json({
+      error: "moderation",
+      message: `${profaneField} contains inappropriate language and cannot be used.`,
+    });
   }
 
   const { locationLat, locationLng, ...rest } = parsed.data;
