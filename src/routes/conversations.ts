@@ -9,6 +9,7 @@ import { broadcastToRoom } from "../lib/ws.js";
 import { serializeConversationListItem } from "../lib/inbox-serializers.js";
 import { fetchTransitSuggestions } from "../lib/overpass.js";
 import { sendPushToUser } from "../lib/push.js";
+import { containsProfanity } from "../lib/moderation.js";
 
 const router = Router();
 
@@ -157,6 +158,14 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
   }
 
+  // Image messages carry a URL in `body`; only text messages are scanned.
+  if (parsed.data.type === "text" && containsProfanity(parsed.data.body)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "message contains inappropriate language and cannot be sent.",
+    });
+  }
+
   const [message] = await db
     .insert(messagesTable)
     .values({
@@ -301,6 +310,12 @@ router.patch("/:conversationId/meetup", requireAuth, async (req, res) => {
   const parsed = conversationMeetupSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+  if (containsProfanity(parsed.data.meetupLocation)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "meetupLocation contains inappropriate language and cannot be used.",
+    });
   }
 
   const conv = await db.query.conversationsTable.findFirst({

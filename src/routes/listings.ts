@@ -10,6 +10,7 @@ import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { filterListingImageUrls } from "../lib/media.js";
+import { findProfaneField } from "../lib/moderation.js";
 import {
   buildReviewSnapshot,
   createListingBodySchema,
@@ -88,6 +89,20 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const data = parsed.data;
+  const profaneField = findProfaneField([
+    { field: "title", value: data.title },
+    { field: "description", value: data.description },
+    { field: "wantedFreeText", value: data.wantedFreeText },
+    { field: "brand", value: data.details?.brand },
+    { field: "ageRange", value: data.details?.ageRange },
+  ]);
+  if (profaneField) {
+    return res.status(400).json({
+      error: "moderation",
+      message: `${profaneField} contains inappropriate language and cannot be used.`,
+    });
+  }
+
   const category = resolveCategorySlug(data);
   const categoryUuid = resolveCategoryUuid(data);
   const estimatedValue = resolveEstimatedValue(data);
@@ -268,6 +283,17 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const patch = parsed.data;
+  const profaneField = findProfaneField([
+    { field: "title", value: patch.title },
+    { field: "description", value: patch.description },
+  ]);
+  if (profaneField) {
+    return res.status(400).json({
+      error: "moderation",
+      message: `${profaneField} contains inappropriate language and cannot be used.`,
+    });
+  }
+
   const loc = patch.location
     ? resolveLocation(
         createListingBodySchema.parse({

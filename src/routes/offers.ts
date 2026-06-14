@@ -13,6 +13,7 @@ import { p } from "../lib/route-helpers.js";
 import { serializeOfferListItem } from "../lib/inbox-serializers.js";
 import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
 import { sendPushToUser } from "../lib/push.js";
+import { containsProfanity } from "../lib/moderation.js";
 
 const router = Router();
 
@@ -43,6 +44,13 @@ router.post("/", requireAuth, async (req, res) => {
   const parsed = createOfferSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  if (containsProfanity(parsed.data.buyerNote)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "buyerNote contains inappropriate language and cannot be used.",
+    });
   }
 
   const { offeredListingIds, ...offerData } = parsed.data;
@@ -226,6 +234,12 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
   const parsed = counterSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+  if (containsProfanity(parsed.data.sellerNote)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "sellerNote contains inappropriate language and cannot be used.",
+    });
   }
 
   await db.update(offersTable).set({ status: "countered", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
