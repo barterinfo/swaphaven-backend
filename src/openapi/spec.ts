@@ -324,6 +324,32 @@ export const openApiSpec = {
           updatedAt:   { type: "string", format: "date-time" },
         },
       },
+      MeetupSuggestion: {
+        type: "object",
+        description: "A named transit stop suggested as a meetup point.",
+        properties: {
+          name:            { type: "string" },
+          lat:             { type: "number" },
+          lng:             { type: "number" },
+          type:            { type: "string", description: "e.g. Train Station, Bus Stop, Tram Stop" },
+          distanceMeters:  { type: "integer", description: "Distance from midpoint in metres" },
+        },
+      },
+      MeetupSuggestionsResponse: {
+        type: "object",
+        properties: {
+          midpoint: {
+            type: "object", nullable: true,
+            properties: { lat: { type: "number" }, lng: { type: "number" } },
+          },
+          suggestions: { type: "array", items: { $ref: "#/components/schemas/MeetupSuggestion" } },
+          reason: {
+            type: "string", nullable: true,
+            enum: ["location_unavailable", "none_found", "overpass_error"],
+            description: "Populated when suggestions is empty to explain why",
+          },
+        },
+      },
       InboxSummary: {
         type: "object",
         properties: {
@@ -851,6 +877,38 @@ export const openApiSpec = {
         parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["body"], properties: { body: { type: "string", maxLength: 2000 }, type: { type: "string", enum: ["text","image"], default: "text" } } } } } },
         responses: { "201": { description: "Message sent", content: { "application/json": { schema: { $ref: "#/components/schemas/Message" } } } } },
+      },
+    },
+    "/api/conversations/{conversationId}/meetup-suggestions": {
+      get: {
+        tags: ["Chat"],
+        summary: "Transit-stop meetup suggestions at the midpoint between buyer and seller",
+        description: "Calculates the geographic midpoint between both users' saved locations and returns nearby transit stops from OpenStreetMap. Returns reason:\"location_unavailable\" if either user has no location on their profile.",
+        parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Suggestions (may be empty)", content: { "application/json": { schema: { $ref: "#/components/schemas/MeetupSuggestionsResponse" } } } },
+          "403": { description: "Not a participant" },
+          "404": { description: "Conversation not found" },
+        },
+      },
+    },
+    "/api/conversations/{conversationId}/meetup": {
+      patch: {
+        tags: ["Chat"],
+        summary: "Set trade meetup location (by conversationId)",
+        description: "Convenience endpoint — resolves the trade via the conversation and applies the meetup location. meetupScheduledAt defaults to now if omitted.",
+        parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", required: ["meetupLocation"], properties: { meetupLocation: { type: "string", maxLength: 500 }, meetupScheduledAt: { type: "string", format: "date-time" } } } } },
+        },
+        responses: {
+          "200": { description: "Updated trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } },
+          "400": { description: "Validation error" },
+          "403": { description: "Not a participant" },
+          "404": { description: "Conversation not found" },
+          "409": { description: "No trade linked to this conversation" },
+        },
       },
     },
     // ── Inbox ────────────────────────────────────────────────────────────────────
