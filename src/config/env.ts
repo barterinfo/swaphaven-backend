@@ -56,6 +56,9 @@ const envSchema = z.object({
   S3_MEDIA_PREFIX: z.string().default("listings"),
   S3_PRESIGN_EXPIRES_SEC: z.coerce.number().int().min(60).max(3600).default(300),
   CDN_BASE_URL: z.string().url().optional(),
+  /** Firebase Admin service-account JSON (stringified). When set, push
+   *  notifications are delivered via FCM. Omit in dev/test to disable push. */
+  FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));
@@ -74,6 +77,26 @@ if (data.DATABASE_URL.includes("${{")) {
       "   do not paste the text ${{Postgres.DATABASE_URL}} manually.",
   );
   process.exit(1);
+}
+
+if (data.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  try {
+    const sa = JSON.parse(data.FIREBASE_SERVICE_ACCOUNT_JSON) as Record<string, unknown>;
+    if (
+      sa.type !== "service_account" ||
+      typeof sa.project_id !== "string" ||
+      typeof sa.private_key !== "string"
+    ) {
+      throw new Error("missing type, project_id, or private_key");
+    }
+  } catch (err) {
+    console.error(
+      "❌  FIREBASE_SERVICE_ACCOUNT_JSON is set but invalid.\n" +
+        "   Paste the full Firebase service-account JSON as a single line (no wrapping quotes).\n" +
+        `   ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
 }
 
 export const env = {

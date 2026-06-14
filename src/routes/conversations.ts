@@ -2,11 +2,12 @@ import { Router } from "express";
 import { and, eq, lt, ne, isNull, inArray, count, or, desc, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { conversationsTable, messagesTable, offersTable } from "../db/schema/index.js";
+import { conversationsTable, messagesTable, offersTable, userProfilesTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { broadcastToRoom } from "../lib/ws.js";
 import { serializeConversationListItem } from "../lib/inbox-serializers.js";
+import { sendPushToUser } from "../lib/push.js";
 
 const router = Router();
 
@@ -165,6 +166,27 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     .returning();
 
   broadcastToRoom(convId, { event: "new_message", message });
+
+  // Push to the other participant only when they are not connected via WS
+  // (broadcastToRoom already delivers to open sockets). We send regardless
+  // because FCM will suppress the notification if the app is in the foreground
+  // on the device — iOS/Android handle that deduplication natively.
+  const otherUserId =
+    conv.offer.buyerId === userId ? conv.offer.sellerId : conv.offer.buyerId;
+  const messageBody = parsed.data.body;
+
+  void (async () => {
+    const senderProfile = await db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, userId),
+      columns: { displayName: true },
+    });
+    await sendPushToUser(otherUserId, {
+      title: senderProfile?.displayName ?? "Someone",
+      body: messageBody.length > 100 ? `${messageBody.slice(0, 100)}…` : messageBody,
+      data: { type: "new_message", conversationId: convId },
+    });
+  })().catch(console.error);
+
   return res.status(201).json(message);
 });
 
