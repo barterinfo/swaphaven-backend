@@ -62,8 +62,8 @@ router.post("/presign", requireAuth, async (req, res) => {
 
   try {
     if ("files" in parsed.data) {
-      const uploads = await createPresignedImageUploads(userId, parsed.data.files);
-      return res.json({ uploads });
+      const files = await createPresignedImageUploads(userId, parsed.data.files);
+      return res.json({ files });
     }
 
     const upload = await createPresignedImageUpload({
