@@ -342,3 +342,142 @@ describe("DELETE /api/listings/:id/images/:imageId", () => {
     expect(delRes.status).toBe(204);
   });
 });
+
+// ─── GET /api/listings/trending ───────────────────────────────────────────────
+describe("GET /api/listings/trending", () => {
+  it("returns { trending, others } shape with 200", async () => {
+    const { accessToken } = await registerUser();
+    await createListing(accessToken);
+
+    const res = await request(app).get("/api/listings/trending");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.trending)).toBe(true);
+    expect(Array.isArray(res.body.others)).toBe(true);
+  });
+
+  it("excludes the authenticated user's own listings", async () => {
+    const owner = await registerUser();
+    const other = await registerUser();
+
+    const ownListing = await createListing(owner.accessToken, { title: "My Own Item" });
+    await createListing(other.accessToken, { title: "Someone Else's Item" });
+
+    const res = await request(app)
+      .get("/api/listings/trending")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const allIds = [
+      ...res.body.trending.map((l: { id: string }) => l.id),
+      ...res.body.others.map((l: { id: string }) => l.id),
+    ];
+    expect(allIds).not.toContain(ownListing.id);
+  });
+
+  it("does not require authentication", async () => {
+    const res = await request(app).get("/api/listings/trending");
+    expect(res.status).toBe(200);
+  });
+
+  it("includes all active listings when no location params are given", async () => {
+    const { accessToken } = await registerUser();
+    const a = await createListing(accessToken, { title: "No-Filter A" });
+    const b = await createListing(accessToken, { title: "No-Filter B" });
+
+    // Fetch as another user so own listings are not excluded.
+    const viewer = await registerUser();
+    const res = await request(app)
+      .get("/api/listings/trending")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const allIds = [
+      ...res.body.trending.map((l: { id: string }) => l.id),
+      ...res.body.others.map((l: { id: string }) => l.id),
+    ];
+    expect(allIds).toContain(a.id);
+    expect(allIds).toContain(b.id);
+  });
+
+  it("radius filter includes listings without coordinates as a fallback", async () => {
+    const { accessToken } = await registerUser();
+    // Listing with no location set.
+    const noLoc = await createListing(accessToken, { title: "No Location" });
+
+    const viewer = await registerUser();
+    // Tiny radius centred far away (middle of the Pacific) — only no-location
+    // listings should survive.
+    const res = await request(app)
+      .get("/api/listings/trending")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .query({ lat: 0, lng: -170, radius: 1 });
+
+    expect(res.status).toBe(200);
+    const allIds = [
+      ...res.body.trending.map((l: { id: string }) => l.id),
+      ...res.body.others.map((l: { id: string }) => l.id),
+    ];
+    expect(allIds).toContain(noLoc.id);
+  });
+
+  it("radius filter excludes listings whose coordinates are outside the radius", async () => {
+    const owner = await registerUser();
+    // New York listing (~2,900 mi from San Francisco).
+    const nyListing = await createListing(owner.accessToken, {
+      title: "New York Item",
+      location: { lat: 40.7128, lng: -74.006, address: "New York, NY" },
+    });
+    // San Francisco listing — well within a 10 mi radius of the query point.
+    const sfListing = await createListing(owner.accessToken, {
+      title: "San Francisco Item",
+      location: { lat: 37.7749, lng: -122.4194, address: "San Francisco, CA" },
+    });
+
+    const viewer = await registerUser();
+    const res = await request(app)
+      .get("/api/listings/trending")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .query({ lat: 37.7749, lng: -122.4194, radius: 10 });
+
+    expect(res.status).toBe(200);
+    const allIds = [
+      ...res.body.trending.map((l: { id: string }) => l.id),
+      ...res.body.others.map((l: { id: string }) => l.id),
+    ];
+    expect(allIds).toContain(sfListing.id);
+    expect(allIds).not.toContain(nyListing.id);
+  });
+
+  it("most-liked listing appears in trending before others", async () => {
+    const owner = await registerUser();
+    const popular = await createListing(owner.accessToken, { title: "Popular Item" });
+    const plain   = await createListing(owner.accessToken, { title: "Plain Item" });
+
+    // Give the popular listing two right-swipes.
+    const swiper1 = await registerUser();
+    const swiper2 = await registerUser();
+    for (const sw of [swiper1, swiper2]) {
+      await request(app)
+        .post("/api/swipe")
+        .set("Authorization", `Bearer ${sw.accessToken}`)
+        .send({ listingId: popular.id, direction: "right" });
+    }
+
+    const viewer = await registerUser();
+    const res = await request(app)
+      .get("/api/listings/trending")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const trendingIds = res.body.trending.map((l: { id: string }) => l.id);
+    const othersIds   = res.body.others.map((l: { id: string }) => l.id);
+
+    expect(trendingIds).toContain(popular.id);
+    // The plain listing must appear in only one of the two arrays.
+    const appearsInTrending = trendingIds.includes(plain.id);
+    const appearsInOthers   = othersIds.includes(plain.id);
+    expect(appearsInTrending || appearsInOthers).toBe(true);
+    // And it should NOT appear in both.
+    expect(appearsInTrending && appearsInOthers).toBe(false);
+  });
+});
