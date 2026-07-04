@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, ilike, lt, ne, sql } from "drizzle-orm";
+import { and, eq, ilike, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
@@ -159,6 +159,90 @@ router.post("/", requireAuth, async (req, res) => {
     status: listing.status,
     userId: listing.userId,
   });
+});
+
+// ─── GET /api/listings/trending ───────────────────────────────────────────────
+// Returns trending items (highest right-swipe counts) first, followed by recent
+// active items. Excludes the authenticated user's own listings when signed in.
+//
+// Optional query params: lat, lng, radius (miles).
+// When supplied, only listings within the radius are returned; listings with no
+// coordinates are always included as a geographic fallback.
+router.get("/trending", optionalAuth, async (req, res) => {
+  const userId = req.user?.sub;
+  const trendingLimit = 20;
+  const othersLimit = 40;
+
+  const rawLat = parseFloat(req.query["lat"] as string);
+  const rawLng = parseFloat(req.query["lng"] as string);
+  const rawRadius = parseFloat(req.query["radius"] as string);
+  const hasLocation =
+    !isNaN(rawLat) && !isNaN(rawLng) && !isNaN(rawRadius) && rawRadius > 0;
+
+  const baseConditions: SQL<unknown>[] = [eq(listingsTable.status, "active")];
+  if (userId) baseConditions.push(ne(listingsTable.userId, userId));
+
+  // Haversine distance in miles. Listings without coordinates are included as a
+  // fallback so the feed is never unexpectedly empty.
+  if (hasLocation) {
+    baseConditions.push(
+      sql`(
+        ${listingsTable.locationLat} IS NULL
+        OR ${listingsTable.locationLng} IS NULL
+        OR (
+          2 * 3958.8 * asin(
+            sqrt(
+              power(sin((radians(${rawLat}) - radians(${listingsTable.locationLat}::float)) / 2), 2)
+              + cos(radians(${listingsTable.locationLat}::float))
+              * cos(radians(${rawLat}))
+              * power(sin((radians(${rawLng}) - radians(${listingsTable.locationLng}::float)) / 2), 2)
+            )
+          ) <= ${rawRadius}
+        )
+      )`,
+    );
+  }
+
+  // Top items by right-swipe count (most-liked / most-offered-on signal).
+  const trendingRaw = await db.query.listingsTable.findMany({
+    where: and(...baseConditions),
+    with: { images: true, categoryRow: true },
+    limit: trendingLimit,
+    orderBy: (t, { desc }) => [desc(t.rightSwipeCount), desc(t.createdAt)],
+  });
+
+  const trendingIds = trendingRaw.map((r) => r.id);
+
+  // Recent listings, excluding already-fetched trending items.
+  const othersConditions: SQL<unknown>[] = [...baseConditions];
+  if (trendingIds.length > 0) {
+    othersConditions.push(notInArray(listingsTable.id, trendingIds));
+  }
+
+  const othersRaw = await db.query.listingsTable.findMany({
+    where: and(...othersConditions),
+    with: { images: true, categoryRow: true },
+    limit: othersLimit,
+    orderBy: (t, { desc }) => [desc(t.createdAt)],
+  });
+
+  const serialize = (rows: typeof trendingRaw) =>
+    Promise.all(
+      rows.map(async (row) =>
+        serializeListingBarter(row, {
+          images: row.images?.length
+            ? row.images.sort((a, b) => a.position - b.position).map((i) => i.url)
+            : await loadListingImages(row.id),
+        }),
+      ),
+    );
+
+  const [trending, others] = await Promise.all([
+    serialize(trendingRaw),
+    serialize(othersRaw),
+  ]);
+
+  return res.json({ trending, others });
 });
 
 // ─── GET /api/listings/:listingId ─────────────────────────────────────────────
