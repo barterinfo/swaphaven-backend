@@ -8,17 +8,35 @@ This is intentionally **not** a real ad-network integration (AdMob / AdSense won
 
 ## Table of contents
 
-1. [How it works end-to-end](#how-it-works-end-to-end)
-2. [Data model](#data-model)
-3. [Backend endpoint](#backend-endpoint)
-4. [Mobile flow](#mobile-flow)
-5. [Day-to-day: the `npm run ads` CLI](#day-to-day-the-npm-run-ads-cli)
-6. [Edge cases: raw SQL](#edge-cases-raw-sql)
+1. [Quick start](#quick-start)
+2. [How it works end-to-end](#how-it-works-end-to-end)
+3. [Data model](#data-model)
+4. [Backend endpoint](#backend-endpoint)
+5. [Mobile flow](#mobile-flow)
+6. [The `npm run ads` CLI](#the-npm-run-ads-cli)
 7. [Images and S3](#images-and-s3)
-8. [Testing](#testing)
-9. [Shipping a new ad — a full walkthrough](#shipping-a-new-ad--a-full-walkthrough)
-10. [Troubleshooting](#troubleshooting)
-11. [What's not built (yet)](#whats-not-built-yet)
+8. [Local vs Railway S3](#local-vs-railway-s3)
+9. [Edge cases: raw SQL](#edge-cases-raw-sql)
+10. [Testing](#testing)
+11. [Shipping a new ad — full walkthrough](#shipping-a-new-ad--full-walkthrough)
+12. [Troubleshooting](#troubleshooting)
+13. [What's not built (yet)](#whats-not-built-yet)
+
+---
+
+## Quick start
+
+```bash
+cd swaphaven-api
+npm run ads
+```
+
+1. Choose **`1) Create a new ad`**
+2. Fill in sponsor name, tagline, CTA label/colour, and CTA link
+3. For background image, choose **`2) Local file`** and paste a path like `~/Downloads/banner.png` — the script uploads to S3
+4. Confirm → cold-start the mobile app to see it in the swipe deck (after 5 listing cards)
+
+**Prerequisites:** `DATABASE_URL` in `.env`, and S3 vars matching Railway (see [Local vs Railway S3](#local-vs-railway-s3)). IAM must allow `ads/*` — see [Images and S3](#images-and-s3).
 
 ---
 
@@ -33,47 +51,36 @@ This is intentionally **not** a real ad-network integration (AdMob / AdSense won
 
 Key properties:
 
-- **Public, unauthenticated fetch.** No user identity is sent — the ads are the same for everyone. That means the endpoint is safe to put behind a CDN later.
-- **Session-cached on the client.** The mobile app fetches active ads **once per session** via `activeAdsProvider` (a Riverpod `FutureProvider`). It refreshes only on cold-start or `ref.invalidate(activeAdsProvider)`. That trades a small propagation delay for zero per-swipe latency.
-- **Parallel with the deck load.** `SwipeDiscoveryNotifier.load()` fires the discovery + ads fetches together with `Future.wait`. Ads never add serial latency to the deck.
-- **Fallback-safe.** If the API is down, empty, or slow (4 s timeout), the mobile app uses `_kFallbackAdSlots` — a small hardcoded rotation baked into the app — so the swipe experience never breaks because of an ads outage.
-- **1 ad after every 5 listing cards** (`_kAdEvery = 5` in `mobile/lib/features/discovery/di/discovery_providers.dart`).
+- **Public, unauthenticated fetch.** No user identity is sent — the ads are the same for everyone.
+- **Session-cached on the client.** The mobile app fetches active ads **once per session** via `activeAdsProvider`. Refreshes on cold-start or `ref.invalidate(activeAdsProvider)`.
+- **Parallel with the deck load.** `SwipeDiscoveryNotifier.load()` fetches discovery + ads with `Future.wait` — ads never add serial latency.
+- **Fallback-safe.** API down, empty, or slow (4 s timeout) → hardcoded `_kFallbackAdSlots` in the app.
+- **1 ad after every 5 listing cards** (`_kAdEvery = 5`).
 
 ---
 
 ## Data model
 
-Table: **`sponsored_ads`** — defined in `src/db/schema/sponsored_ads.ts`.
+Table: **`sponsored_ads`** — `src/db/schema/sponsored_ads.ts`. Migration: `drizzle/0007_add_sponsored_ads.sql`.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | `uuid` (PK, default `gen_random_uuid()`) | Server-generated. |
-| `sponsor_name` | `text` (not null) | Shown top-left on the card. |
-| `tagline` | `text` (not null) | One-line pitch shown above the CTA. |
-| `cta_label` | `text` (not null) | Button text (e.g. "Visit GreenLoop"). |
-| `cta_color` | `text` (not null) | Hex `#RRGGBB` or `#AARRGGBB`. Bad hex → brand purple. |
-| `cta_url` | `text` (nullable) | `https://…` or app deep link. `NULL` renders as a no-op badge. |
-| `background_image_url` | `text` (not null, default `""`) | Empty = dark-gradient card. |
-| `active` | `boolean` (not null, default `true`) | Master on/off switch. |
-| `weight` | `int` (not null, default `1`) | Higher = shown first in rotation. |
-| `starts_at` | `timestamptz` (nullable) | Campaign start. `NULL` = unbounded. |
-| `ends_at` | `timestamptz` (nullable) | Campaign end. `NULL` = unbounded. |
-| `created_at` | `timestamptz` (not null, `NOW()`) | |
-| `updated_at` | `timestamptz` (not null, `NOW()`) | Bumped by the CLI on every write. |
-
-Index: `sponsored_ads_active_idx` on `(active)`. The table stays tiny (dozens of rows at most), so the date-window predicates in the query are cheap even without extra indexes.
-
-Migration: `drizzle/0007_add_sponsored_ads.sql`.
+| `id` | `uuid` (PK) | Server-generated. |
+| `sponsor_name` | `text` | Shown on the card. |
+| `tagline` | `text` | One-line pitch above the CTA. |
+| `cta_label` | `text` | Button text (e.g. "Visit GreenLoop"). |
+| `cta_color` | `text` | Hex `#RRGGBB`. Bad hex → brand purple. |
+| `cta_url` | `text` (nullable) | Where the CTA opens. `NULL` = no-op. |
+| `background_image_url` | `text` | Empty = dark gradient. Must be a **direct image URL**. |
+| `active` | `boolean` | Master on/off. Default `true`. |
+| `weight` | `int` | Higher = shown earlier in rotation. Default `1`. |
+| `starts_at` / `ends_at` | `timestamptz` | Optional campaign window. `NULL` = unbounded. |
 
 ---
 
 ## Backend endpoint
 
-**`GET /api/ads/active`** — `src/routes/ads.ts`, mounted at `/api/ads` in `src/app.ts`.
-
-```http
-GET /api/ads/active HTTP/1.1
-```
+**`GET /api/ads/active`** — public, no auth. See OpenAPI under the `Ads` tag.
 
 ```json
 {
@@ -85,235 +92,250 @@ GET /api/ads/active HTTP/1.1
       "ctaLabel": "Visit GreenLoop",
       "ctaColor": "#F59E0B",
       "ctaUrl": "https://greenloop.example",
-      "backgroundImageUrl": "https://cdn.example.com/ads/8f31….jpg",
+      "backgroundImageUrl": "https://swaphaven-media-prod.s3.ap-southeast-1.amazonaws.com/ads/8f31….jpg",
       "weight": 5
     }
   ]
 }
 ```
 
-Filters (all applied server-side):
-
-```sql
-active = true
-AND (starts_at IS NULL OR starts_at <= now())
-AND (ends_at   IS NULL OR ends_at   >  now())
-ORDER BY weight DESC, id
-```
-
-- Public — no `Authorization` header required.
-- Response is always shape-stable: `ads: []` when nothing qualifies.
-- The order of the response is the order the mobile app rotates through (`adSlots[adIndex % adSlots.length]`), so `weight DESC` really does bias impressions toward higher-weight rows early in the session.
-- Documented in OpenAPI (`src/openapi/spec.ts`) under the `Ads` tag.
+Server filters: `active = true`, date window, `ORDER BY weight DESC, id`.
 
 ---
 
 ## Mobile flow
 
-The ads feature lives under `mobile/lib/features/ads/` and follows the standard feature-first clean architecture layout (domain → application → data → di → presentation).
+| Layer | File | Role |
+|-------|------|------|
+| DI | `service_providers.dart` | Wires ads repository + use case |
+| Cache | `features/ads/di/ads_providers.dart` | `activeAdsProvider` — one fetch per session |
+| Deck | `features/discovery/di/discovery_providers.dart` | Interleaves ads, fallback on error |
+| Screen | `swipe_discovery_screen.dart` | CTA → `AdUrlLauncher` (external browser / deep link) |
+| UI | `packages/barter_ui/…/swipe_ad_card.dart` | Card layout + `BarterCachedImage` |
 
-**Wiring path (top to bottom):**
+Dismissing an ad does **not** decrement the daily swipe quota.
 
-1. `service_providers.dart` — DI for `adsRemoteDataSourceProvider` → `adsRepositoryProvider` → `loadActiveAdsUseCaseProvider`.
-2. `features/ads/di/ads_providers.dart` → `activeAdsProvider`
-   - `FutureProvider<List<SponsoredAd>>`.
-   - Calls `LoadActiveAdsUseCase` once per session.
-   - On **any** error resolves to `const []` — the swipe UI never sees an ads error.
-3. `features/discovery/di/discovery_providers.dart` → `SwipeDiscoveryNotifier.load()`
-   - `Future.wait([_loadDiscovery(), _resolveAdSlots()])` — parallel fetch.
-   - `_resolveAdSlots()` reads `activeAdsProvider.future`; empty result **or** any exception → `_kFallbackAdSlots`.
-   - `_buildDeckItems(listings, adSlots)` interleaves one ad after every 5 listings.
-   - The result is stored on `SwipeDiscoveryState.deckItems` (a `List<SwipeDeckCardData>`, a sealed union of listing / ad cards).
-4. `features/discovery/presentation/swipe_discovery_screen.dart`
-   - Passes `deckItems` to `SwipeCardStack`.
-   - Routes `onAdCtaTap: (ad) => _adUrlLauncher.open(ad.ctaUrl)` — opens `LaunchMode.externalApplication` (external browser or system-registered deep-link handler; no in-app browser).
-5. `packages/barter_ui/lib/widgets/swipe_card_stack.dart`
-   - `switch` on `SwipeDeckCardData`: listings render as `SwipeListingCard`, ads as `SwipeAdCard`.
-   - Ads participate in the same swipe gestures as listings — the deck advances the same way.
-6. `SwipeDiscoveryNotifier.dismissAd()` — dropping an ad off the top does **not** decrement the daily swipe quota.
-
-**What's cached vs. re-fetched:**
-
-| Trigger | Fetches ads? |
-|---|---|
-| App cold-start | Yes (first `activeAdsProvider` read) |
-| `selectCategory()` (filter change) | No — reuses `state.adSlots` |
-| Manual pull-to-refresh calling `load()` | No — `activeAdsProvider` is still cached from earlier this session |
-| `ref.invalidate(activeAdsProvider)` | Yes (currently unused; wire this into a debug/refresh button if you need faster propagation) |
+| Trigger | Re-fetches ads? |
+|---------|-----------------|
+| App cold-start | Yes |
+| Category filter change | No |
+| Pull-to-refresh (today) | No — cache still held |
 
 ---
 
-## Day-to-day: the `npm run ads` CLI
+## The `npm run ads` CLI
 
-**File:** `scripts/ads.ts`. Interactive, prompt-driven. Runs against whatever `DATABASE_URL` is in your environment.
+**File:** `scripts/ads.ts` · **Command:** `npm run ads`
 
-```bash
-cd swaphaven-api
-npm run ads
-```
-
-You'll see:
+Interactive menu — no flags required:
 
 ```
 Sponsored ads
 DB: postgresql://***@localhost:5433/swaphaven
-S3: swaphaven-media-dev (ap-southeast-1)
+S3: swaphaven-media-prod (ap-southeast-1)
 
   1) Create a new ad
   2) List ads
-  3) Pause an ad
-  4) Activate an ad
-  5) Delete an ad
+  3) Update an ad
+  4) Pause an ad
+  5) Activate an ad
+  6) Delete an ad
   q) Quit
 ```
 
-**Create flow** walks you through each field (with sensible defaults in `[brackets]`), lets you point at a local image path (auto-uploaded to S3), previews the row, and asks for confirmation before writing.
+Always check the **DB** and **S3** header before writing — it shows which environment you're pointed at.
 
-**Image field accepts three things:**
-- Empty → no image (dark-gradient card).
-- `https://…` URL → used as-is, no upload.
-- Local path (`./banner.jpg`, `~/Downloads/x.png`) → uploaded to `s3://<bucket>/ads/<uuid>.<ext>` with `Cache-Control: public, max-age=31536000, immutable` and the CDN URL is stored on the row.
+### Create / update fields
 
-**Pointing at production.** The header line shows the DB URL (password masked) — always check before pressing `1)`. Recommended: keep a `.env.prod` and load it explicitly rather than sourcing your shell:
+| Prompt | Required | Notes |
+|--------|----------|-------|
+| Sponsor name | Yes | Display name on the card |
+| Tagline | Yes | One line |
+| CTA button label | Yes | Default: `Learn more` |
+| CTA button colour | Yes | Hex `#RRGGBB`. Default: `#F59E0B` |
+| CTA link | No | Any URL or deep link — **where the button goes** |
+| Background image | No | See below — **not the same as CTA link** |
+| Rotation weight | No | Default `1`. Higher = more frequent in rotation |
+| Campaign start / end | No | ISO dates, or blank |
+
+Every write shows a **review + confirm** step before hitting the database.
+
+### Background image — choose one
+
+When creating or updating, the script asks:
+
+```
+  Background image — choose one:
+    1) None          dark gradient card (no photo)
+    2) Local file    upload from your machine → S3
+                     e.g. ~/Downloads/banner.jpg
+                          ./assets/promo.png
+    3) Remote URL    use an already-hosted direct image link
+                     e.g. https://cdn.example.com/ads/banner.jpg
+                          https://images.unsplash.com/photo-…?w=600
+                     ✗ not a web page — must point at .jpg / .png / .webp
+```
+
+**Option 2 — Local file (recommended)**
+
+- Paste a path on your machine. Quotes are stripped automatically (`'/path/file.png'` works).
+- File is uploaded to `s3://<bucket>/ads/<uuid>.<ext>`.
+- You should see:
+
+  ```
+  Uploading banner.png → s3://swaphaven-media-prod/ads/….png ...
+  Done: https://swaphaven-media-prod.s3.ap-southeast-1.amazonaws.com/ads/….png
+  ```
+
+- That `Done:` URL is what gets saved — and what the app loads.
+
+**Option 3 — Remote URL**
+
+- Must be a **direct image link** (URL ends in `.jpg`, `.png`, `.webp`, etc.).
+- Web pages (articles, product pages) **will not work** as card backgrounds.
+
+**CTA link ≠ background image**
+
+| Field | Example | Purpose |
+|-------|---------|---------|
+| CTA link | `https://www.biography.com/athletes/…` | Opens when user taps the button |
+| Background image | `~/Downloads/banner.png` → S3 URL | Photo shown on the card |
+
+Pasting the same article URL into both fields produces an ad with a broken background.
+
+### Pointing at production
 
 ```bash
 env $(grep -v '^#' .env.prod | xargs) npm run ads
 ```
 
-Or one-shot:
+Or copy Railway's `DATABASE_URL` + S3 vars into local `.env` when you intentionally want local CLI → prod resources.
+
+---
+
+## Images and S3
+
+Ads share the same S3 bucket as listing photos but use a separate prefix: **`ads/`** (listings use `listings/`).
+
+Full bucket setup: [S3_SETUP.md](./S3_SETUP.md).
+
+### Environment variables
+
+In `swaphaven-api/.env`:
+
+```env
+AWS_REGION=ap-southeast-1
+AWS_ACCESS_KEY_ID=…
+AWS_SECRET_ACCESS_KEY=…
+S3_MEDIA_BUCKET=swaphaven-media-prod
+# Optional — base URL only, no path:
+# CDN_BASE_URL=https://swaphaven-media-prod.s3.ap-southeast-1.amazonaws.com
+```
+
+### IAM policy (required for local CLI uploads)
+
+Your IAM user needs **`ads/*`** in addition to `listings/*`:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:PutObject", "s3:GetObject"],
+  "Resource": [
+    "arn:aws:s3:::swaphaven-media-prod/listings/*",
+    "arn:aws:s3:::swaphaven-media-prod/ads/*"
+  ]
+}
+```
+
+Without `ads/*` you'll see:
+
+```
+User … is not authorized to perform: s3:PutObject on resource: …/ads/….
+```
+
+Listing uploads can still work — they use a different prefix.
+
+### Bucket policy (required for the app to display images)
+
+Public read on both prefixes:
+
+```json
+"Resource": [
+  "arn:aws:s3:::swaphaven-media-prod/listings/*",
+  "arn:aws:s3:::swaphaven-media-prod/ads/*"
+]
+```
+
+### Image spec
+
+- Portrait aspect (~3:4 or 9:16) — swipe cards are tall
+- ~1200 px longest edge, WebP/JPEG/PNG, under ~200 KB
+- Allowed extensions: `.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.heif`
+
+---
+
+## Local vs Railway S3
+
+Listing uploads working on Railway does **not** guarantee the ads CLI works locally. Common mismatches:
+
+| Problem | Local `.env` mistake | Fix |
+|---------|---------------------|-----|
+| `The specified bucket does not exist` | `S3_MEDIA_BUCKET=swaphaven-media-dev` (placeholder) | Use the **same bucket name as Railway** (e.g. `swaphaven-media-prod`) |
+| `not authorized … ads/…` | IAM only has `listings/*` | Add `ads/*` to IAM + bucket policy (above) |
+| Image URL looks wrong | `CDN_BASE_URL` set to a full listing image path | Use base URL only, or leave unset |
+| Ad shows broken image | `background_image_url` is a web page, not an image | Re-upload via CLI option 2, or use a direct `.jpg` URL |
+
+**Recommended:** copy `S3_MEDIA_BUCKET`, `AWS_REGION`, and AWS keys from Railway API service variables into local `.env`. Do not use `.env.example`'s `swaphaven-media-dev` unless you've actually created that bucket.
+
+Verify S3 is wired:
 
 ```bash
-DATABASE_URL="postgresql://…railway…" \
-AWS_REGION=us-east-1 S3_MEDIA_BUCKET=swaphaven-media \
-AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… \
-  npm run ads
+curl -s http://localhost:3001/api/media/status
+# { "configured": true }
 ```
 
 ---
 
 ## Edge cases: raw SQL
 
-The CLI covers 95% of ops. Reach for raw SQL only when you need bulk operations, an emergency kill switch, or something the CLI doesn't expose (e.g. scheduling multiple ads at once).
-
-### Read
+The CLI covers day-to-day ops. Use SQL for bulk changes or emergencies.
 
 ```sql
--- Everything, newest first
-SELECT id, sponsor_name, tagline, active, weight, starts_at, ends_at, updated_at
-FROM sponsored_ads
-ORDER BY created_at DESC;
-
--- Only what the mobile app is currently serving
-SELECT id, sponsor_name, weight
+-- Active ads the app is serving right now
+SELECT id, sponsor_name, weight, background_image_url
 FROM sponsored_ads
 WHERE active = true
   AND (starts_at IS NULL OR starts_at <= now())
   AND (ends_at   IS NULL OR ends_at   >  now())
 ORDER BY weight DESC, id;
-```
 
-### Insert
-
-```sql
-INSERT INTO sponsored_ads (
-  sponsor_name, tagline, cta_label, cta_color, cta_url,
-  background_image_url, weight, starts_at, ends_at
-) VALUES (
-  'GreenLoop Thrift',
-  'Trade in old electronics for store credit',
-  'Visit GreenLoop',
-  '#F59E0B',
-  'https://greenloop.example',
-  'https://cdn.example.com/ads/greenloop.jpg',
-  5,
-  '2026-12-01T00:00:00Z',
-  '2026-12-31T23:59:59Z'
-)
-RETURNING id;
-```
-
-### Update
-
-```sql
--- Change copy
-UPDATE sponsored_ads
-SET tagline = 'Holiday special: 2× store credit',
-    weight  = 10,
-    updated_at = now()
-WHERE id = '8f31…';
-
--- Extend a campaign
-UPDATE sponsored_ads
-SET ends_at = '2027-01-31T23:59:59Z',
-    updated_at = now()
-WHERE id = '8f31…';
-```
-
-### Toggle / kill switch
-
-```sql
 -- Pause one ad
-UPDATE sponsored_ads SET active = false, updated_at = now() WHERE id = '8f31…';
+UPDATE sponsored_ads SET active = false, updated_at = now() WHERE id = '…';
 
--- Emergency: pause every ad (mobile falls back to hardcoded rotation)
+-- Emergency kill switch (mobile falls back to hardcoded ads)
 UPDATE sponsored_ads SET active = false, updated_at = now();
+
+-- Fix a bad image URL after mistaken paste
+UPDATE sponsored_ads
+SET background_image_url = 'https://swaphaven-media-prod.s3.ap-southeast-1.amazonaws.com/ads/….png',
+    updated_at = now()
+WHERE id = '…';
 ```
 
-### Delete
-
-```sql
-DELETE FROM sponsored_ads WHERE id = '8f31…';
-```
-
-Deletes are hard — there's no soft-delete column. If you might want to bring an ad back, `pause` it instead.
-
----
-
-## Images and S3
-
-Ads reuse the same S3 setup as listings — see [S3_SETUP.md](./S3_SETUP.md) for the bucket / IAM configuration.
-
-- Env: `AWS_REGION`, `S3_MEDIA_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `CDN_BASE_URL`.
-- Key format: `ads/<uuid>.<ext>` (content-addressed by uuid, so cache headers are safe to set aggressively).
-- Allowed formats: `.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.heif`.
-- The CLI uploads directly (`PutObject`) with server-side credentials — it doesn't use the mobile presigned-upload flow (`POST /api/media/presign`), because the CLI already has AWS creds and one round-trip is faster.
-- Public URL is built by `publicUrlForKey(key)` from `src/lib/media.ts`: prefers `CDN_BASE_URL` if set, otherwise falls back to `https://<bucket>.s3.<region>.amazonaws.com/<key>`.
-
-**Recommended image spec:**
-- Aspect ratio: portrait (~3:4 or 9:16) — the swipe card is tall.
-- Longest edge: 1200 px is plenty; anything larger is wasted bytes.
-- Format: WebP or JPEG for photography, PNG only when transparency matters.
-- Keep it under ~200 KB so the card is instant on cold networks.
+See earlier doc versions or `src/db/schema/sponsored_ads.ts` for full INSERT templates.
 
 ---
 
 ## Testing
 
-**Backend** — `tests/ads.test.ts`:
-
-- Returns `ads: []` when nothing qualifies.
-- Includes only active + in-window rows.
-- Excludes inactive, not-yet-started, and expired rows.
-- Orders by `weight DESC`, then `id`.
-
-Run:
+**Backend:**
 
 ```bash
 cd swaphaven-api
 npm test -- ads
 ```
 
-**Mobile** — `mobile/test/features/ads/`:
-
-- `sponsored_ad_model_test.dart` — DTO parsing edge cases (missing fields, invalid types, extra fields).
-- `ads_repository_impl_test.dart` — data-source → entity mapping.
-- `ad_url_launcher_test.dart` — empty / invalid URLs are no-ops (don't crash).
-- `mobile/test/features/discovery/swipe_discovery_notifier_test.dart` overrides `activeAdsProvider` with a fake and verifies:
-  - Server ads are used when present.
-  - Fallback list is used when the fetch fails or is empty.
-  - `topAdCard` correctly identifies when an ad is at the front of the deck.
-
-Run:
+**Mobile:**
 
 ```bash
 cd mobile
@@ -322,108 +344,96 @@ flutter test test/features/ads test/features/discovery
 
 ---
 
-## Shipping a new ad — a full walkthrough
+## Shipping a new ad — full walkthrough
 
-Let's say GreenLoop paid for a December campaign. Here's the flow start to finish.
-
-**1. Verify local pipeline works.** From `swaphaven-api/`:
+**1. Start API + confirm endpoint**
 
 ```bash
 docker compose up -d postgres
 npm run dev
-```
-
-In another shell:
-
-```bash
 curl -s http://localhost:3001/api/ads/active | jq
 ```
 
-You should see `{ "ads": [] }` on a fresh DB.
-
-**2. Point the CLI at local:**
+**2. Create via CLI**
 
 ```bash
-cd swaphaven-api
 npm run ads
 ```
 
-Pick `1) Create a new ad` and fill it in:
-
 ```
-Sponsor name: GreenLoop Thrift
-Tagline (one line): Trade electronics for store credit
-CTA button label [Learn more]: Visit GreenLoop
-CTA button colour (hex #RRGGBB) [#F59E0B]:
-CTA link (https:// or app deep link, blank for no-op): https://greenloop.example
-Background image (local path or https URL, blank for none): ~/Downloads/greenloop.jpg
-  Uploading greenloop.jpg → s3://swaphaven-media-dev/ads/8f31….jpg ...
-  Done: https://cdn.example.com/ads/8f31….jpg
-Rotation weight (higher = shown more often) [1]: 5
-Campaign start (blank = no bound): 2026-12-01
-Campaign end (blank = no bound): 2026-12-31
+Choose: 1
 
-Review:
-  id:       (new)
-  sponsor:  GreenLoop Thrift
-  ...
+Sponsor name: GreenLoop Thrift
+Tagline: Trade electronics for store credit
+CTA button label [Learn more]: Visit GreenLoop
+CTA button colour [#F59E0B]:
+CTA link: https://greenloop.example
+
+Background image — choose one: 2
+Path to image file: ~/Downloads/greenloop.jpg
+  Uploading greenloop.jpg → s3://swaphaven-media-prod/ads/….jpg ...
+  Done: https://swaphaven-media-prod.s3.ap-southeast-1.amazonaws.com/ads/….jpg
 
 Create this ad? [Y/n]: y
 ```
 
-**3. Verify the API is serving it:**
+**3. Verify API**
 
 ```bash
-curl -s http://localhost:3001/api/ads/active | jq '.ads | length'
-# 1
+curl -s http://localhost:3001/api/ads/active | jq '.ads[0].backgroundImageUrl'
 ```
 
-**4. Verify the mobile app picks it up.** Cold-start the app (or hot-restart Riverpod to invalidate the session cache). Swipe past 5 listings — the 6th card is the sponsored ad. Tap the CTA — it opens in an external browser.
+**4. Verify mobile** — cold-start app, swipe past 5 listings, tap CTA.
 
-**5. Ship to prod.** Same CLI, prod DB:
-
-```bash
-env $(grep -v '^#' .env.prod | xargs) npm run ads
-```
-
-Because the image was uploaded to your prod bucket already (assuming `.env.prod` also has the prod S3 vars), the URL is portable. Otherwise re-run the create against prod with the same local file — a new S3 object is written to the prod bucket.
-
-**6. Watch for issues.** Currently there's no analytics on ad impressions or CTA clicks — this is house-ads level tracking, not ad-network level. If you need this, see [What's not built (yet)](#whats-not-built-yet).
+**5. Prod** — same CLI with prod `DATABASE_URL` / S3 in `.env`, or `env $(grep -v '^#' .env.prod | xargs) npm run ads`.
 
 ---
 
 ## Troubleshooting
 
-**Ad doesn't appear on device after inserting.**
-- The mobile app caches the ads list for the session. Cold-start the app.
-- Confirm the row satisfies the query: `active = true`, `starts_at <= now()`, `ends_at > now()`. The DB stores UTC; make sure your `starts_at` isn't in the future in UTC.
-- Hit `GET /api/ads/active` directly — if the row is there, the app will pick it up on next cold-start.
+### Ad doesn't appear on device
 
-**"S3 is not configured" when creating.**
-- Missing one of `AWS_REGION` / `S3_MEDIA_BUCKET`. The row can still be created without an image (leave the image field blank) — the card will render on a dark gradient.
+- **Cold-start the app** — ads are session-cached.
+- Check `GET /api/ads/active` — if the row is there, the app will pick it up on next cold-start.
+- Confirm `active = true` and date window (`starts_at` / `ends_at`) in UTC.
 
-**Colour comes out purple in the app.**
-- The hex parser expected `#RRGGBB` or `#AARRGGBB` (case-insensitive). Bad hex → `#7C3AED` fallback. Update the row and cold-start.
+### Background image broken / empty on card
 
-**CTA tap does nothing.**
-- Empty / null `cta_url` renders the CTA as a badge (no launch). Update the row.
-- Invalid URI (no scheme) is silently ignored by `AdUrlLauncher.open()`. Use a full `https://…` or a registered deep link scheme (e.g. `swaphaven://…`).
+- **`background_image_url` is a web page**, not an image file. Re-run `npm run ads` → **3) Update** → change image → **2) Local file**.
+- Open the saved URL in a browser — you should see the image directly, not an HTML page.
+- Confirm bucket policy allows public `GetObject` on `ads/*`.
 
-**API returns `ads: []` but the row is `active = true`.**
-- Time-window filter. Check `starts_at` and `ends_at` against `now() at time zone 'UTC'`.
+### `The specified bucket does not exist`
 
-**Mobile always shows the fallback ads.**
-- The `activeAdsProvider` fetch is timing out or failing. Check the API logs and confirm `GET /api/ads/active` responds within the 4 s client timeout. Any 5xx or timeout → fallback.
+- Local `S3_MEDIA_BUCKET` doesn't match a real bucket. Align with Railway (see [Local vs Railway S3](#local-vs-railway-s3)).
+
+### `not authorized to perform: s3:PutObject … ads/…`
+
+- IAM user missing `ads/*`. Add it — listing-only policies are not enough.
+
+### `Unsupported extension ".jpeg'"` (quote in extension)
+
+- Path was pasted with wrapping quotes. The script strips these now; retry without quotes or with them — both work.
+
+### CTA works but image doesn't (or vice versa)
+
+- These are **separate fields**. CTA link = button destination. Background = image file on disk (→ S3) or direct image URL.
+
+### Mobile shows fallback ads (GreenLoop / SwiftShip / Barter Boost)
+
+- `GET /api/ads/active` failed or returned `[]`. Check API is running and ads qualify (active + in date window).
+
+### Colour is purple instead of your hex
+
+- Invalid hex in `cta_color`. Use `#RRGGBB` (e.g. `#F59E0B`).
 
 ---
 
 ## What's not built (yet)
 
-Deliberately deferred to keep scope tight. Wire these in when there's a real business need:
-
-- **Impression / click tracking.** No `ad_impressions` table, no `POST /api/ads/:id/impression`. If you need CTR math or paying advertisers, add it — the ads UI already knows which ad is on top (`SwipeDiscoveryState.topAdCard`), and the CTA tap flows through `SwipeDiscoveryScreen` where a fire-and-forget POST would slot in cleanly.
-- **Category targeting.** Skipped by design. Add a `target_categories text[]` column and filter both server-side (in `/api/ads/active`) and client-side (against the currently selected category).
-- **Per-user frequency capping.** All users see 1 ad per 5 listings. Configurable per-user (e.g. paying subs at 1-in-8) would need to move the interleave decision server-side or expose the cadence via the ad row.
-- **In-app browser.** CTA taps open the OS browser via `LaunchMode.externalApplication`. Swap to `LaunchMode.inAppWebView` if you want retention.
-- **Real ad network.** AdMob / AdSense are drop-in replacements for `_kFallbackAdSlots` — build an ad-network data source that implements `AdsRepository` and swap the binding in `service_providers.dart`. The `SwipeCardStack` already renders whatever `AdCardData` you feed it.
-- **Force-refresh from the app.** `ref.invalidate(activeAdsProvider)` works but isn't wired to a UI trigger. Add it to the discovery pull-to-refresh handler if propagation lag matters.
+- **Impression / click tracking** — no analytics table yet
+- **Category targeting** — all users see the same ads
+- **Per-user frequency cap** — fixed at 1 ad per 5 listings
+- **In-app browser for CTA** — opens external browser today
+- **Real ad network** — `_kFallbackAdSlots` is the placeholder; swap `AdsRepository` binding when ready
+- **Force-refresh in app** — wire `ref.invalidate(activeAdsProvider)` to pull-to-refresh if needed
