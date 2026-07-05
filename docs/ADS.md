@@ -14,13 +14,14 @@ This is intentionally **not** a real ad-network integration (AdMob / AdSense won
 4. [Backend endpoint](#backend-endpoint)
 5. [Mobile flow](#mobile-flow)
 6. [The `npm run ads` CLI](#the-npm-run-ads-cli)
-7. [Images and S3](#images-and-s3)
-8. [Local vs Railway S3](#local-vs-railway-s3)
-9. [Edge cases: raw SQL](#edge-cases-raw-sql)
-10. [Testing](#testing)
-11. [Shipping a new ad — full walkthrough](#shipping-a-new-ad--full-walkthrough)
-12. [Troubleshooting](#troubleshooting)
-13. [What's not built (yet)](#whats-not-built-yet)
+7. [Field reference: weight, start, end](#field-reference-weight-start-end)
+8. [Images and S3](#images-and-s3)
+9. [Local vs Railway S3](#local-vs-railway-s3)
+10. [Edge cases: raw SQL](#edge-cases-raw-sql)
+11. [Testing](#testing)
+12. [Shipping a new ad — full walkthrough](#shipping-a-new-ad--full-walkthrough)
+13. [Troubleshooting](#troubleshooting)
+14. [What's not built (yet)](#whats-not-built-yet)
 
 ---
 
@@ -155,8 +156,8 @@ Always check the **DB** and **S3** header before writing — it shows which envi
 | CTA button colour | Yes | Hex `#RRGGBB`. Default: `#F59E0B` |
 | CTA link | No | Any URL or deep link — **where the button goes** |
 | Background image | No | See below — **not the same as CTA link** |
-| Rotation weight | No | Default `1`. Higher = more frequent in rotation |
-| Campaign start / end | No | ISO dates, or blank |
+| Rotation weight | No | Default `1`. See [Field reference](#field-reference-weight-start-end) |
+| Campaign start / end | No | Optional schedule. See [Field reference](#field-reference-weight-start-end) |
 
 Every write shows a **review + confirm** step before hitting the database.
 
@@ -210,6 +211,86 @@ env $(grep -v '^#' .env.prod | xargs) npm run ads
 ```
 
 Or copy Railway's `DATABASE_URL` + S3 vars into local `.env` when you intentionally want local CLI → prod resources.
+
+---
+
+## Field reference: weight, start, end
+
+These three prompts are **optional**. Leave them blank for a simple always-on ad with normal priority.
+
+### Rotation weight
+
+Controls **which ad appears first** when several are active, and the order they rotate through.
+
+The API returns active ads sorted by **weight highest first**, then by `id`. The mobile app cycles through that list as it inserts one ad after every 5 listing cards.
+
+| Weight | Effect |
+|--------|--------|
+| `1` (default) | Normal priority |
+| `5` | Shown **before** weight-1 ads in the rotation |
+| `10` | Even higher priority |
+
+**Example:** GreenLoop at weight **10** and SwiftShip at weight **1** — GreenLoop appears first in the rotation and comes back around sooner relative to SwiftShip.
+
+Weight is **ordering/priority**, not “show this ad N× more times per user”. With only one active ad, weight has no visible effect.
+
+**What to enter:** A whole number. Press Enter to accept the default.
+
+```
+Rotation weight (higher = shown more often) [1]: 5
+```
+
+---
+
+### Campaign start (`starts_at`)
+
+The ad is **hidden until this date/time**. Before then, `GET /api/ads/active` does not return it.
+
+**What to enter:** A date/time, or **blank** = no start limit (live immediately).
+
+| Input | Meaning |
+|-------|---------|
+| *(blank)* | Starts immediately |
+| `2026-12-01` | 1 Dec 2026, midnight **local time** |
+| `2026-12-01T09:00:00` | 1 Dec 2026, 09:00 local |
+| `2026-12-01T09:00:00Z` | 1 Dec 2026, 09:00 **UTC** (recommended for prod) |
+
+```
+Campaign start (blank = no bound): 2026-12-01
+```
+
+---
+
+### Campaign end (`ends_at`)
+
+The ad **stops showing after this date/time**. Once passed, it is excluded from the API (like an automatic pause).
+
+**What to enter:** Same formats as campaign start, or **blank** = runs until you pause or delete it.
+
+The API filter is `ends_at > now()` — the end time is **exclusive**. An end of `2026-12-31T00:00:00Z` means the ad stops at that instant.
+
+```
+Campaign end (blank = no bound): 2026-12-31
+```
+
+---
+
+### Common combinations
+
+| Goal | Start | End | Weight |
+|------|-------|-----|--------|
+| Simple always-on ad | blank | blank | `1` |
+| Limited-time promo | `2026-12-01` | `2026-12-31` | `5` |
+| Featured sponsor (always on, show first) | blank | blank | `10` |
+| Future campaign (not live yet) | `2027-01-01` | blank | `1` |
+
+### Tips
+
+1. **Leave start/end blank** unless you need scheduling — most house ads don't.
+2. **Use UTC in production** (`…Z` suffix) to avoid timezone surprises.
+3. **Weight only matters with multiple active ads.**
+4. **Changes need an app cold-start** — ads are cached per session.
+5. **Pause vs dates:** `Pause` in the CLI is instant manual off; start/end are automatic scheduling.
 
 ---
 
