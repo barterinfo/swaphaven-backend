@@ -233,7 +233,7 @@ function formatAd(ad: SponsoredAd): string {
     `  tagline:  ${ad.tagline}`,
     `  cta:      ${ad.ctaLabel}   ${ad.ctaColor}   ${ad.ctaUrl ?? "(no link)"}`,
     `  image:    ${ad.backgroundImageUrl || "(dark gradient)"}`,
-    `  status:   ${status}   weight ${ad.weight}${window ? `   ${window}` : ""}`,
+    `  status:   ${status}   weight ${ad.weight}   clicks ${ad.clickCount}${window ? `   ${window}` : ""}`,
   ].join("\n");
 }
 

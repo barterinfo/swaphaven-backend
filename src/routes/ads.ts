@@ -2,6 +2,8 @@ import { Router } from "express";
 import { and, eq, or, isNull, gt, lt, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { sponsoredAdsTable } from "../db/schema/index.js";
+import { isUuid } from "../lib/barter-listing.js";
+import { p } from "../lib/route-helpers.js";
 
 const router = Router();
 
@@ -39,6 +41,29 @@ router.get("/active", async (_req, res) => {
     .orderBy(sql`${sponsoredAdsTable.weight} DESC`, sponsoredAdsTable.id);
 
   return res.json({ ads: rows });
+});
+
+// ─── POST /api/ads/:id/click ──────────────────────────────────────────────────
+// Records a CTA engagement (button tap or right-swipe on an ad card).
+// Public: no auth required — same trust model as GET /active.
+// Responds immediately with 204; the increment is fire-and-forget so the
+// browser/deep-link handoff is never blocked.
+router.post("/:id/click", (req, res) => {
+  const id = p(req.params["id"]);
+  if (!isUuid(id)) {
+    res.status(400).json({ error: "Invalid ad id" });
+    return;
+  }
+
+  res.status(204).send();
+
+  db.update(sponsoredAdsTable)
+    .set({
+      clickCount: sql`${sponsoredAdsTable.clickCount} + 1`,
+      updatedAt:  new Date(),
+    })
+    .where(eq(sponsoredAdsTable.id, id))
+    .catch(console.error);
 });
 
 export default router;

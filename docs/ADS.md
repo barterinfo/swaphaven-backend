@@ -510,9 +510,25 @@ curl -s http://localhost:3001/api/ads/active | jq '.ads[0].backgroundImageUrl'
 
 ---
 
+## Click tracking
+
+When a user **taps the CTA** or **right-swipes** an ad card, the app fires `POST /api/ads/{id}/click` (no auth, fire-and-forget). The API increments `click_count` on that row.
+
+Check totals:
+
+```sql
+SELECT id, sponsor_name, click_count, updated_at
+FROM sponsored_ads
+ORDER BY click_count DESC;
+```
+
+Or run `npm run ads` → **1) List all ads** — each row shows `clicks N`.
+
+---
+
 ## What's not built (yet)
 
-- **Impression / click tracking** — no analytics table yet
+- **Impression tracking** — deck views are not counted yet
 - **Category targeting** — all users see the same ads
 - **Per-user frequency cap** — fixed at 1 ad per 5 listings
 - **In-app browser for CTA** — opens external browser today

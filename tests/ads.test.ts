@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { testDb } from "./helpers/db.js";
 import { sponsoredAdsTable } from "../src/db/schema/index.js";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface AdRow {
   id: string;
@@ -177,5 +180,68 @@ describe("GET /api/ads/active", () => {
     const names = (res.body.ads as AdRow[]).map((a) => a.sponsorName);
     expect(names).toContain("Live");
     expect(names).toContain("Started");
+  });
+});
+
+// ─── POST /api/ads/:id/click ──────────────────────────────────────────────────
+describe("POST /api/ads/:id/click", () => {
+  beforeEach(async () => {
+    await testDb.delete(sponsoredAdsTable);
+  });
+
+  it("returns 204 and increments click_count (no auth required)", async () => {
+    const ad = await insertAd();
+
+    const res = await request(app).post(`/api/ads/${ad.id}/click`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ clickCount: sponsoredAdsTable.clickCount })
+      .from(sponsoredAdsTable)
+      .where(eq(sponsoredAdsTable.id, ad.id));
+    expect(row!.clickCount).toBe(1);
+  });
+
+  it("increments click_count on repeated clicks", async () => {
+    const ad = await insertAd();
+
+    await request(app).post(`/api/ads/${ad.id}/click`);
+    await request(app).post(`/api/ads/${ad.id}/click`);
+    const res = await request(app).post(`/api/ads/${ad.id}/click`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ clickCount: sponsoredAdsTable.clickCount })
+      .from(sponsoredAdsTable)
+      .where(eq(sponsoredAdsTable.id, ad.id));
+    expect(row!.clickCount).toBe(3);
+  });
+
+  it("returns 400 for a non-uuid id", async () => {
+    const res = await request(app).post("/api/ads/not-a-uuid/click");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 204 for an unknown ad id without throwing", async () => {
+    const res = await request(app).post(
+      "/api/ads/00000000-0000-4000-8000-000000000001/click",
+    );
+    expect(res.status).toBe(204);
+  });
+
+  it("increments clicks on paused ads (cached deck may still reference them)", async () => {
+    const ad = await insertAd({ active: false });
+
+    const res = await request(app).post(`/api/ads/${ad.id}/click`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ clickCount: sponsoredAdsTable.clickCount })
+      .from(sponsoredAdsTable)
+      .where(eq(sponsoredAdsTable.id, ad.id));
+    expect(row!.clickCount).toBe(1);
   });
 });

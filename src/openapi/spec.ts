@@ -957,6 +957,19 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/ads/{id}/click": {
+      post: {
+        tags: ["Ads"],
+        summary: "Record a sponsored-ad CTA click",
+        description: "Increments the ad's click_count when the user taps the CTA or right-swipes an ad card. Public: no auth required. Responds with 204 immediately; the DB write is fire-and-forget.",
+        security: [],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Click recorded (or ad id not found — still 204 after response is sent)" },
+          "400": { description: "Invalid ad id" },
+        },
+      },
+    },
   },
   tags: [
     { name: "Meta",          description: "Health and metadata" },
