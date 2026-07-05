@@ -32,7 +32,7 @@ async function insertAd(overrides: Partial<{
     tagline:            overrides.tagline            ?? "A test tagline.",
     ctaLabel:           overrides.ctaLabel           ?? "Learn More",
     ctaColor:           overrides.ctaColor           ?? "#F59E0B",
-    ctaUrl:             overrides.ctaUrl             ?? "https://example.com",
+    ctaUrl:             "ctaUrl" in overrides ? overrides.ctaUrl! : "https://example.com",
     backgroundImageUrl: overrides.backgroundImageUrl ?? "",
     active:             overrides.active             ?? true,
     weight:             overrides.weight             ?? 1,
@@ -123,5 +123,59 @@ describe("GET /api/ads/active", () => {
     const res = await request(app).get("/api/ads/active");
     const names = (res.body.ads as AdRow[]).map((a) => a.sponsorName);
     expect(names).toEqual(["High", "Middle", "Low"]);
+  });
+
+  it("returns null ctaUrl and backgroundImageUrl when unset", async () => {
+    await insertAd({ ctaUrl: null, backgroundImageUrl: "" });
+
+    const res = await request(app).get("/api/ads/active");
+    const [ad] = res.body.ads as AdRow[];
+    expect(ad.ctaUrl).toBeNull();
+    expect(ad.backgroundImageUrl).toBe("");
+  });
+
+  it("returns S3 background image URL from the database", async () => {
+    const imageUrl = "https://swaphaven-media-prod.s3.ap-southeast-1.amazonaws.com/ads/test.png";
+    await insertAd({ backgroundImageUrl: imageUrl });
+
+    const res = await request(app).get("/api/ads/active");
+    expect((res.body.ads as AdRow[])[0]!.backgroundImageUrl).toBe(imageUrl);
+  });
+
+  it("does not expose internal columns (active, startsAt, endsAt)", async () => {
+    await insertAd();
+
+    const res = await request(app).get("/api/ads/active");
+    const [ad] = res.body.ads as Record<string, unknown>[];
+    expect(Object.keys(ad).sort()).toEqual([
+      "backgroundImageUrl",
+      "ctaColor",
+      "ctaLabel",
+      "ctaUrl",
+      "id",
+      "sponsorName",
+      "tagline",
+      "weight",
+    ]);
+  });
+
+  it("tie-breaks equal weight by id ascending", async () => {
+    const first = await insertAd({ sponsorName: "B", weight: 5 });
+    const second = await insertAd({ sponsorName: "A", weight: 5 });
+
+    const res = await request(app).get("/api/ads/active");
+    const ids = (res.body.ads as AdRow[]).map((a) => a.id);
+    const expected = [first.id, second.id].sort();
+    expect(ids).toEqual(expected);
+  });
+
+  it("includes ads whose starts_at is in the past", async () => {
+    await insertAd({ sponsorName: "Live" });
+    await insertAd({ sponsorName: "Started", startsAt: new Date(Date.now() - 60_000) });
+
+    const res = await request(app).get("/api/ads/active");
+    const names = (res.body.ads as AdRow[]).map((a) => a.sponsorName);
+    expect(names).toContain("Live");
+    expect(names).toContain("Started");
   });
 });

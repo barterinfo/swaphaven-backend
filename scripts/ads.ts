@@ -30,6 +30,12 @@ import { db, pool } from "../src/db/client.js";
 import { sponsoredAdsTable, type SponsoredAd } from "../src/db/schema/sponsored_ads.js";
 import { env } from "../src/config/env.js";
 import { publicUrlForKey } from "../src/lib/media.js";
+import {
+  IMAGE_CONTENT_TYPES,
+  explainS3UploadError,
+  looksLikeDirectImageUrl,
+  normalizeUserPath,
+} from "./lib/ads-image-utils.js";
 
 // ─── Prompt helpers ──────────────────────────────────────────────────────────
 // One long-lived readline is cheaper than opening/closing per prompt and
@@ -76,15 +82,6 @@ async function askYesNo(question: string, defaultYes = false): Promise<boolean> 
 
 // ─── S3 upload ───────────────────────────────────────────────────────────────
 
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
-  ".jpg":  "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png":  "image/png",
-  ".webp": "image/webp",
-  ".heic": "image/heic",
-  ".heif": "image/heif",
-};
-
 let cachedS3: S3Client | null = null;
 function s3(): S3Client {
   if (!env.AWS_REGION || !env.S3_MEDIA_BUCKET) {
@@ -102,37 +99,6 @@ function s3(): S3Client {
   }
   cachedS3 = new S3Client(config);
   return cachedS3;
-}
-
-function explainS3Error(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (/bucket does not exist|NoSuchBucket/i.test(msg)) {
-    return (
-      `${msg}\n` +
-      `  → Bucket "${env.S3_MEDIA_BUCKET}" was not found in AWS region "${env.AWS_REGION}".\n` +
-      "  → Create it in the S3 console (same region as AWS_REGION), or fix S3_MEDIA_BUCKET in .env.\n" +
-      "  → See docs/S3_SETUP.md. Until then, use option 3 (remote image URL) in the ads CLI."
-    );
-  }
-  if (/AccessDenied|not authorized/i.test(msg)) {
-    return (
-      `${msg}\n` +
-      `  → IAM user needs s3:PutObject on arn:aws:s3:::${env.S3_MEDIA_BUCKET}/ads/*`
-    );
-  }
-  return msg;
-}
-
-/** Strip wrapping quotes and whitespace from pasted paths / URLs. */
-function normalizeUserPath(raw: string): string {
-  let v = raw.trim();
-  if (
-    (v.startsWith("'") && v.endsWith("'")) ||
-    (v.startsWith('"') && v.endsWith('"'))
-  ) {
-    v = v.slice(1, -1).trim();
-  }
-  return v;
 }
 
 /**
@@ -166,21 +132,11 @@ async function uploadLocalImage(rawPath: string): Promise<string> {
       CacheControl: "public, max-age=31536000, immutable",
     }));
   } catch (err) {
-    throw new Error(explainS3Error(err));
+    throw new Error(explainS3UploadError(err, env.S3_MEDIA_BUCKET, env.AWS_REGION));
   }
   const url = publicUrlForKey(key);
   console.log(`  Done: ${url}`);
   return url;
-}
-
-/** True when [url] pathname ends with a known image extension. */
-function looksLikeDirectImageUrl(url: string): boolean {
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-    return /\.(jpe?g|png|webp|heic|heif)(\?|$)/i.test(path);
-  } catch {
-    return false;
-  }
 }
 
 async function askImageSourceChoice(): Promise<"none" | "local" | "remote"> {
