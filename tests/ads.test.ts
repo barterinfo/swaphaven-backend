@@ -245,3 +245,66 @@ describe("POST /api/ads/:id/click", () => {
     expect(row!.clickCount).toBe(1);
   });
 });
+
+// ─── POST /api/ads/:id/impression ─────────────────────────────────────────────
+describe("POST /api/ads/:id/impression", () => {
+  beforeEach(async () => {
+    await testDb.delete(sponsoredAdsTable);
+  });
+
+  it("returns 204 and increments impression_count (no auth required)", async () => {
+    const ad = await insertAd();
+
+    const res = await request(app).post(`/api/ads/${ad.id}/impression`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ impressionCount: sponsoredAdsTable.impressionCount })
+      .from(sponsoredAdsTable)
+      .where(eq(sponsoredAdsTable.id, ad.id));
+    expect(row!.impressionCount).toBe(1);
+  });
+
+  it("increments impression_count on repeated impressions", async () => {
+    const ad = await insertAd();
+
+    await request(app).post(`/api/ads/${ad.id}/impression`);
+    await request(app).post(`/api/ads/${ad.id}/impression`);
+    const res = await request(app).post(`/api/ads/${ad.id}/impression`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ impressionCount: sponsoredAdsTable.impressionCount })
+      .from(sponsoredAdsTable)
+      .where(eq(sponsoredAdsTable.id, ad.id));
+    expect(row!.impressionCount).toBe(3);
+  });
+
+  it("returns 400 for a non-uuid id", async () => {
+    const res = await request(app).post("/api/ads/not-a-uuid/impression");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 204 for an unknown ad id without throwing", async () => {
+    const res = await request(app).post(
+      "/api/ads/00000000-0000-4000-8000-000000000001/impression",
+    );
+    expect(res.status).toBe(204);
+  });
+
+  it("increments impressions on paused ads (cached deck may still reference them)", async () => {
+    const ad = await insertAd({ active: false });
+
+    const res = await request(app).post(`/api/ads/${ad.id}/impression`);
+    expect(res.status).toBe(204);
+
+    await sleep(50);
+    const [row] = await testDb
+      .select({ impressionCount: sponsoredAdsTable.impressionCount })
+      .from(sponsoredAdsTable)
+      .where(eq(sponsoredAdsTable.id, ad.id));
+    expect(row!.impressionCount).toBe(1);
+  });
+});

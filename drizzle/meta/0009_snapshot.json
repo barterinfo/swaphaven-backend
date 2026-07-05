@@ -1,6 +1,6 @@
 {
-  "id": "af38d242-62bb-4608-8642-0c194dff1369",
-  "prevId": "24c8753b-522f-42c2-8710-bbc8b0d4a382",
+  "id": "05c215b4-7ea9-49df-b0a7-7dd4ca0150a7",
+  "prevId": "af38d242-62bb-4608-8642-0c194dff1369",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1906,6 +1906,13 @@
         },
         "click_count": {
           "name": "click_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "impression_count": {
+          "name": "impression_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

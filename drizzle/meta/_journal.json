@@ -64,6 +64,13 @@
       "when": 1783260854258,
       "tag": "0009_giant_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783261435798,
+      "tag": "0009_cute_scalphunter",
+      "breakpoints": true
     }
   ]
 }

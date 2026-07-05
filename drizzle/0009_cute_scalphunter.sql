@@ -1,0 +1,1 @@
+ALTER TABLE "sponsored_ads" ADD COLUMN "impression_count" integer DEFAULT 0 NOT NULL;

@@ -970,6 +970,19 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/ads/{id}/impression": {
+      post: {
+        tags: ["Ads"],
+        summary: "Record a sponsored-ad deck impression",
+        description: "Increments the ad's impression_count when the ad card becomes the top card in the swipe deck. Public: no auth required. Responds with 204 immediately; the DB write is fire-and-forget.",
+        security: [],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Impression recorded" },
+          "400": { description: "Invalid ad id" },
+        },
+      },
+    },
   },
   tags: [
     { name: "Meta",          description: "Health and metadata" },

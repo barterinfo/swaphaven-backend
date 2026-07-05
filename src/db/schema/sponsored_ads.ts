@@ -21,6 +21,8 @@ export const sponsoredAdsTable = pgTable("sponsored_ads", {
   weight:              integer("weight").notNull().default(1),
   // Denormalized total CTA clicks (POST /api/ads/:id/click).
   clickCount:          integer("click_count").notNull().default(0),
+  // Denormalized deck impressions (POST /api/ads/:id/impression).
+  impressionCount:     integer("impression_count").notNull().default(0),
   // Optional campaign window; NULL = unbounded on that side.
   startsAt:            timestamp("starts_at", { withTimezone: true }),
   endsAt:              timestamp("ends_at",   { withTimezone: true }),

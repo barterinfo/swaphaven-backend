@@ -47,7 +47,7 @@ npm run ads
  sponsored_ads table  ──►  GET /api/ads/active  ──►  activeAdsProvider  ──►  SwipeDiscoveryNotifier
    (Postgres, admin CRUD)     (public, no auth)       (Riverpod, session-cached)   (interleaves 1 ad per 5 listings)
                                                               │
-                                                              └── on error / empty ──► _kFallbackAdSlots (hardcoded)
+                                                              └── on error / empty ──► no ad slots (listings only)
 ```
 
 Key properties:
@@ -55,7 +55,7 @@ Key properties:
 - **Public, unauthenticated fetch.** No user identity is sent — the ads are the same for everyone.
 - **Session-cached on the client.** The mobile app fetches active ads **once per session** via `activeAdsProvider`. Refreshes on cold-start or `ref.invalidate(activeAdsProvider)`.
 - **Parallel with the deck load.** `SwipeDiscoveryNotifier.load()` fetches discovery + ads with `Future.wait` — ads never add serial latency.
-- **Fallback-safe.** API down, empty, or slow (4 s timeout) → hardcoded `_kFallbackAdSlots` in the app.
+- **Empty-safe.** API down, empty, or slow (4 s timeout) → deck shows listings only; no placeholder ads.
 - **1 ad after every 5 listing cards** (`_kAdEvery = 5`).
 
 ---
@@ -110,7 +110,7 @@ Server filters: `active = true`, date window, `ORDER BY weight DESC, id`.
 |-------|------|------|
 | DI | `service_providers.dart` | Wires ads repository + use case |
 | Cache | `features/ads/di/ads_providers.dart` | `activeAdsProvider` — one fetch per session |
-| Deck | `features/discovery/di/discovery_providers.dart` | Interleaves ads, fallback on error |
+| Deck | `features/discovery/di/discovery_providers.dart` | Interleaves ads; omits slots when API is empty or down |
 | Screen | `swipe_discovery_screen.dart` | CTA → `AdUrlLauncher` (external browser / deep link) |
 | UI | `packages/barter_ui/…/swipe_ad_card.dart` | Card layout + `BarterCachedImage` |
 
@@ -500,9 +500,9 @@ curl -s http://localhost:3001/api/ads/active | jq '.ads[0].backgroundImageUrl'
 
 - These are **separate fields**. CTA link = button destination. Background = image file on disk (→ S3) or direct image URL.
 
-### Mobile shows fallback ads (GreenLoop / SwiftShip / Barter Boost)
+### Mobile shows no ads (expected when none are configured)
 
-- `GET /api/ads/active` failed or returned `[]`. Check API is running and ads qualify (active + in date window).
+- `GET /api/ads/active` returned `[]` or failed. Create/activate an ad with `npm run ads`, or check the API is running and rows qualify (active + in date window).
 
 ### Colour is purple instead of your hex
 
@@ -510,27 +510,26 @@ curl -s http://localhost:3001/api/ads/active | jq '.ads[0].backgroundImageUrl'
 
 ---
 
-## Click tracking
+## Analytics (impressions & clicks)
 
-When a user **taps the CTA** or **right-swipes** an ad card, the app fires `POST /api/ads/{id}/click` (no auth, fire-and-forget). The API increments `click_count` on that row.
+When an ad card **reaches the top of the swipe deck**, the app fires `POST /api/ads/{id}/impression` (no auth, fire-and-forget). When a user **taps the CTA** or **right-swipes** an ad card, it fires `POST /api/ads/{id}/click`. Both endpoints increment denormalized counters on the row.
 
 Check totals:
 
 ```sql
-SELECT id, sponsor_name, click_count, updated_at
+SELECT id, sponsor_name, impression_count, click_count, updated_at
 FROM sponsored_ads
-ORDER BY click_count DESC;
+ORDER BY impression_count DESC;
 ```
 
-Or run `npm run ads` → **1) List all ads** — each row shows `clicks N`.
+Or run `npm run ads` → **1) List all ads** — each row shows `impressions N` and `clicks N`.
 
 ---
 
 ## What's not built (yet)
 
-- **Impression tracking** — deck views are not counted yet
 - **Category targeting** — all users see the same ads
 - **Per-user frequency cap** — fixed at 1 ad per 5 listings
 - **In-app browser for CTA** — opens external browser today
-- **Real ad network** — `_kFallbackAdSlots` is the placeholder; swap `AdsRepository` binding when ready
+- **Real ad network** — house ads only today; plug in AdMob etc. later if needed
 - **Force-refresh in app** — wire `ref.invalidate(activeAdsProvider)` to pull-to-refresh if needed

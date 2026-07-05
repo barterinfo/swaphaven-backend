@@ -66,4 +66,25 @@ router.post("/:id/click", (req, res) => {
     .catch(console.error);
 });
 
+// ─── POST /api/ads/:id/impression ─────────────────────────────────────────────
+// Records that an ad card reached the top of the swipe deck.
+// Public: no auth required. Responds with 204 immediately; increment is async.
+router.post("/:id/impression", (req, res) => {
+  const id = p(req.params["id"]);
+  if (!isUuid(id)) {
+    res.status(400).json({ error: "Invalid ad id" });
+    return;
+  }
+
+  res.status(204).send();
+
+  db.update(sponsoredAdsTable)
+    .set({
+      impressionCount: sql`${sponsoredAdsTable.impressionCount} + 1`,
+      updatedAt:       new Date(),
+    })
+    .where(eq(sponsoredAdsTable.id, id))
+    .catch(console.error);
+});
+
 export default router;
