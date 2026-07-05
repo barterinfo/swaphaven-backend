@@ -8,6 +8,7 @@ import { db } from "../db/client.js";
 import { usersTable, userProfilesTable, deviceTokensTable } from "../db/schema/index.js";
 import { requireAuth, signTokens, verifyRefreshToken } from "../middleware/auth.js";
 import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
+import { containsProfanity } from "../lib/moderation.js";
 
 const router = Router();
 
@@ -33,6 +34,12 @@ router.post("/register", async (req, res) => {
   }
 
   const { email, password, name } = parsed.data;
+  if (containsProfanity(name)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "name contains inappropriate language and cannot be used.",
+    });
+  }
   const normalized = email.toLowerCase();
 
   const existing = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });

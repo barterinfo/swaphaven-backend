@@ -8,6 +8,7 @@ import {
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
+import { containsProfanity } from "../lib/moderation.js";
 
 const router = Router();
 
@@ -60,6 +61,12 @@ router.patch("/:tradeId/meetup", requireAuth, async (req, res) => {
   const parsed = meetupSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+  if (containsProfanity(parsed.data.meetupLocation)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "meetupLocation contains inappropriate language and cannot be used.",
+    });
   }
 
   const trade = await db.query.tradesTable.findFirst({
@@ -129,6 +136,12 @@ router.post("/:tradeId/reviews", requireAuth, async (req, res) => {
   const parsed = reviewSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+  if (containsProfanity(parsed.data.comment)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "comment contains inappropriate language and cannot be used.",
+    });
   }
 
   const trade = await db.query.tradesTable.findFirst({
