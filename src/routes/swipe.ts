@@ -38,21 +38,59 @@ router.get("/deck", requireAuth, async (req, res) => {
     where: and(...conditions),
     with: { images: true, categoryRow: true, wants: true },
     limit: DAILY_SWIPE_LIMIT,
-    // Replace with AI mutual-fit score in production
     orderBy: sql`RANDOM()`,
   });
+
+  // Fetch the viewer's own active listings so we can compute mutual-fit scores.
+  // We consider what the viewer *has* (their listing categories) as what they can offer.
+  const myListings = await db.query.listingsTable.findMany({
+    where: and(
+      eq(listingsTable.userId, userId),
+      eq(listingsTable.status, "active"),
+    ),
+    columns: { category: true, wantedCategories: true },
+  });
+
+  // Build a lowercase set of category labels the viewer can offer.
+  const myOfferCategories = new Set<string>(
+    myListings.map((l) => l.category.trim().toLowerCase()),
+  );
+
+  function computeMatchScore(wantedCategories: string[]): {
+    mutualFitScore: number;
+    matchedWantedLabels: string[];
+    matchReason: string | null;
+  } {
+    if (!wantedCategories.length || !myOfferCategories.size) {
+      return { mutualFitScore: 0, matchedWantedLabels: [], matchReason: null };
+    }
+    const matched = wantedCategories.filter((w) =>
+      myOfferCategories.has(w.trim().toLowerCase()),
+    );
+    const score = matched.length / wantedCategories.length;
+    const reason =
+      matched.length > 0
+        ? `You have items in: ${matched.join(", ")}`
+        : null;
+    return { mutualFitScore: score, matchedWantedLabels: matched, matchReason: reason };
+  }
 
   const streak = await db.query.swipeStreaksTable.findFirst({
     where: eq(swipeStreaksTable.userId, userId),
   });
 
   return res.json({
-    cards: cards.map((c) => ({
-      listing: c,
-      matchReason: null,
-      mutualFitScore: 0.5,  // Populate from AI service
-      hotCount: c.rightSwipeCount,
-    })),
+    cards: cards.map((c) => {
+      const { mutualFitScore, matchedWantedLabels, matchReason } =
+        computeMatchScore(c.wantedCategories ?? []);
+      return {
+        listing: c,
+        matchReason,
+        mutualFitScore,
+        matchedWantedLabels,
+        hotCount: c.rightSwipeCount,
+      };
+    }),
     remainingSwipesToday: DAILY_SWIPE_LIMIT,
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,
     refreshesAt: new Date(new Date().setHours(24, 0, 0, 0)).toISOString(),
