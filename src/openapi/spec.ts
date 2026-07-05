@@ -391,6 +391,26 @@ export const openApiSpec = {
           bonusSwipesRemaining: { type: "integer" },
         },
       },
+      SponsoredAd: {
+        type: "object",
+        description: "Curated sponsored/house-ad card interleaved into the swipe deck.",
+        properties: {
+          id:                 { type: "string", format: "uuid" },
+          sponsorName:        { type: "string" },
+          tagline:            { type: "string" },
+          ctaLabel:           { type: "string" },
+          ctaColor:           { type: "string", description: "Hex color for the CTA button (e.g. \"#F59E0B\")." },
+          ctaUrl:             { type: "string", nullable: true, description: "http(s) or app deep link opened when the CTA is tapped." },
+          backgroundImageUrl: { type: "string", description: "Card background image; empty string renders a dark gradient." },
+          weight:             { type: "integer", description: "Rotation weight; higher shows more often." },
+        },
+      },
+      SponsoredAdsResponse: {
+        type: "object",
+        properties: {
+          ads: { type: "array", items: { $ref: "#/components/schemas/SponsoredAd" } },
+        },
+      },
     },
     parameters: {
       limit: {
@@ -925,6 +945,31 @@ export const openApiSpec = {
     "/api/notifications/read-all": {
       post: { tags: ["Notifications"], summary: "Mark all notifications read", responses: { "204": { description: "All marked read" } } },
     },
+    // ── Ads ──────────────────────────────────────────────────────────────────────
+    "/api/ads/active": {
+      get: {
+        tags: ["Ads"],
+        summary: "List active sponsored cards",
+        description: "Curated house/sponsor cards interleaved into the swipe deck. Public: no auth required. Filters rows to active = true AND within any configured starts_at/ends_at window. Ordered by weight DESC.",
+        security: [],
+        responses: {
+          "200": { description: "Active sponsored cards", content: { "application/json": { schema: { $ref: "#/components/schemas/SponsoredAdsResponse" } } } },
+        },
+      },
+    },
+    "/api/ads/{id}/click": {
+      post: {
+        tags: ["Ads"],
+        summary: "Record a sponsored-ad CTA click",
+        description: "Increments the ad's click_count when the user taps the CTA or right-swipes an ad card. Public: no auth required. Responds with 204 immediately; the DB write is fire-and-forget.",
+        security: [],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Click recorded (or ad id not found — still 204 after response is sent)" },
+          "400": { description: "Invalid ad id" },
+        },
+      },
+    },
   },
   tags: [
     { name: "Meta",          description: "Health and metadata" },
@@ -936,5 +981,6 @@ export const openApiSpec = {
     { name: "Trades",        description: "Confirmed trades and reviews" },
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },
+    { name: "Ads",           description: "Sponsored / house-ad cards for the swipe deck" },
   ],
 } as const;

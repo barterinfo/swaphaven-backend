@@ -50,6 +50,20 @@
       "when": 1781373080053,
       "tag": "0006_denormalize_right_swipe_count",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783225256544,
+      "tag": "0007_add_sponsored_ads",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783260854258,
+      "tag": "0009_giant_salo",
+      "breakpoints": true
     }
   ]
 }
