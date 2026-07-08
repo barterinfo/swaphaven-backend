@@ -7,12 +7,13 @@
  * it to the database. Also exposes list / pause / activate / delete from
  * the same menu so you don't need a second tool for routine ad ops.
  *
- * Runs against whatever DATABASE_URL is in your environment (local by
- * default; export a Railway URL to hit production). Image uploads require
- * AWS_REGION, S3_MEDIA_BUCKET, and AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
+ * Runs against DATABASE_URL from .env (local) or .env.prod (Railway via
+ * npm run ads:prod). Image uploads require AWS_REGION, S3_MEDIA_BUCKET, and
+ * AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
  *
  * Usage:
- *   npm run ads
+ *   npm run ads          # local DATABASE_URL (.env)
+ *   npm run ads:prod     # Railway DATABASE_URL (.env.prod)
  */
 
 import "dotenv/config";
@@ -219,6 +220,81 @@ async function askForImageUrl(): Promise<string> {
   }
 }
 
+// ─── Target environment ─────────────────────────────────────────────────────
+
+function maskDatabaseUrl(url: string): string {
+  return url.replace(/\/\/[^@]+@/, "//***@");
+}
+
+function assertDatabaseUrl(url: string): void {
+  if (!/^postgres(ql)?:\/\/.+/i.test(url)) {
+    throw new Error(
+      "DATABASE_URL must be a full PostgreSQL connection string, not host:port alone.\n" +
+        "  Railway → Postgres service → Connect → copy the full URL, e.g.\n" +
+        "  postgresql://postgres:PASSWORD@kodama.proxy.rlwy.net:58402/railway\n" +
+        `  Current value: ${maskDatabaseUrl(url)}`,
+    );
+  }
+  // postgresql://host:port/db (no @) passes the scheme check but has no credentials.
+  if (!/^postgres(ql)?:\/\/[^@/]+@/i.test(url)) {
+    throw new Error(
+      "DATABASE_URL is missing username and password.\n" +
+        "  Railway → Postgres → Connect → copy the **Postgres connection URL**.\n" +
+        "  It must look like: postgresql://postgres:PASSWORD@HOST:PORT/railway\n" +
+        "  (not postgresql://HOST:PORT/swaphaven — that omits the password.)\n" +
+        `  Current value: ${maskDatabaseUrl(url)}`,
+    );
+  }
+}
+
+function formatCliError(err: unknown): string {
+  if (err instanceof AggregateError) {
+    const nested = err.errors.map(formatCliError).filter((s) => s.length > 0);
+    if (nested.length > 0) return nested.join("; ");
+  }
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (err.message) return code ? `${err.message} (${code})` : err.message;
+    if (code) return code;
+  }
+  return String(err);
+}
+
+function dbHost(url: string): string {
+  if (/^postgres(ql)?:\/\//i.test(url)) {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      /* fall through */
+    }
+  }
+  // host:port pasted without scheme (common Railway mistake)
+  const tail = url.includes("@") ? url.split("@").pop()! : url;
+  return tail.split("/")[0]?.split(":")[0] ?? url;
+}
+
+function adsTargetLabel(databaseUrl: string): { label: string; hint?: string } {
+  const host = dbHost(databaseUrl);
+  const isLocal =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.endsWith(".local");
+  const isRailway =
+    host.includes("railway") ||
+    host.includes("rlwy.net");
+
+  if (isRailway) {
+    return { label: "PRODUCTION (Railway)" };
+  }
+  if (isLocal) {
+    return {
+      label: "LOCAL",
+      hint: "Ads will not appear on the live app. Use: npm run ads:prod",
+    };
+  }
+  return { label: `REMOTE (${host})` };
+}
+
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
 function formatAd(ad: SponsoredAd): string {
@@ -258,6 +334,7 @@ async function createFlow(): Promise<void> {
     ctaUrl: ctaUrlRaw || null,
     backgroundImageUrl,
     active: true, weight,
+    clickCount: 0, impressionCount: 0,
     startsAt, endsAt,
     createdAt: new Date(), updatedAt: new Date(),
   } as SponsoredAd));
@@ -414,8 +491,11 @@ const MENU: MenuItem[] = [
 ];
 
 async function menu(): Promise<void> {
+  const target = adsTargetLabel(env.DATABASE_URL);
   console.log("\nSponsored ads");
-  console.log(`DB: ${env.DATABASE_URL.replace(/\/\/[^@]+@/, "//***@")}`);
+  console.log(`Target: ${target.label}`);
+  if (target.hint) console.log(`  → ${target.hint}`);
+  console.log(`DB: ${maskDatabaseUrl(env.DATABASE_URL)}`);
   console.log(env.S3_MEDIA_BUCKET
     ? `S3: ${env.S3_MEDIA_BUCKET} (${env.AWS_REGION})`
     : "S3: not configured — image uploads will be skipped");
@@ -433,16 +513,18 @@ async function menu(): Promise<void> {
   try {
     await match.run();
   } catch (err) {
-    console.error("\nError:", err instanceof Error ? err.message : err);
+    console.error("\nError:", formatCliError(err));
   }
   return menu();
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
+assertDatabaseUrl(env.DATABASE_URL);
+
 menu()
   .catch((err: unknown) => {
-    console.error("\nFatal:", err instanceof Error ? err.message : err);
+    console.error("\nFatal:", formatCliError(err));
     process.exitCode = 1;
   })
   .finally(async () => {
