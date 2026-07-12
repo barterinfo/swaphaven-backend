@@ -71,6 +71,13 @@
       "when": 1783261435798,
       "tag": "0009_cute_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783682682619,
+      "tag": "0010_parallel_robbie_robertson",
+      "breakpoints": true
     }
   ]
 }

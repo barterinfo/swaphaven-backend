@@ -1,17 +1,19 @@
-import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { Router, type Response } from "express";
+import { and, eq, desc } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
-  offersTable, offerItemsTable, counterOffersTable, counterOfferItemsTable,
+  offersTable, offerItemsTable, counterOffersTable,
+  offerRoundsTable, offerRoundItemsTable,
   tradesTable, conversationsTable, notificationsTable, listingsTable,
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
-import { serializeOfferListItem } from "../lib/inbox-serializers.js";
+import { serializeOfferListItem, serializeOfferRound } from "../lib/inbox-serializers.js";
 import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
+import { MAX_OFFER_ROUNDS } from "../lib/max-rounds.js";
 import { sendPushToUser } from "../lib/push.js";
 
 const router = Router();
@@ -29,6 +31,27 @@ const offerListWith = {
   seller: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
   items: { with: { listing: { columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true }, with: { images: true } } } },
 } as const;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Fetches and serializes the latest pending round for an offer, or null. */
+async function getLatestRound(offerId: string) {
+  const round = await db.query.offerRoundsTable.findFirst({
+    where: and(eq(offerRoundsTable.offerId, offerId), eq(offerRoundsTable.status, "pending")),
+    orderBy: [desc(offerRoundsTable.roundNumber)],
+    with: {
+      items: {
+        with: {
+          listing: {
+            columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true },
+            with: { images: true },
+          },
+        },
+      },
+    },
+  });
+  return round ? serializeOfferRound(round) : null;
+}
 
 // ─── POST /api/offers ─────────────────────────────────────────────────────────
 const createOfferSchema = z.object({
@@ -62,9 +85,38 @@ router.post("/", requireAuth, async (req, res) => {
     .values({ ...offerData, buyerId: req.user!.sub, sellerId: listing.userId })
     .returning();
 
+  // Original offer items (buyer side) — kept for legacy compatibility.
   await db.insert(offerItemsTable).values(
     offeredListingIds.map((lid, i) => ({ offerId: offer.id, listingId: lid, position: i })),
   );
+
+  // Round 1 = buyer's original proposal.
+  const [round] = await db.insert(offerRoundsTable).values({
+    offerId: offer.id,
+    roundNumber: 1,
+    proposedBy: "buyer",
+    buyerCashTopUpCents: offerData.cashTopUpCents ?? 0,
+    sellerCashRequestedCents: 0,
+    note: offerData.buyerNote ?? null,
+  }).returning();
+
+  // Buyer's items on the buyer side.
+  await db.insert(offerRoundItemsTable).values(
+    offeredListingIds.map((lid, i) => ({
+      offerRoundId: round.id,
+      listingId: lid,
+      side: "buyer" as const,
+      position: i,
+    })),
+  );
+  // Seller's listing on the seller side.
+  await db.insert(offerRoundItemsTable).values([{
+    offerRoundId: round.id,
+    listingId: offerData.listingId,
+    side: "seller" as const,
+    position: 0,
+  }]);
+
   await db.insert(notificationsTable).values({
     userId: listing.userId,
     type: "offer_received",
@@ -128,65 +180,125 @@ router.get("/:offerId", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "forbidden" });
   }
 
-  const counterOffer = await db.query.counterOffersTable.findFirst({
-    where: eq(counterOffersTable.offerId, offer.id),
-    with: { items: { with: { offerItem: true } } },
-  });
-  const conversation = await db.query.conversationsTable.findFirst({
-    where: eq(conversationsTable.offerId, offer.id),
-  });
+  const [latestRound, counterOffer, conversation] = await Promise.all([
+    getLatestRound(offerId),
+    db.query.counterOffersTable.findFirst({
+      where: eq(counterOffersTable.offerId, offer.id),
+      with: { items: { with: { offerItem: true } } },
+    }),
+    db.query.conversationsTable.findFirst({
+      where: eq(conversationsTable.offerId, offer.id),
+    }),
+  ]);
+
   return res.json({
     ...serializeOfferListItem(offer),
+    currentTurn: offer.currentTurn,
+    roundCount: offer.roundCount,
+    latestRound,
+    // Kept for backward compatibility with old mobile builds.
     counterOffer,
     conversationId: conversation?.id ?? null,
   });
 });
 
-// ─── POST /api/offers/:offerId/accept ─────────────────────────────────────────
-router.post("/:offerId/accept", requireAuth, async (req, res) => {
-  const offerId = p(req.params["offerId"]);
+// ─── Shared accept / deny implementation ──────────────────────────────────────
+
+async function handleAccept(offerId: string, userId: string, res: Response) {
   const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
   if (!offer) return res.status(404).json({ error: "not_found" });
-  if (offer.sellerId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-  if (offer.status !== "pending") {
+
+  const isBuyer = offer.buyerId === userId;
+  const isSeller = offer.sellerId === userId;
+  if (!isBuyer && !isSeller) return res.status(403).json({ error: "forbidden" });
+
+  if (isSeller && offer.currentTurn !== "seller") {
+    return res.status(409).json({ error: "conflict", message: "Not your turn to respond" });
+  }
+  if (isBuyer && offer.currentTurn !== "buyer") {
+    return res.status(409).json({ error: "conflict", message: "Not your turn to respond" });
+  }
+  if (!(ACTIVE_OFFER_STATUSES as readonly string[]).includes(offer.status)) {
     return res.status(409).json({ error: "conflict", message: `Offer is already ${offer.status}` });
   }
 
   await db.update(offersTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
-  const [trade] = await db.insert(tradesTable).values({ offerId: offer.id }).returning();
-  const [conv]  = await db.insert(conversationsTable).values({ offerId: offer.id }).returning();
 
+  const latestRound = await db.query.offerRoundsTable.findFirst({
+    where: and(eq(offerRoundsTable.offerId, offerId), eq(offerRoundsTable.status, "pending")),
+    orderBy: [desc(offerRoundsTable.roundNumber)],
+  });
+  if (latestRound) {
+    await db.update(offerRoundsTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(offerRoundsTable.id, latestRound.id));
+  }
+
+  const existingConv = await db.query.conversationsTable.findFirst({ where: eq(conversationsTable.offerId, offer.id) });
+  const [trade] = await db.insert(tradesTable).values({
+    offerId: offer.id,
+    acceptedRoundId: latestRound?.id ?? null,
+  }).returning();
+  const conv = existingConv ?? (await db.insert(conversationsTable).values({ offerId: offer.id }).returning())[0]!;
+
+  const notifyUserId = isSeller ? offer.buyerId : offer.sellerId;
   await db.insert(notificationsTable).values({
-    userId: offer.buyerId, type: "offer_accepted",
+    userId: notifyUserId, type: "offer_accepted",
     title: "Offer accepted! 🎉", body: "Your trade offer was accepted. Start chatting now.",
     relatedOfferId: offer.id, relatedTradeId: trade.id, relatedConversationId: conv.id,
   });
-  sendPushToUser(offer.buyerId, {
+  sendPushToUser(notifyUserId, {
     title: "Offer accepted! 🎉",
     body: "Your trade offer was accepted. Start chatting now.",
     data: { type: "offer_accepted", conversationId: conv.id },
   }).catch(console.error);
   return res.json({ ...trade, conversationId: conv.id });
-});
+}
 
-// ─── POST /api/offers/:offerId/deny ───────────────────────────────────────────
-router.post("/:offerId/deny", requireAuth, async (req, res) => {
-  const offerId = p(req.params["offerId"]);
+async function handleDeny(offerId: string, userId: string, res: Response) {
   const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
   if (!offer) return res.status(404).json({ error: "not_found" });
-  if (offer.sellerId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-  if (offer.status !== "pending") {
+
+  const isBuyer = offer.buyerId === userId;
+  const isSeller = offer.sellerId === userId;
+  if (!isBuyer && !isSeller) return res.status(403).json({ error: "forbidden" });
+
+  if (isSeller && offer.currentTurn !== "seller") {
+    return res.status(409).json({ error: "conflict", message: "Not your turn to respond" });
+  }
+  if (isBuyer && offer.currentTurn !== "buyer") {
+    return res.status(409).json({ error: "conflict", message: "Not your turn to respond" });
+  }
+  if (!(ACTIVE_OFFER_STATUSES as readonly string[]).includes(offer.status)) {
     return res.status(409).json({ error: "conflict", message: `Offer is already ${offer.status}` });
   }
 
   await db.update(offersTable).set({ status: "denied", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
+
+  const latestRound = await db.query.offerRoundsTable.findFirst({
+    where: and(eq(offerRoundsTable.offerId, offerId), eq(offerRoundsTable.status, "pending")),
+    orderBy: [desc(offerRoundsTable.roundNumber)],
+  });
+  if (latestRound) {
+    await db.update(offerRoundsTable).set({ status: "denied", updatedAt: new Date() }).where(eq(offerRoundsTable.id, latestRound.id));
+  }
+
+  const notifyUserId = isSeller ? offer.buyerId : offer.sellerId;
   await db.insert(notificationsTable).values({
-    userId: offer.buyerId, type: "offer_denied",
-    title: "Offer declined", body: "The seller declined your swap offer.",
+    userId: notifyUserId, type: "offer_denied",
+    title: "Offer declined", body: "The trade offer was declined.",
     relatedOfferId: offer.id,
   });
   return res.status(204).send();
-});
+}
+
+// ─── POST /api/offers/:offerId/accept ─────────────────────────────────────────
+router.post("/:offerId/accept", requireAuth, (req, res) =>
+  handleAccept(p(req.params["offerId"]), req.user!.sub, res),
+);
+
+// ─── POST /api/offers/:offerId/deny ───────────────────────────────────────────
+router.post("/:offerId/deny", requireAuth, (req, res) =>
+  handleDeny(p(req.params["offerId"]), req.user!.sub, res),
+);
 
 // ─── POST /api/offers/:offerId/withdraw ───────────────────────────────────────
 router.post("/:offerId/withdraw", requireAuth, async (req, res) => {
@@ -208,19 +320,38 @@ router.post("/:offerId/withdraw", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/offers/:offerId/counter ────────────────────────────────────────
+// Bidirectional: either the seller (on a pending or seller-turn countered offer) or the buyer
+// (on a buyer-turn countered offer) can submit. Validates listing ownership, active status, and round cap.
 const counterSchema = z.object({
-  includedOfferItemIds: z.array(z.string().uuid()).min(1),
-  cashRequestedCents:   z.number().int().min(0).default(0),
-  sellerNote:           z.string().max(500).optional(),
+  buyerListingIds:          z.array(z.string().uuid()).min(1, "At least one buyer item required"),
+  sellerListingIds:         z.array(z.string().uuid()).min(1, "At least one seller item required"),
+  buyerCashTopUpCents:      z.number().int().min(0).default(0),
+  sellerCashRequestedCents: z.number().int().min(0).default(0),
+  note:                     z.string().max(500).optional(),
 });
 
 router.post("/:offerId/counter", requireAuth, async (req, res) => {
   const offerId = p(req.params["offerId"]);
   const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
   if (!offer) return res.status(404).json({ error: "not_found" });
-  if (offer.sellerId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-  if (offer.status !== "pending") {
+
+  const userId = req.user!.sub;
+  const isBuyer = offer.buyerId === userId;
+  const isSeller = offer.sellerId === userId;
+  if (!isBuyer && !isSeller) return res.status(403).json({ error: "forbidden" });
+
+  // Verify it's the caller's turn.
+  if (isSeller && offer.currentTurn !== "seller") {
+    return res.status(409).json({ error: "conflict", message: "Not your turn to counter" });
+  }
+  if (isBuyer && offer.currentTurn !== "buyer") {
+    return res.status(409).json({ error: "conflict", message: "Not your turn to counter" });
+  }
+  if (!(ACTIVE_OFFER_STATUSES as readonly string[]).includes(offer.status)) {
     return res.status(409).json({ error: "conflict", message: `Cannot counter an offer with status ${offer.status}` });
+  }
+  if (offer.roundCount >= MAX_OFFER_ROUNDS) {
+    return res.status(409).json({ error: "conflict", message: `Maximum negotiation rounds (${MAX_OFFER_ROUNDS}) reached` });
   }
 
   const parsed = counterSchema.safeParse(req.body);
@@ -228,31 +359,75 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
   }
 
-  await db.update(offersTable).set({ status: "countered", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
-  const [counter] = await db
-    .insert(counterOffersTable)
-    .values({ offerId: offer.id, sellerId: req.user!.sub, ...parsed.data })
-    .returning();
+  const { buyerListingIds, sellerListingIds, buyerCashTopUpCents, sellerCashRequestedCents, note } = parsed.data;
 
-  const allItems = await db.query.offerItemsTable.findMany({ where: eq(offerItemsTable.offerId, offer.id) });
-  await db.insert(counterOfferItemsTable).values(
-    allItems.map((item) => ({
-      counterOfferId: counter.id,
-      offerItemId: item.id,
-      isIncluded: parsed.data.includedOfferItemIds.includes(item.id),
-    })),
-  );
+  // Validate ownership: buyer listings must belong to buyer, seller listings to seller.
+  const allListingIds = [...buyerListingIds, ...sellerListingIds];
+  const listings = await db.query.listingsTable.findMany({
+    where: (t, { inArray }) => inArray(t.id, allListingIds),
+    columns: { id: true, userId: true, status: true },
+  });
+  const listingMap = new Map(listings.map((l) => [l.id, l]));
+
+  for (const id of buyerListingIds) {
+    const l = listingMap.get(id);
+    if (!l) return res.status(400).json({ error: "bad_request", message: `Listing ${id} not found` });
+    if (l.userId !== offer.buyerId) return res.status(400).json({ error: "bad_request", message: `Listing ${id} does not belong to the buyer` });
+    if (l.status !== "active") return res.status(409).json({ error: "conflict", message: `Listing ${id} is no longer active` });
+  }
+  for (const id of sellerListingIds) {
+    const l = listingMap.get(id);
+    if (!l) return res.status(400).json({ error: "bad_request", message: `Listing ${id} not found` });
+    if (l.userId !== offer.sellerId) return res.status(400).json({ error: "bad_request", message: `Listing ${id} does not belong to the seller` });
+    if (l.status !== "active") return res.status(409).json({ error: "conflict", message: `Listing ${id} is no longer active` });
+  }
+
+  // Supersede the current pending round.
+  const currentRound = await db.query.offerRoundsTable.findFirst({
+    where: and(eq(offerRoundsTable.offerId, offerId), eq(offerRoundsTable.status, "pending")),
+    orderBy: [desc(offerRoundsTable.roundNumber)],
+  });
+  if (currentRound) {
+    await db.update(offerRoundsTable).set({ status: "superseded", updatedAt: new Date() }).where(eq(offerRoundsTable.id, currentRound.id));
+  }
+
+  const nextRoundNumber = offer.roundCount + 1;
+  const nextTurn = isBuyer ? "seller" : "buyer";
+
+  // Insert the new round.
+  const [newRound] = await db.insert(offerRoundsTable).values({
+    offerId: offer.id,
+    roundNumber: nextRoundNumber,
+    proposedBy: isBuyer ? "buyer" : "seller",
+    buyerCashTopUpCents,
+    sellerCashRequestedCents,
+    note: note ?? null,
+  }).returning();
+
+  await db.insert(offerRoundItemsTable).values([
+    ...buyerListingIds.map((lid, i) => ({ offerRoundId: newRound.id, listingId: lid, side: "buyer" as const, position: i })),
+    ...sellerListingIds.map((lid, i) => ({ offerRoundId: newRound.id, listingId: lid, side: "seller" as const, position: i })),
+  ]);
+
+  await db.update(offersTable).set({
+    status: "countered",
+    currentTurn: nextTurn,
+    roundCount: nextRoundNumber,
+    updatedAt: new Date(),
+  }).where(eq(offersTable.id, offer.id));
+
+  const notifyUserId = isBuyer ? offer.sellerId : offer.buyerId;
   await db.insert(notificationsTable).values({
-    userId: offer.buyerId, type: "counter_received",
-    title: "Counter-offer received", body: "The seller proposed new terms. Review and respond.",
+    userId: notifyUserId, type: "counter_received",
+    title: "Counter-offer received", body: "New terms proposed. Review and respond.",
     relatedOfferId: offer.id,
   });
-  sendPushToUser(offer.buyerId, {
+  sendPushToUser(notifyUserId, {
     title: "Counter-offer received 🔁",
-    body: "The seller proposed new terms. Review and respond.",
+    body: "New terms proposed. Review and respond.",
     data: { type: "counter_offer", offerId: offer.id },
   }).catch(console.error);
-  return res.status(201).json(counter);
+  return res.status(201).json(serializeOfferRound({ ...newRound, items: [] }));
 });
 
 // ─── GET /api/offers/:offerId/counter ─────────────────────────────────────────
@@ -264,68 +439,21 @@ router.get("/:offerId/counter", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "forbidden" });
   }
 
-  const counter = await db.query.counterOffersTable.findFirst({
-    where: eq(counterOffersTable.offerId, offerId),
-    with: { items: { with: { offerItem: { with: { listing: { with: { images: true } } } } } } },
-  });
-  if (!counter) return res.status(404).json({ error: "not_found" });
-  return res.json(counter);
+  const latestRound = await getLatestRound(offerId);
+  if (!latestRound) return res.status(404).json({ error: "not_found" });
+  return res.json(latestRound);
 });
 
 // ─── POST /api/offers/:offerId/counter/accept ─────────────────────────────────
-router.post("/:offerId/counter/accept", requireAuth, async (req, res) => {
-  const offerId = p(req.params["offerId"]);
-  const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
-  if (!offer || offer.buyerId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-
-  const counter = await db.query.counterOffersTable.findFirst({
-    where: eq(counterOffersTable.offerId, offerId),
-  });
-  if (!counter) return res.status(404).json({ error: "not_found", message: "No counter-offer found" });
-  if (counter.status !== "pending") {
-    return res.status(409).json({ error: "conflict", message: `Counter-offer is already ${counter.status}` });
-  }
-
-  await db.update(counterOffersTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(counterOffersTable.id, counter.id));
-  await db.update(offersTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
-
-  const [trade] = await db.insert(tradesTable).values({ offerId: offer.id, counterOfferId: counter.id }).returning();
-  const existingConv = await db.query.conversationsTable.findFirst({ where: eq(conversationsTable.offerId, offer.id) });
-  const conv = existingConv ?? (await db.insert(conversationsTable).values({ offerId: offer.id }).returning())[0];
-
-  await db.insert(notificationsTable).values({
-    userId: offer.sellerId, type: "counter_accepted",
-    title: "Counter-offer accepted! 🎉", body: "The buyer accepted your counter. Time to arrange the swap.",
-    relatedOfferId: offer.id, relatedTradeId: trade.id,
-  });
-  sendPushToUser(offer.sellerId, {
-    title: "Counter-offer accepted! 🎉",
-    body: "The buyer accepted your counter. Time to arrange the swap.",
-    data: { type: "offer_accepted", conversationId: conv.id },
-  }).catch(console.error);
-  return res.json({ ...trade, conversationId: conv.id });
-});
+// Backward-compatibility alias — same turn-based logic as POST /accept.
+router.post("/:offerId/counter/accept", requireAuth, (req, res) =>
+  handleAccept(p(req.params["offerId"]), req.user!.sub, res),
+);
 
 // ─── POST /api/offers/:offerId/counter/deny ───────────────────────────────────
-router.post("/:offerId/counter/deny", requireAuth, async (req, res) => {
-  const offerId = p(req.params["offerId"]);
-  const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
-  if (!offer || offer.buyerId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-
-  const counter = await db.query.counterOffersTable.findFirst({
-    where: eq(counterOffersTable.offerId, offerId),
-  });
-  if (!counter) return res.status(404).json({ error: "not_found" });
-
-  await db.update(counterOffersTable).set({ status: "denied", updatedAt: new Date() }).where(eq(counterOffersTable.id, counter.id));
-  await db.update(offersTable).set({ status: "denied", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
-
-  await db.insert(notificationsTable).values({
-    userId: offer.sellerId, type: "counter_denied",
-    title: "Counter-offer declined", body: "The buyer declined your counter-offer.",
-    relatedOfferId: offer.id,
-  });
-  return res.status(204).send();
-});
+// Backward-compatibility alias — same turn-based logic as POST /deny.
+router.post("/:offerId/counter/deny", requireAuth, (req, res) =>
+  handleDeny(p(req.params["offerId"]), req.user!.sub, res),
+);
 
 export default router;

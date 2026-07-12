@@ -103,11 +103,15 @@ export function createApp(): express.Express {
   });
 
   // ─── Rate limiting ────────────────────────────────────────────────────────────
+  // Skip entirely in development so rapid local polling doesn't get throttled.
+  const isDev = env.NODE_ENV === "development";
+
   const apiLimiter = rateLimit({
     windowMs: env.RATE_LIMIT_WINDOW_MS,
     max: env.API_RATE_LIMIT_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    skip: () => isDev,
     message: { error: "too_many_requests", message: "Too many requests. Please try again later." },
   });
 
@@ -116,6 +120,7 @@ export function createApp(): express.Express {
     max: env.AUTH_RATE_LIMIT_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    skip: () => isDev,
     message: { error: "too_many_requests", message: "Too many authentication attempts. Please try again later." },
   });
 

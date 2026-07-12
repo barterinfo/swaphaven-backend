@@ -2,7 +2,7 @@ import {
   pgTable, uuid, text, integer, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
-import { offersTable, counterOffersTable } from "./offers.js";
+import { offersTable, counterOffersTable, offerRoundsTable } from "./offers.js";
 
 export const tradeStatusEnum = pgEnum("trade_status", [
   "pending_meetup", "completed", "disputed", "cancelled",
@@ -13,6 +13,8 @@ export const tradesTable = pgTable("trades", {
   id:                uuid("id").primaryKey().defaultRandom(),
   offerId:           uuid("offer_id").notNull().unique().references(() => offersTable.id),
   counterOfferId:    uuid("counter_offer_id").references(() => counterOffersTable.id),
+  /** Round that was accepted to create this trade (null for direct accepts). */
+  acceptedRoundId:   uuid("accepted_round_id").references(() => offerRoundsTable.id),
   status:            tradeStatusEnum("status").notNull().default("pending_meetup"),
   meetupScheduledAt: timestamp("meetup_scheduled_at"),
   meetupLocation:    text("meetup_location"),

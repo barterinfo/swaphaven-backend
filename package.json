@@ -17,6 +17,7 @@
     "db:push": "drizzle-kit push --config drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "db:reset": "tsx scripts/reset-db.ts",
     "seed:listings": "tsx scripts/seed-listings.ts",
     "seed:user": "tsx scripts/seed-user.ts",
     "ads": "tsx scripts/ads.ts",

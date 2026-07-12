@@ -4,6 +4,7 @@ import { categoriesTable, listingsTable, listingImagesTable, listingWantsTable }
 import { swipesTable } from "./swipes.js";
 import {
   offersTable, offerItemsTable, counterOffersTable, counterOfferItemsTable,
+  offerRoundsTable, offerRoundItemsTable,
 } from "./offers.js";
 import { tradesTable, tradeReviewsTable } from "./trades.js";
 import { conversationsTable, messagesTable } from "./messages.js";
@@ -70,6 +71,7 @@ export const offersRelations = relations(offersTable, ({ one, many }) => ({
   seller:       one(usersTable, { fields: [offersTable.sellerId],  references: [usersTable.id], relationName: "seller" }),
   items:        many(offerItemsTable),
   counterOffer: one(counterOffersTable, { fields: [offersTable.id], references: [counterOffersTable.offerId] }),
+  rounds:       many(offerRoundsTable),
   trade:        one(tradesTable, { fields: [offersTable.id], references: [tradesTable.offerId] }),
   conversation: one(conversationsTable, { fields: [offersTable.id], references: [conversationsTable.offerId] }),
 }));
@@ -91,11 +93,23 @@ export const counterOfferItemsRelations = relations(counterOfferItemsTable, ({ o
   offerItem:    one(offerItemsTable, { fields: [counterOfferItemsTable.offerItemId], references: [offerItemsTable.id] }),
 }));
 
+// ─── Offer rounds ─────────────────────────────────────────────────────────────
+export const offerRoundsRelations = relations(offerRoundsTable, ({ one, many }) => ({
+  offer: one(offersTable, { fields: [offerRoundsTable.offerId], references: [offersTable.id] }),
+  items: many(offerRoundItemsTable),
+}));
+
+export const offerRoundItemsRelations = relations(offerRoundItemsTable, ({ one }) => ({
+  round:   one(offerRoundsTable, { fields: [offerRoundItemsTable.offerRoundId], references: [offerRoundsTable.id] }),
+  listing: one(listingsTable, { fields: [offerRoundItemsTable.listingId], references: [listingsTable.id] }),
+}));
+
 // ─── Trades ───────────────────────────────────────────────────────────────────
 export const tradesRelations = relations(tradesTable, ({ one, many }) => ({
-  offer:        one(offersTable, { fields: [tradesTable.offerId], references: [offersTable.id] }),
-  counterOffer: one(counterOffersTable, { fields: [tradesTable.counterOfferId], references: [counterOffersTable.id] }),
-  reviews:      many(tradeReviewsTable),
+  offer:         one(offersTable, { fields: [tradesTable.offerId], references: [offersTable.id] }),
+  counterOffer:  one(counterOffersTable, { fields: [tradesTable.counterOfferId], references: [counterOffersTable.id] }),
+  acceptedRound: one(offerRoundsTable, { fields: [tradesTable.acceptedRoundId], references: [offerRoundsTable.id] }),
+  reviews:       many(tradeReviewsTable),
 }));
 
 export const tradeReviewsRelations = relations(tradeReviewsTable, ({ one }) => ({

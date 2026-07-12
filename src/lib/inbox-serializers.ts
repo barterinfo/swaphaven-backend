@@ -73,6 +73,8 @@ interface OfferListInput {
   sellerId: string;
   listingId: string;
   cashTopUpCents: number;
+  currentTurn?: string | null;
+  roundCount?: number | null;
   createdAt: Date;
   listing?: ListingSummaryInput | null;
   buyer?: UserSummaryInput | null;
@@ -89,11 +91,57 @@ export function serializeOfferListItem(offer: OfferListInput) {
     sellerId: offer.sellerId,
     listingId: offer.listingId,
     cashTopUpCents: offer.cashTopUpCents,
+    currentTurn: offer.currentTurn ?? null,
+    roundCount: offer.roundCount ?? 0,
     createdAt: offer.createdAt,
     listing: serializeListingSummary(offer.listing),
     buyer: serializeUserSummary(offer.buyer),
     seller: serializeUserSummary(offer.seller),
     offeredItems: (offer.items ?? []).map(serializeOfferItem),
+  };
+}
+
+// ─── Offer round serialization ────────────────────────────────────────────────
+
+interface RoundItemInput {
+  listing?: ListingSummaryInput | null;
+  side: string;
+  position: number;
+}
+
+interface OfferRoundInput {
+  id: string;
+  roundNumber: number;
+  proposedBy: string;
+  buyerCashTopUpCents: number;
+  sellerCashRequestedCents: number;
+  note?: string | null;
+  status: string;
+  createdAt: Date;
+  items?: RoundItemInput[];
+}
+
+export function serializeOfferRound(round: OfferRoundInput) {
+  const buyerItems = (round.items ?? [])
+    .filter((i) => i.side === "buyer")
+    .sort((a, b) => a.position - b.position)
+    .map((i) => serializeListingSummary(i.listing));
+  const sellerItems = (round.items ?? [])
+    .filter((i) => i.side === "seller")
+    .sort((a, b) => a.position - b.position)
+    .map((i) => serializeListingSummary(i.listing));
+
+  return {
+    id: round.id,
+    roundNumber: round.roundNumber,
+    proposedBy: round.proposedBy,
+    buyerCashTopUpCents: round.buyerCashTopUpCents,
+    sellerCashRequestedCents: round.sellerCashRequestedCents,
+    note: round.note ?? null,
+    status: round.status,
+    createdAt: round.createdAt,
+    buyerItems,
+    sellerItems,
   };
 }
 
