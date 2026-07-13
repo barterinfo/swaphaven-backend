@@ -9,6 +9,7 @@ import {
   registerUser,
   createListing,
   createOffer,
+  createCounter,
   acceptOffer,
   fullTradeSetup,
 } from "./helpers/fixtures.js";
@@ -219,15 +220,10 @@ describe("route push integration", () => {
     const buyerListing = await createListing(buyer.accessToken);
     const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
 
-    const offerDetail = await request(app)
-      .get(`/api/offers/${offer.id}`)
-      .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.offeredItems[0].id;
-
     const res = await request(app)
       .post(`/api/offers/${offer.id}/counter`)
       .set("Authorization", `Bearer ${seller.accessToken}`)
-      .send({ includedOfferItemIds: [offerItemId] });
+      .send({ buyerListingIds: [buyerListing.id], sellerListingIds: [sellerListing.id] });
 
     expect(res.status).toBe(201);
     await waitForPush();
@@ -246,15 +242,7 @@ describe("route push integration", () => {
     const buyerListing = await createListing(buyer.accessToken);
     const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
 
-    const offerDetail = await request(app)
-      .get(`/api/offers/${offer.id}`)
-      .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.offeredItems[0].id;
-
-    await request(app)
-      .post(`/api/offers/${offer.id}/counter`)
-      .set("Authorization", `Bearer ${seller.accessToken}`)
-      .send({ includedOfferItemIds: [offerItemId] });
+    await createCounter(seller.accessToken, offer.id, buyerListing.id, sellerListing.id);
 
     const res = await request(app)
       .post(`/api/offers/${offer.id}/counter/accept`)

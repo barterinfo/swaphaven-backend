@@ -77,6 +77,31 @@ export async function createOffer(
   return res.body as { id: string };
 }
 
+/**
+ * Posts a counter-offer round on behalf of either party.
+ * Defaults to zero cash on both sides; pass overrides to change individual fields.
+ */
+export async function createCounter(
+  actorToken: string,
+  offerId: string,
+  buyerListingId: string,
+  sellerListingId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const res = await request(app)
+    .post(`/api/offers/${offerId}/counter`)
+    .set("Authorization", `Bearer ${actorToken}`)
+    .send({
+      buyerListingIds: [buyerListingId],
+      sellerListingIds: [sellerListingId],
+      buyerCashTopUpCents: 0,
+      sellerCashRequestedCents: 0,
+      ...overrides,
+    });
+  if (res.status !== 201) throw new Error(`createCounter failed: ${JSON.stringify(res.body)}`);
+  return res.body as { id: string; roundNumber: number; status: string };
+}
+
 export async function acceptOffer(sellerToken: string, offerId: string) {
   const res = await request(app)
     .post(`/api/offers/${offerId}/accept`)
