@@ -38,6 +38,10 @@ export const listingsTable = pgTable("listings", {
   viewCount:           integer("view_count").notNull().default(0),
   rightSwipeCount:     integer("right_swipe_count").notNull().default(0),
   status:              listingStatusEnum("status").notNull().default("active"),
+  /** How the listing was closed out: set on POST /sold. */
+  soldMethod:          text("sold_method").$type<"traded_on_barter" | "sold_for_cash" | "given_away">(),
+  /** User the seller traded with (traded_on_barter only). */
+  tradedWithUserId:    uuid("traded_with_user_id").references(() => usersTable.id),
   locationCity:        text("location_city").notNull().default(""),
   locationLat:         decimal("location_lat", { precision: 9, scale: 6 }),
   locationLng:         decimal("location_lng", { precision: 9, scale: 6 }),

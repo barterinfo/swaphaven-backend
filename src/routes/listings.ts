@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { and, eq, ilike, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
-  listingsTable, listingImagesTable, listingWantsTable, categoriesTable, userProfilesTable,
+  listingsTable, listingImagesTable, listingWantsTable, categoriesTable,
+  userProfilesTable, offersTable, notificationsTable,
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
@@ -37,6 +38,40 @@ async function loadListingImages(listingId: string): Promise<string[]> {
     orderBy: (t, { asc }) => [asc(t.position)],
   });
   return rows.map((r) => r.url);
+}
+
+type OfferCancelReason = "listing_deleted" | "listing_sold";
+
+async function cancelPendingOffersAndNotify(
+  listingId: string,
+  listingTitle: string,
+  reason: OfferCancelReason,
+): Promise<void> {
+  const pending = await db.query.offersTable.findMany({
+    where: and(eq(offersTable.listingId, listingId), eq(offersTable.status, "pending")),
+    columns: { id: true, buyerId: true },
+  });
+  if (!pending.length) return;
+
+  await db
+    .update(offersTable)
+    .set({ status: "denied", updatedAt: new Date() })
+    .where(inArray(offersTable.id, pending.map((o) => o.id)));
+
+  const body =
+    reason === "listing_deleted"
+      ? `"${listingTitle}" has been removed. Your offer has been declined.`
+      : `"${listingTitle}" has been marked as sold. Your offer has been declined.`;
+
+  await db.insert(notificationsTable).values(
+    pending.map((o) => ({
+      userId:         o.buyerId,
+      type:           "offer_denied" as const,
+      title:          "Offer declined",
+      body,
+      relatedOfferId: o.id,
+    })),
+  );
 }
 
 // ─── GET /api/listings ────────────────────────────────────────────────────────
@@ -414,11 +449,74 @@ router.delete("/:listingId", requireAuth, async (req, res) => {
   const listing = await db.query.listingsTable.findFirst({ where: eq(listingsTable.id, listingId) });
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
+  if (listing.status === "deleted") return res.status(409).json({ error: "conflict", message: "Listing already deleted" });
 
   await db.update(listingsTable)
     .set({ status: "deleted", updatedAt: new Date() })
     .where(eq(listingsTable.id, listingId));
+
+  await cancelPendingOffersAndNotify(listingId, listing.title, "listing_deleted");
+
   return res.status(204).send();
+});
+
+// ─── POST /api/listings/:listingId/sold ───────────────────────────────────────
+const markSoldSchema = z.object({
+  soldMethod:        z.enum(["traded_on_barter", "sold_for_cash", "given_away"]),
+  tradedWithUserId:  z.string().uuid().optional(),
+  shareWin:          z.boolean().default(false),
+});
+
+router.post("/:listingId/sold", requireAuth, async (req, res) => {
+  const listingId = p(req.params["listingId"]);
+  const listing = await db.query.listingsTable.findFirst({ where: eq(listingsTable.id, listingId) });
+  if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
+  if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
+  if (listing.status === "deleted") return res.status(409).json({ error: "conflict", message: "Listing has been deleted" });
+  if (listing.status === "traded") return res.status(409).json({ error: "conflict", message: "Listing already marked as sold" });
+
+  const parsed = markSoldSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const { soldMethod, tradedWithUserId, shareWin } = parsed.data;
+
+  const [updated] = await db
+    .update(listingsTable)
+    .set({
+      status:           "traded",
+      soldMethod,
+      tradedWithUserId: tradedWithUserId ?? null,
+      updatedAt:        new Date(),
+    })
+    .where(eq(listingsTable.id, listingId))
+    .returning();
+
+  await cancelPendingOffersAndNotify(listingId, listing.title, "listing_sold");
+
+  if (soldMethod === "traded_on_barter") {
+    const profile = await db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, req.user!.sub),
+      columns: { totalTrades: true },
+    });
+    if (profile) {
+      await db
+        .update(userProfilesTable)
+        .set({ totalTrades: profile.totalTrades + 1, updatedAt: new Date() })
+        .where(eq(userProfilesTable.id, req.user!.sub));
+    }
+  }
+
+  const images = await loadListingImages(updated.id);
+  const serialized = serializeListingBarter(updated, { images });
+  return res.json({
+    listing:  serialized,
+    id:       updated.id,
+    status:   updated.status,
+    soldMethod,
+    shareWin,
+  });
 });
 
 // ─── POST /api/listings/:listingId/images ─────────────────────────────────────

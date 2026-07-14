@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Review Flow — UI to API Sequence · SwapHaven</title>
+<style>
+  :root {
+    --bg:        #0d0d0d;
+    --bg-card:   #161616;
+    --bg-note:   #1e1e1e;
+    --border:    #2a2a2a;
+    --border-2:  #333;
+    --text:      #e8e8e8;
+    --text-2:    #a0a0a0;
+    --text-3:    #666;
+    --text-4:    #444;
+    --accent:    #5b9cf6;
+    --mono:      "JetBrains Mono", "Fira Code", "Menlo", monospace;
+    --sans:      -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    padding: 48px 40px;
+    max-width: 900px;
+    margin: 0 auto;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ── Typography ── */
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 4px; }
+  h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 40px 0 14px; }
+  h3 { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase;
+       letter-spacing: .6px; margin: 32px 0 10px; }
+  p  { color: var(--text-2); font-size: 13px; }
+
+  /* ── Callout ── */
+  .callout {
+    background: #0f1f3a;
+    border: 1px solid #1e3a6e;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--text-2);
+    margin-top: 14px;
+  }
+  .callout strong { color: var(--text); }
+  code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: #1e2430;
+    color: #8ab4f8;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* ── Section divider ── */
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+
+  /* ── Quick-ref table ── */
+  .ref-table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .ref-table th {
+    background: var(--bg-note);
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: 8px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .ref-table td {
+    padding: 9px 14px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .ref-table tr:last-child td { border-bottom: none; }
+  .ref-table tr:nth-child(odd)  td { background: #101010; }
+  .ref-table tr:nth-child(even) td { background: transparent; }
+  .method-post { color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 11px; }
+  .method-get  { color: var(--text-2); font-family: var(--mono); font-weight: 700; font-size: 11px; }
+  .path        { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: .3px;
+  }
+  .badge-auth   { background: rgba(91,156,246,.15); color: var(--accent); }
+  .badge-public { background: var(--bg-note); color: var(--text-3); border: 1px solid var(--border); }
+
+  /* ── Flow sections ── */
+  .flow { margin-top: 36px; }
+  .flow-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .flow-title  { font-size: 15px; font-weight: 600; }
+  .flow-screen { font-size: 12px; color: var(--text-3); }
+
+  /* ── SVG wrapper ── */
+  .diagram-wrap {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0d0d0d;
+    padding: 8px 0 0;
+    overflow: hidden;
+  }
+  .diagram-wrap svg { display: block; width: 100%; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+
+  /* ── Print ── */
+  @media print {
+    body { background: #fff; color: #111; padding: 24px; max-width: 100%; }
+    :root {
+      --bg: #fff; --bg-card: #f5f5f5; --bg-note: #f0f0f0; --border: #ddd; --border-2: #ccc;
+      --text: #111; --text-2: #444; --text-3: #888; --text-4: #bbb;
+      --accent: #1a6ef5;
+    }
+    .flow { page-break-inside: avoid; }
+    .diagram-wrap { border: 1px solid #ccc; }
+    hr { border-color: #ddd; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Review Flow — UI to API Sequence</h1>
+<p>All HTTP calls the mobile app makes for the review feature &nbsp;·&nbsp; SwapHaven API &nbsp;·&nbsp; Jul 2026</p>
+
+<div class="callout">
+  <strong>Sealed-review policy:</strong> Reviews are invisible to both parties until (a) both submit,
+  or (b) the 7-day window closes. The server enforces this — the client never receives sealed content.
+  Only check the <code>revealed</code> flag from <code>GET /review-status</code>.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr />
+<h2>Endpoints at a glance</h2>
+
+<table class="ref-table">
+  <thead>
+    <tr>
+      <th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="method-post">POST</span></td>
+      <td><span class="path">/api/trades/:tradeId/complete</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>Mark trade done; opens 7-day review window</td>
+    </tr>
+    <tr>
+      <td><span class="method-post">POST</span></td>
+      <td><span class="path">/api/trades/:tradeId/reviews</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>Submit sealed review (rating · comment · tags[])</td>
+    </tr>
+    <tr>
+      <td><span class="method-get">GET</span></td>
+      <td><span class="path">/api/trades/:tradeId/review-status</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>Window state + revealed flag — re-poll on foreground</td>
+    </tr>
+    <tr>
+      <td><span class="method-get">GET</span></td>
+      <td><span class="path">/api/trades/:tradeId/reviews/mine</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>Own submitted review (always readable by author)</td>
+    </tr>
+    <tr>
+      <td><span class="method-get">GET</span></td>
+      <td><span class="path">/api/users/:userId/reviews</span></td>
+      <td><span class="badge badge-public">Public</span></td>
+      <td>Revealed reviews for profile display · cursor-paginated</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr />
+<h2>Sequence diagrams</h2>
+
+<!-- ── Flow 1 ── -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">1 · Mark Trade Complete</span>
+    <span class="flow-screen">Screen: Chat / Trade Detail</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 302" xmlns="http://www.w3.org/2000/svg">
+      <!-- lifelines -->
+      <line x1="130" y1="60" x2="130" y2="274" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="274" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <!-- actors -->
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6" font-family="-apple-system,sans-serif">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8" font-family="-apple-system,sans-serif">SwapHaven API</text>
+
+      <!-- step 1: req -->
+      <line x1="130" y1="110" x2="619" y2="110" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,105 630,110 619,115" fill="#5b9cf6"/>
+      <text x="380" y="102" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">POST /api/trades/:tradeId/complete</text>
+      <text x="380" y="126" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">Authorization: Bearer &lt;token&gt;</text>
+
+      <!-- step 2: res -->
+      <line x1="630" y1="182" x2="141" y2="182" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,177 130,182 141,187" fill="#444"/>
+      <text x="380" y="174" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — Trade</text>
+      <text x="380" y="197" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ status: 'completed', completedAt, reviewWindowClosesAt }</text>
+
+      <!-- step 3: note -->
+      <rect x="16" y="216" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="239" font-size="11" fill="#a0a0a0" font-style="italic">Show 'Trade Complete!' card. Derive 7-day countdown from reviewWindowClosesAt. Render 'Leave a Review' CTA.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ── Flow 2 ── -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">2 · Submit a Review</span>
+    <span class="flow-screen">Screen: Write a Review</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 302" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="274" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="274" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6" font-family="-apple-system,sans-serif">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8" font-family="-apple-system,sans-serif">SwapHaven API</text>
+
+      <line x1="130" y1="110" x2="619" y2="110" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,105 630,110 619,115" fill="#5b9cf6"/>
+      <text x="380" y="102" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">POST /api/trades/:tradeId/reviews</text>
+      <text x="380" y="126" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">body: { rating: 4, comment: '…', tags: ['Fast reply', …] }</text>
+
+      <line x1="630" y1="182" x2="141" y2="182" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,177 130,182 141,187" fill="#444"/>
+      <text x="380" y="174" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">201 Created — TradeReview</text>
+      <text x="380" y="197" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ id, tradeId, rating, comment, tags, createdAt }</text>
+
+      <rect x="16" y="216" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="239" font-size="11" fill="#a0a0a0" font-style="italic">Navigate → Review Status screen.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ── Flow 3 ── -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">3 · Review Status (sealed → revealed)</span>
+    <span class="flow-screen">Screen: Review Status</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 568" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="540" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="540" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6" font-family="-apple-system,sans-serif">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8" font-family="-apple-system,sans-serif">SwapHaven API</text>
+
+      <!-- note: screen mounts -->
+      <rect x="16" y="63" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="86" font-size="11" fill="#a0a0a0" font-style="italic">Screen mounts — load initial state.</text>
+
+      <!-- req -->
+      <line x1="130" y1="147" x2="619" y2="147" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,142 630,147 619,152" fill="#5b9cf6"/>
+      <text x="380" y="139" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/trades/:tradeId/review-status</text>
+      <text x="380" y="163" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">Authorization: Bearer &lt;token&gt;</text>
+
+      <!-- res -->
+      <line x1="630" y1="219" x2="141" y2="219" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,214 130,219 141,224" fill="#444"/>
+      <text x="380" y="211" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — ReviewStatus</text>
+      <text x="380" y="228" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ windowClosesAt, revealed: false, myReview: { submitted: true }, theirReview: { submitted: false } }</text>
+
+      <!-- note -->
+      <rect x="16" y="253" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="276" font-size="11" fill="#a0a0a0" font-style="italic">revealed=false: show countdown ring, grey dot for theirReview, 'Waiting for Maya…' subtitle.</text>
+
+      <!-- sep -->
+      <line x1="60" y1="308" x2="700" y2="308" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="3 4"/>
+      <text x="380" y="303" text-anchor="middle" font-size="10" fill="#444">── app returns to foreground / push notification received ──</text>
+
+      <!-- req 2 -->
+      <line x1="130" y1="363" x2="619" y2="363" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,358 630,363 619,368" fill="#5b9cf6"/>
+      <text x="380" y="355" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/trades/:tradeId/review-status</text>
+      <text x="380" y="379" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">re-poll on foreground</text>
+
+      <!-- res 2 -->
+      <line x1="630" y1="435" x2="141" y2="435" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,430 130,435 141,440" fill="#444"/>
+      <text x="380" y="427" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — ReviewStatus</text>
+      <text x="380" y="450" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ revealed: true, theirReview: { submitted: true } }</text>
+
+      <!-- note 2 -->
+      <rect x="16" y="469" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="492" font-size="11" fill="#a0a0a0" font-style="italic">revealed=true: unlock UI, show both reviews. Offer 'View partner's profile' link.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ── Flow 4 ── -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">4 · View My Submitted Review</span>
+    <span class="flow-screen">Screen: Review Status → tap 'View'</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 302" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="274" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="274" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6" font-family="-apple-system,sans-serif">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8" font-family="-apple-system,sans-serif">SwapHaven API</text>
+
+      <line x1="130" y1="110" x2="619" y2="110" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,105 630,110 619,115" fill="#5b9cf6"/>
+      <text x="380" y="102" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/trades/:tradeId/reviews/mine</text>
+      <text x="380" y="126" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">Authorization: Bearer &lt;token&gt;</text>
+
+      <line x1="630" y1="182" x2="141" y2="182" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,177 130,182 141,187" fill="#444"/>
+      <text x="380" y="174" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — TradeReview</text>
+      <text x="380" y="197" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ rating, comment, tags, createdAt } — always available to author</text>
+
+      <rect x="16" y="216" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="239" font-size="11" fill="#a0a0a0" font-style="italic">Display own review read-only (rating, tags, comment).</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ── Flow 5 ── -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">5 · Profile Reviews Tab</span>
+    <span class="flow-screen">Screen: User Profile → Reviews tab</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 638" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="610" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="610" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6" font-family="-apple-system,sans-serif">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a" stroke-width="1"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8" font-family="-apple-system,sans-serif">SwapHaven API</text>
+
+      <!-- note: parallel calls -->
+      <rect x="16" y="63" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="86" font-size="11" fill="#a0a0a0" font-style="italic">Fetch profile summary and first page of revealed reviews in parallel.</text>
+
+      <!-- req: GET /users/:userId -->
+      <line x1="130" y1="147" x2="619" y2="147" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,142 630,147 619,152" fill="#5b9cf6"/>
+      <text x="380" y="139" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/users/:userId</text>
+      <text x="380" y="163" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">Public — no auth header required</text>
+
+      <!-- res -->
+      <line x1="630" y1="219" x2="141" y2="219" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,214 130,219 141,224" fill="#444"/>
+      <text x="380" y="211" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — PublicUserProfile</text>
+      <text x="380" y="234" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ rating, totalTrades, ratingCount, ratingSum, … }</text>
+
+      <!-- req: GET /users/:userId/reviews -->
+      <line x1="130" y1="291" x2="619" y2="291" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,286 630,291 619,296" fill="#5b9cf6"/>
+      <text x="380" y="283" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/users/:userId/reviews</text>
+      <text x="380" y="307" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">?limit=20 — public, no auth</text>
+
+      <!-- res -->
+      <line x1="630" y1="363" x2="141" y2="363" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,358 130,363 141,368" fill="#444"/>
+      <text x="380" y="355" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — { items, nextCursor }</text>
+      <text x="380" y="378" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">items[]: { rating, comment, tags, reviewerDisplayName, reviewerAvatarUrl, createdAt }</text>
+
+      <!-- note -->
+      <rect x="16" y="397" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="420" font-size="11" fill="#a0a0a0" font-style="italic">Render star distribution from ratingSum/ratingCount. List review cards with reviewer avatar + name.</text>
+
+      <!-- sep -->
+      <line x1="60" y1="452" x2="700" y2="452" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="3 4"/>
+      <text x="380" y="447" text-anchor="middle" font-size="10" fill="#444">── user scrolls to bottom ──</text>
+
+      <!-- req: pagination -->
+      <line x1="130" y1="507" x2="619" y2="507" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,502 630,507 619,512" fill="#5b9cf6"/>
+      <text x="380" y="499" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/users/:userId/reviews</text>
+      <text x="380" y="523" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">?limit=20&amp;cursor=&lt;nextCursor&gt;</text>
+
+      <!-- res -->
+      <line x1="630" y1="579" x2="141" y2="579" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,574 130,579 141,584" fill="#444"/>
+      <text x="380" y="571" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — { items, nextCursor: null }</text>
+      <text x="380" y="594" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">nextCursor=null signals end of list</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr />
+<h2>Key payloads</h2>
+
+<h3>POST /api/trades/:tradeId/reviews — request body</h3>
+<pre style="background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:16px;font-family:var(--mono);font-size:12px;color:#a0a0a0;line-height:1.7;overflow-x:auto;">{
+  "rating":  4,              // required · integer 1–5
+  "comment": "string",       // optional · max 1000 chars
+  "tags": [                  // optional · max 10 items
+    "Fast reply",
+    "Great condition",
+    "Easy meetup",
+    "Exactly as described",
+    "Would trade again"
+  ]
+}</pre>
+
+<h3>GET /api/trades/:tradeId/review-status — response</h3>
+<pre style="background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:16px;font-family:var(--mono);font-size:12px;color:#a0a0a0;line-height:1.7;overflow-x:auto;">{
+  "tradeId":        "uuid",
+  "windowClosesAt": "2026-05-15T11:04:00.000Z",
+  "windowOpen":     true,          // false after window closes
+  "revealed":       false,         // true when both submitted OR window closed
+  "myReview": {
+    "submitted":   true,
+    "submittedAt": "2026-05-08T11:12:00.000Z"
+  },
+  "theirReview": {
+    "submitted": false             // no rating/comment until revealed=true
+  }
+}</pre>
+
+<h3>GET /api/users/:userId/reviews — response item</h3>
+<pre style="background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:16px;font-family:var(--mono);font-size:12px;color:#a0a0a0;line-height:1.7;overflow-x:auto;">{
+  "id":                  "uuid",
+  "tradeId":             "uuid",
+  "reviewerId":          "uuid",
+  "revieweeId":          "uuid",
+  "rating":              5,
+  "comment":             "Really smooth trade!…",
+  "tags":                ["Exactly as described", "Fast reply"],
+  "createdAt":           "2026-05-11T09:00:00.000Z",
+  "reviewerDisplayName": "Maya Patel",
+  "reviewerAvatarUrl":   "https://…"    // nullable
+}</pre>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr style="margin-top:48px"/>
+<div class="legend">
+  <div class="legend-item">
+    <svg width="44" height="16"><line x1="2" y1="8" x2="38" y2="8" stroke="#5b9cf6" stroke-width="2"/><polygon points="38,4 44,8 38,12" fill="#5b9cf6"/></svg>
+    HTTP request
+  </div>
+  <div class="legend-item">
+    <svg width="44" height="16"><line x1="2" y1="8" x2="38" y2="8" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/><polygon points="2,4 2,12 8,8" fill="#444"/></svg>
+    HTTP response
+  </div>
+  <div class="legend-item">
+    <div style="width:20px;height:12px;border-radius:2px;background:#1e1e1e;border:1px solid #2a2a2a"></div>
+    UI action / note
+  </div>
+  <div class="legend-item">
+    <svg width="28" height="14"><line x1="0" y1="7" x2="28" y2="7" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="3 4"/></svg>
+    time / event boundary
+  </div>
+  <div class="legend-item" style="margin-left:auto;color:#444;font-size:11px">
+    SwapHaven API · generated Jul 14 2026
+  </div>
+</div>
+
+</body>
+</html>

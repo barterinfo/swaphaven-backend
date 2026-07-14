@@ -15,6 +15,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "trade_completed",
   "message",
   "review_received",
+  "reviews_revealed",
   "swipe_match",
   "streak_milestone",
 ]);
