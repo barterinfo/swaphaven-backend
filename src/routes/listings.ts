@@ -282,6 +282,7 @@ router.get("/trending", optionalAuth, async (req, res) => {
 
 // ─── GET /api/listings/:listingId ─────────────────────────────────────────────
 router.get("/:listingId", async (req, res) => {
+  console.log("GET /api/listings/:listingId", req.params["listingId"]);
   const listingId = p(req.params["listingId"]);
   // No `user` join — email must never be exposed on a public endpoint.
   const listing = await db.query.listingsTable.findFirst({
