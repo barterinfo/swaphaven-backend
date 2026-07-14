@@ -829,7 +829,65 @@ export const openApiSpec = {
           "403": { description: "Forbidden" },
         },
       },
-      delete: { tags: ["Listings"], summary: "Delete listing (soft)", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Deleted" }, "403": { description: "Forbidden" } } },
+      delete: {
+        tags: ["Listings"], summary: "Delete listing (soft)",
+        description: "Soft-deletes the listing (status → deleted). All pending offers are automatically denied and each buyer is notified.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Listing deleted and pending offers declined." },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
+          "409": { description: "Listing is already deleted." },
+        },
+      },
+    },
+    "/api/listings/{listingId}/sold": {
+      post: {
+        tags: ["Listings"], summary: "Mark listing as sold / traded",
+        description: "Closes the listing (status → traded). All remaining pending offers are automatically denied with a notification to each buyer. When soldMethod is `traded_on_barter` the seller's `totalTrades` count is incremented. The `shareWin` flag is echoed back for the mobile client to decide whether to show a trade-story composer.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["soldMethod"],
+                properties: {
+                  soldMethod:       { type: "string", enum: ["traded_on_barter", "sold_for_cash", "given_away"], description: "How the item left the seller's hands." },
+                  tradedWithUserId: { type: "string", format: "uuid", description: "UUID of the user traded with (traded_on_barter only). Optional — links the closed deal to a known SwapHaven user." },
+                  shareWin:         { type: "boolean", default: false, description: "When true the mobile client should show a trade-story composer after this call." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Listing marked as sold.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listing:    { $ref: "#/components/schemas/BarterListing" },
+                    id:         { type: "string", format: "uuid" },
+                    status:     { type: "string", enum: ["traded"] },
+                    soldMethod: { type: "string", enum: ["traded_on_barter", "sold_for_cash", "given_away"] },
+                    shareWin:   { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Validation error." },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
+          "409": { description: "Listing is already sold or deleted." },
+        },
+      },
     },
     "/api/listings/{listingId}/view": {
       post: {

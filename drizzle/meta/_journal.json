@@ -85,6 +85,13 @@
       "when": 1752452800000,
       "tag": "0011_review_window_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1752538800000,
+      "tag": "0012_listing_sold_meta",
+      "breakpoints": true
     }
   ]
 }
