@@ -129,6 +129,8 @@ export const openApiSpec = {
           estimatedValueCents: { type: "integer", nullable: true },
           isSwipeOnly:         { type: "boolean" },
           status:              { type: "string", enum: ["active","traded","paused","deleted"] },
+          soldMethod:          { type: "string", enum: ["traded_on_barter","sold_for_cash","given_away"], nullable: true, description: "How the item left the seller. Set by POST /sold; null while the listing is active." },
+          tradedWithUserId:    { type: "string", format: "uuid", nullable: true, description: "UUID of the SwapHaven user the seller traded with (traded_on_barter only)." },
           locationCity:        { type: "string", nullable: true },
           viewCount:           { type: "integer", description: "Approximate page-view count. Incremented by POST /api/listings/:id/view." },
           rightSwipeCount:     { type: "integer", description: "Denormalized right-swipe count. Incremented atomically on each new right swipe." },
@@ -794,6 +796,8 @@ export const openApiSpec = {
       },
       patch: {
         tags: ["Listings"], summary: "Update listing",
+        description: "Partial update — all fields are optional. Caller must own the listing. Images are managed separately via POST/DELETE /api/listings/{listingId}/images.",
+        security: [{ bearerAuth: [] }],
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: {
           required: true,
@@ -802,14 +806,17 @@ export const openApiSpec = {
               schema: {
                 type: "object",
                 properties: {
-                  title:           { type: "string", maxLength: 200 },
-                  description:     { type: "string", maxLength: 10000 },
-                  condition:       { type: "string", enum: ["new","like_new","great","good","fair"] },
-                  estimatedValue:  { type: "integer" },
-                  acceptCashTopUps: { type: "boolean" },
-                  isSwipeOnly:     { type: "boolean" },
-                  status:          { type: "string", enum: ["active","traded","paused","deleted"] },
-                  locationCity:    { type: "string", maxLength: 100 },
+                  title:               { type: "string", maxLength: 200 },
+                  description:         { type: "string", maxLength: 10000 },
+                  category:            { type: "string", description: "Category label or slug (e.g. 'cameras')." },
+                  categoryId:          { type: "string", description: "Category slug or UUID." },
+                  condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
+                  estimatedValue:      { type: "integer", description: "Dollar estimate." },
+                  estimatedValueCents: { type: "integer", description: "Value in cents — takes precedence over estimatedValue if both are sent." },
+                  acceptCashTopUps:    { type: "boolean" },
+                  isSwipeOnly:         { type: "boolean" },
+                  status:              { type: "string", enum: ["active","traded","paused","deleted"], description: "Use POST /sold to close a listing cleanly — setting status:'deleted' here skips the offer-cancellation side-effects." },
+                  locationCity:        { type: "string", maxLength: 100 },
                   location: {
                     type: "object",
                     properties: {
@@ -825,8 +832,25 @@ export const openApiSpec = {
           },
         },
         responses: {
-          "200": { description: "Updated listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } },
-          "403": { description: "Forbidden" },
+          "200": {
+            description: "Updated listing.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listing: { $ref: "#/components/schemas/BarterListing" },
+                    id:      { type: "string", format: "uuid", description: "Legacy flat field — prefer listing.id." },
+                    title:   { type: "string",                 description: "Legacy flat field — prefer listing.title." },
+                    status:  { type: "string",                 description: "Legacy flat field — prefer listing.status." },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Validation error." },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
         },
       },
       delete: {
@@ -981,21 +1005,88 @@ export const openApiSpec = {
     },
     // ── Trades ───────────────────────────────────────────────────────────────────
     "/api/trades": {
-      get: { tags: ["Trades"], summary: "All user's trades", parameters: [{ $ref: "#/components/parameters/limit" }], responses: { "200": { description: "Paginated trades" } } },
+      get: {
+        tags: ["Trades"], summary: "List the caller's trades",
+        description: "Returns all trades where the caller is either the buyer or seller, ordered newest first.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: "#/components/parameters/limit" }],
+        responses: {
+          "200": {
+            description: "Paginated trade list",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items:      { type: "array", items: { $ref: "#/components/schemas/Trade" } },
+                    nextCursor: { type: "string", nullable: true },
+                  },
+                },
+              },
+            },
+          },
+          "401": { description: "Unauthorized" },
+        },
+      },
     },
     "/api/trades/{tradeId}": {
-      get: { tags: ["Trades"], summary: "Trade detail", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } }, "403": { description: "Forbidden" } } },
+      get: {
+        tags: ["Trades"], summary: "Trade detail",
+        description: "Returns the full trade including offer items and any submitted reviews. Caller must be a party to the trade.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+        },
+      },
     },
     "/api/trades/{tradeId}/meetup": {
       patch: {
         tags: ["Trades"], summary: "Set meetup time and location",
+        description: "Either party can set or update the meetup details while the trade is in `pending_meetup` status.",
+        security: [{ bearerAuth: [] }],
         parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["meetupScheduledAt","meetupLocation"], properties: { meetupScheduledAt: { type: "string", format: "date-time" }, meetupLocation: { type: "string", maxLength: 500 } } } } } },
-        responses: { "200": { description: "Trade updated", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } }, "403": { description: "Forbidden" } },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["meetupScheduledAt", "meetupLocation"],
+                properties: {
+                  meetupScheduledAt: { type: "string", format: "date-time" },
+                  meetupLocation:    { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } },
+          "400": { description: "Validation error" },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+        },
       },
     },
     "/api/trades/{tradeId}/complete": {
-      post: { tags: ["Trades"], summary: "Mark trade completed", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade marked complete" } } },
+      post: {
+        tags: ["Trades"], summary: "Mark trade completed",
+        description: "Marks the trade as `completed` and opens a 7-day sealed review window (`reviewWindowClosesAt = now + 7 days`). Either party can call this. The other party receives a `trade_completed` push notification.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Trade marked complete. Use `reviewWindowClosesAt` to drive the countdown UI.",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } },
+          },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Trade is not in `pending_meetup` status" },
+        },
+      },
     },
     "/api/trades/{tradeId}/review-status": {
       get: {
@@ -1162,10 +1253,11 @@ export const openApiSpec = {
     { name: "Meta",          description: "Health and metadata" },
     { name: "Auth",          description: "Authentication and session management" },
     { name: "Users",         description: "User profiles" },
-    { name: "Listings",      description: "Item listings and categories" },
+    { name: "Media",         description: "S3 presigned upload URLs for listing images" },
+    { name: "Listings",      description: "Item listings, categories, and owner actions (edit / mark sold / delete)" },
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Offers",        description: "Swap offers and counter-offers" },
-    { name: "Trades",        description: "Confirmed trades and reviews" },
+    { name: "Trades",        description: "Confirmed trades, meetup coordination, and sealed peer reviews (7-day reveal window)" },
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },
     { name: "Ads",           description: "Sponsored / house-ad cards for the swipe deck" },
