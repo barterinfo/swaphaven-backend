@@ -262,10 +262,11 @@ export const openApiSpec = {
           id:                { type: "string", format: "uuid" },
           offerId:           { type: "string", format: "uuid" },
           status:            { type: "string", enum: ["pending_meetup","completed","disputed","cancelled"] },
-          meetupScheduledAt: { type: "string", format: "date-time", nullable: true },
-          meetupLocation:    { type: "string", nullable: true },
-          completedAt:       { type: "string", format: "date-time", nullable: true },
-          createdAt:         { type: "string", format: "date-time" },
+          meetupScheduledAt:    { type: "string", format: "date-time", nullable: true },
+          meetupLocation:       { type: "string", nullable: true },
+          completedAt:          { type: "string", format: "date-time", nullable: true },
+          reviewWindowClosesAt: { type: "string", format: "date-time", nullable: true, description: "When the 7-day review window closes. Set on completion." },
+          createdAt:            { type: "string", format: "date-time" },
         },
       },
       TradeReview: {
@@ -277,7 +278,48 @@ export const openApiSpec = {
           revieweeId: { type: "string", format: "uuid" },
           rating:     { type: "integer", minimum: 1, maximum: 5 },
           comment:    { type: "string", nullable: true },
+          tags:       { type: "array", items: { type: "string" }, description: "Quick-select tags chosen by the reviewer." },
           createdAt:  { type: "string", format: "date-time" },
+        },
+      },
+      PublicTradeReview: {
+        type: "object",
+        description: "Revealed review shown on a user profile. Includes reviewer display info.",
+        properties: {
+          id:                  { type: "string", format: "uuid" },
+          tradeId:             { type: "string", format: "uuid" },
+          reviewerId:          { type: "string", format: "uuid" },
+          revieweeId:          { type: "string", format: "uuid" },
+          rating:              { type: "integer", minimum: 1, maximum: 5 },
+          comment:             { type: "string", nullable: true },
+          tags:                { type: "array", items: { type: "string" } },
+          createdAt:           { type: "string", format: "date-time" },
+          reviewerDisplayName: { type: "string", nullable: true },
+          reviewerAvatarUrl:   { type: "string", nullable: true },
+        },
+      },
+      ReviewStatus: {
+        type: "object",
+        description: "Sealed review window status for a completed trade.",
+        properties: {
+          tradeId:        { type: "string", format: "uuid" },
+          windowClosesAt: { type: "string", format: "date-time", nullable: true, description: "ISO timestamp when the 7-day review window closes." },
+          windowOpen:     { type: "boolean", description: "True while the window is still open and reviews can be submitted." },
+          revealed:       { type: "boolean", description: "True when both parties submitted or the window has closed." },
+          myReview: {
+            type: "object",
+            properties: {
+              submitted:   { type: "boolean" },
+              submittedAt: { type: "string", format: "date-time", nullable: true },
+            },
+          },
+          theirReview: {
+            type: "object",
+            description: "Only 'submitted' is exposed before reviews are revealed.",
+            properties: {
+              submitted: { type: "boolean" },
+            },
+          },
         },
       },
       Conversation: {
@@ -584,7 +626,32 @@ export const openApiSpec = {
       },
     },
     "/api/users/{userId}/reviews": {
-      get: { tags: ["Users"], summary: "List a user's trade reviews", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated reviews" } } },
+      get: {
+        tags: ["Users"], summary: "List a user's revealed reviews",
+        description: "Returns only revealed reviews — those where both parties submitted or the 7-day window closed. Includes reviewer display name and avatar.",
+        security: [],
+        parameters: [
+          { name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated revealed reviews",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items:      { type: "array", items: { $ref: "#/components/schemas/PublicTradeReview" } },
+                    nextCursor: { type: "string", nullable: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     // ── Media (S3 presign) ───────────────────────────────────────────────────────
     "/api/media/status": {
@@ -872,12 +939,61 @@ export const openApiSpec = {
     "/api/trades/{tradeId}/complete": {
       post: { tags: ["Trades"], summary: "Mark trade completed", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade marked complete" } } },
     },
+    "/api/trades/{tradeId}/review-status": {
+      get: {
+        tags: ["Trades"], summary: "Review window status",
+        description: "Returns the sealed-review window state for a completed trade: whether the window is open, whether both parties have submitted, and the close timestamp.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Review status", content: { "application/json": { schema: { $ref: "#/components/schemas/ReviewStatus" } } } },
+          "403": { description: "Forbidden — not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Trade is not yet completed" },
+        },
+      },
+    },
+    "/api/trades/{tradeId}/reviews/mine": {
+      get: {
+        tags: ["Trades"], summary: "My review for this trade",
+        description: "Returns the current user's own submitted review (always visible to the author, even while sealed).",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "The user's review", content: { "application/json": { schema: { $ref: "#/components/schemas/TradeReview" } } } },
+          "403": { description: "Forbidden" },
+          "404": { description: "Trade or review not found" },
+        },
+      },
+    },
     "/api/trades/{tradeId}/reviews": {
       post: {
-        tags: ["Trades"], summary: "Leave a review",
+        tags: ["Trades"], summary: "Submit a review",
+        description: "Submit a sealed review within the 7-day window. Reviews reveal when both parties submit or the window closes.",
+        security: [{ bearerAuth: [] }],
         parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["rating"], properties: { rating: { type: "integer", minimum: 1, maximum: 5 }, comment: { type: "string", maxLength: 1000 } } } } } },
-        responses: { "201": { description: "Review created", content: { "application/json": { schema: { $ref: "#/components/schemas/TradeReview" } } } } },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["rating"],
+                properties: {
+                  rating:  { type: "integer", minimum: 1, maximum: 5 },
+                  comment: { type: "string", maxLength: 1000 },
+                  tags:    { type: "array", items: { type: "string", maxLength: 50 }, maxItems: 10, description: "Quick-select tags, e.g. 'Fast reply', 'Great condition'." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Review submitted (sealed until revealed)", content: { "application/json": { schema: { $ref: "#/components/schemas/TradeReview" } } } },
+          "403": { description: "Forbidden — not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Already reviewed, trade not completed, or review window closed" },
+        },
       },
     },
     // ── Conversations ────────────────────────────────────────────────────────────

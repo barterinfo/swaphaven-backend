@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { and, count, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { userProfilesTable, listingsTable, tradeReviewsTable } from "../db/schema/index.js";
+import { userProfilesTable, listingsTable, tradeReviewsTable, tradesTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
@@ -111,13 +111,42 @@ router.get("/:userId/listings", async (req, res) => {
 });
 
 // ─── GET /api/users/:userId/reviews ──────────────────────────────────────────
+// Only returns revealed reviews: window closed OR both parties have submitted.
+// Includes reviewer display name and avatar for profile display.
 router.get("/:userId/reviews", async (req, res) => {
-  const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
-  const items = await db.query.tradeReviewsTable.findMany({
-    where: eq(tradeReviewsTable.revieweeId, p(req.params["userId"])),
-    limit,
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
-  });
+  const userId      = p(req.params["userId"]);
+  const { limit }   = parsePaginationQuery(req.query as Record<string, unknown>);
+
+  const items = await db
+    .select({
+      id:                  tradeReviewsTable.id,
+      tradeId:             tradeReviewsTable.tradeId,
+      reviewerId:          tradeReviewsTable.reviewerId,
+      revieweeId:          tradeReviewsTable.revieweeId,
+      rating:              tradeReviewsTable.rating,
+      comment:             tradeReviewsTable.comment,
+      tags:                tradeReviewsTable.tags,
+      createdAt:           tradeReviewsTable.createdAt,
+      reviewerDisplayName: userProfilesTable.displayName,
+      reviewerAvatarUrl:   userProfilesTable.avatarUrl,
+    })
+    .from(tradeReviewsTable)
+    .innerJoin(tradesTable, eq(tradesTable.id, tradeReviewsTable.tradeId))
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, tradeReviewsTable.reviewerId))
+    .where(
+      and(
+        eq(tradeReviewsTable.revieweeId, userId),
+        or(
+          // Window has closed — reviews are public regardless of both submitting
+          sql`${tradesTable.reviewWindowClosesAt} < NOW()`,
+          // Both parties submitted early — reveal immediately
+          sql`(SELECT COUNT(*) FROM trade_reviews r2 WHERE r2.trade_id = ${tradeReviewsTable.tradeId}) >= 2`,
+        ),
+      ),
+    )
+    .orderBy(desc(tradeReviewsTable.createdAt))
+    .limit(limit);
+
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
   return res.json({ items, nextCursor });
 });
