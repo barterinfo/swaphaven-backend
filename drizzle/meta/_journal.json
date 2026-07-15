@@ -82,21 +82,28 @@
     {
       "idx": 11,
       "version": "7",
-      "when": 1752452800000,
+      "when": 1783682682620,
       "tag": "0011_review_window_tags",
       "breakpoints": true
     },
     {
       "idx": 12,
       "version": "7",
-      "when": 1752538800000,
+      "when": 1783682682621,
       "tag": "0012_listing_sold_meta",
       "breakpoints": true
     },
     {
       "idx": 13,
       "version": "7",
-      "when": 1752562500000,
+      "when": 1783682682622,
+      "tag": "0013_ensure_missing_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783682682623,
       "tag": "0013_search_trgm_indexes",
       "breakpoints": true
     }

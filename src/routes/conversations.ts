@@ -59,7 +59,14 @@ router.get("/", requireAuth, async (req, res) => {
           items: { with: { listing: { columns: { id: true, title: true }, with: { images: true } } } },
           buyer: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
           seller: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
-          trade: true,
+          trade: {
+            columns: {
+              id: true,
+              status: true,
+              meetupScheduledAt: true,
+              meetupLocation: true,
+            },
+          },
         },
       },
       messages: { limit: 1, orderBy: (t, { desc }) => [desc(t.createdAt)] },
