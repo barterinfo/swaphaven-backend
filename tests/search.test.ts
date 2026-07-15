@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
-import { registerUser, createListing, uid } from "./helpers/fixtures.js";
+import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { listingsTable } from "../src/db/schema/index.js";
 
@@ -179,6 +179,33 @@ describe("GET /api/search/listings", () => {
     expect(res.body.total).toBeGreaterThanOrEqual(1);
     expect(res.body.listings.some((l: { title: string }) => l.title === marker)).toBe(
       true,
+    );
+  });
+
+  it("hides listings in an active offer with the viewer", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+    const marker = `OfferHide-${uid()}`;
+    const target = await createListing(seller.accessToken, { title: marker });
+    const buyerItem = await createListing(buyer.accessToken, {
+      title: `BuyerItem-${uid()}`,
+    });
+    await createOffer(buyer.accessToken, target.id, buyerItem.id);
+
+    const asBuyer = await request(app)
+      .get(`/api/search/listings?q=${encodeURIComponent(marker)}`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+    expect(asBuyer.status).toBe(200);
+    expect(asBuyer.body.listings.map((l: { id: string }) => l.id)).not.toContain(
+      target.id,
+    );
+
+    const asSeller = await request(app)
+      .get(`/api/search/listings?q=${encodeURIComponent(marker)}`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(asSeller.status).toBe(200);
+    expect(asSeller.body.listings.map((l: { id: string }) => l.id)).not.toContain(
+      target.id,
     );
   });
 

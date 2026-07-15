@@ -18,6 +18,8 @@ export type SearchListingParams = {
   offset: number;
   /** Authenticated user id — own listings excluded when set. */
   excludeUserId?: string;
+  /** Listing IDs to hide (active offers / open trades with this user). */
+  excludeListingIds?: string[];
   /** Phase 2 hook — accepted and ignored in Phase 1. */
   seedIds?: string[];
 };

@@ -1,8 +1,9 @@
-import { and, asc, count, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { listingImagesTable, listingsTable } from "../db/schema/index.js";
 import type { Listing } from "../db/schema/listings.js";
+import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { serializeListingBarter } from "../lib/barter-listing.js";
 import { normalizeQuery, tokenizeQuery } from "./normalize.js";
 import type { SearchListingParams, SearchSort } from "./types.js";
@@ -25,6 +26,10 @@ function buildFilterConditions(params: SearchListingParams): SQL<unknown>[] {
 
   if (params.excludeUserId) {
     conditions.push(ne(listingsTable.userId, params.excludeUserId));
+  }
+
+  if (params.excludeListingIds && params.excludeListingIds.length > 0) {
+    conditions.push(notInArray(listingsTable.id, params.excludeListingIds));
   }
 
   const tokens = tokenizeQuery(normalizeQuery(params.q));
@@ -143,7 +148,14 @@ export async function searchListings(params: SearchListingParams): Promise<{
   // seedIds accepted for Phase 2 — ignored here.
   void params.seedIds;
 
-  const filterConditions = buildFilterConditions(params);
+  let excludeListingIds = params.excludeListingIds ?? [];
+  if (params.excludeUserId && excludeListingIds.length === 0) {
+    excludeListingIds = await getActiveNegotiationListingIds(params.excludeUserId);
+  }
+  const filterConditions = buildFilterConditions({
+    ...params,
+    excludeListingIds,
+  });
   const whereClause = and(...filterConditions);
   const tokens = tokenizeQuery(normalizeQuery(params.q));
   const sort = resolveSort(params);
