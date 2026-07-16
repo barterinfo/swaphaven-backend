@@ -181,6 +181,48 @@ export const openApiSpec = {
           seller:            { allOf: [{ $ref: "#/components/schemas/SellerSnapshot" }], nullable: true, description: "Embedded seller card. Present on GET /api/listings/:id; null on feed/closet responses." },
         },
       },
+      SearchListingsResponse: {
+        type: "object",
+        properties: {
+          listings: {
+            type: "array",
+            items: {
+              allOf: [
+                { $ref: "#/components/schemas/BarterListing" },
+                {
+                  type: "object",
+                  properties: {
+                    distance_miles: { type: "number", nullable: true },
+                  },
+                },
+              ],
+            },
+          },
+          total: { type: "integer" },
+          nextOffset: { type: "integer", nullable: true },
+        },
+      },
+      TrendingSearchListingsResponse: {
+        type: "object",
+        description: "Trending active listings for the search idle screen (not search keywords).",
+        properties: {
+          listings: {
+            type: "array",
+            items: {
+              allOf: [
+                { $ref: "#/components/schemas/BarterListing" },
+                {
+                  type: "object",
+                  properties: {
+                    distance_miles: { type: "number", nullable: true },
+                  },
+                },
+              ],
+            },
+          },
+          total: { type: "integer" },
+        },
+      },
       ListingFeedResponse: {
         type: "object",
         properties: {
@@ -1199,6 +1241,66 @@ export const openApiSpec = {
     "/api/notifications/read-all": {
       post: { tags: ["Notifications"], summary: "Mark all notifications read", responses: { "204": { description: "All marked read" } } },
     },
+    // ── Search ───────────────────────────────────────────────────────────────────
+    "/api/search/listings": {
+      get: {
+        tags: ["Search"],
+        summary: "Search active listings (paginated)",
+        description:
+          "Dedicated search module. Only status=active listings. Multi-token AND on title/description, optional geo radius, offset pagination. Optional seed_ids reserved for Phase 2 affinity (ignored today).",
+        security: [],
+        parameters: [
+          { name: "q", in: "query", schema: { type: "string" }, description: "Search query (normalized; length < 2 ignored)" },
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number", minimum: 1, maximum: 25 }, description: "Max distance miles (hard filter)" },
+          { name: "condition", in: "query", schema: { type: "string" }, description: "CSV of like_new,great,good,fair,new" },
+          { name: "category", in: "query", schema: { type: "string" }, description: "Category slug" },
+          {
+            name: "sort",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["best_match", "nearest", "newest", "value_asc", "most_saved"],
+            },
+          },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+          { name: "seed_ids", in: "query", schema: { type: "string" }, description: "Phase 2: CSV of listing UUIDs (ignored in Phase 1)" },
+        ],
+        responses: {
+          "200": {
+            description: "Search results",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SearchListingsResponse" } } },
+          },
+          "400": { description: "Validation error" },
+        },
+      },
+    },
+    "/api/search/trending": {
+      get: {
+        tags: ["Search"],
+        summary: "Trending active listings",
+        description:
+          "Active listings ranked by engagement (right-swipe / save signal). Used by the search idle “Trending” product grid. Tap opens listing detail.",
+        security: [],
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 40, default: 8 } },
+        ],
+        responses: {
+          "200": {
+            description: "Trending listings",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TrendingSearchListingsResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
     // ── Ads ──────────────────────────────────────────────────────────────────────
     "/api/ads/active": {
       get: {
@@ -1250,5 +1352,6 @@ export const openApiSpec = {
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },
     { name: "Ads",           description: "Sponsored / house-ad cards for the swipe deck" },
+    { name: "Search",        description: "Dedicated listing search (microservice-ready module)" },
   ],
 } as const;

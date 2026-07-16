@@ -99,6 +99,13 @@
       "when": 1783682682622,
       "tag": "0013_ensure_missing_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783682682623,
+      "tag": "0013_search_trgm_indexes",
+      "breakpoints": true
     }
   ]
 }

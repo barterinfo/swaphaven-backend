@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Listing Management — Technical Reference · SwapHaven</title>
+<style>
+  :root {
+    --bg:        #0d0d0d;
+    --bg-card:   #161616;
+    --bg-note:   #1e1e1e;
+    --border:    #2a2a2a;
+    --border-2:  #333;
+    --text:      #e8e8e8;
+    --text-2:    #a0a0a0;
+    --text-3:    #666;
+    --text-4:    #444;
+    --accent:    #5b9cf6;
+    --green:     #4caf82;
+    --amber:     #e6a23c;
+    --red:       #e05c5c;
+    --mono:      "JetBrains Mono", "Fira Code", "Menlo", monospace;
+    --sans:      -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    padding: 48px 40px;
+    max-width: 960px;
+    margin: 0 auto;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 4px; }
+  h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 40px 0 14px; }
+  h3 { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase;
+       letter-spacing: .6px; margin: 32px 0 10px; }
+  p  { color: var(--text-2); font-size: 13px; margin-bottom: 8px; }
+  ul { color: var(--text-2); font-size: 13px; padding-left: 20px; margin: 8px 0 12px; }
+  li { margin-bottom: 4px; }
+
+  .callout {
+    background: #0f1f3a;
+    border: 1px solid #1e3a6e;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--text-2);
+    margin-top: 14px;
+  }
+  .callout-warn {
+    background: #2a1f0f;
+    border-color: #5c3d1a;
+  }
+  .callout strong { color: var(--text); }
+  code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: #1e2430;
+    color: #8ab4f8;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+
+  .ref-table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .ref-table th {
+    background: var(--bg-note);
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: 8px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .ref-table td {
+    padding: 9px 14px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .ref-table tr:last-child td { border-bottom: none; }
+  .ref-table tr:nth-child(odd)  td { background: #101010; }
+  .ref-table tr:nth-child(even) td { background: transparent; }
+  .method-post   { color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 11px; }
+  .method-get    { color: var(--text-2); font-family: var(--mono); font-weight: 700; font-size: 11px; }
+  .method-patch  { color: var(--amber); font-family: var(--mono); font-weight: 700; font-size: 11px; }
+  .method-delete { color: var(--red); font-family: var(--mono); font-weight: 700; font-size: 11px; }
+  .path          { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: .3px;
+  }
+  .badge-auth   { background: rgba(91,156,246,.15); color: var(--accent); }
+  .badge-public { background: var(--bg-note); color: var(--text-3); border: 1px solid var(--border); }
+
+  .flow { margin-top: 36px; }
+  .flow-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+  .flow-title  { font-size: 15px; font-weight: 600; }
+  .flow-screen { font-size: 12px; color: var(--text-3); }
+
+  .diagram-wrap {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0d0d0d;
+    padding: 8px 0 0;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .diagram-wrap svg { display: block; width: 100%; }
+
+  .legend {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+
+  .toc { list-style: none; padding: 0; margin: 16px 0; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  .toc a:hover { text-decoration: underline; }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 24px; max-width: 100%; }
+    :root {
+      --bg: #fff; --bg-card: #f5f5f5; --bg-note: #f0f0f0; --border: #ddd; --border-2: #ccc;
+      --text: #111; --text-2: #444; --text-3: #888; --text-4: #bbb;
+      --accent: #1a6ef5; --green: #1a7a4a; --amber: #b87a00; --red: #c0392b;
+    }
+    .flow { page-break-inside: avoid; }
+    .diagram-wrap { border: 1px solid #ccc; }
+    hr { border-color: #ddd; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Listing Management — Profile Closet Owner Actions</h1>
+<p>Technical reference for the closet → detail → edit / mark sold / delete feature &nbsp;·&nbsp; SwapHaven API &nbsp;·&nbsp; Jul 2026</p>
+
+<div class="callout">
+  <strong>Scope:</strong> A seller opens their own listing from the profile closet and can
+  <strong>edit</strong> listing fields, <strong>mark as sold</strong> (traded / cash / given away),
+  or <strong>delete</strong> the listing. Status changes never go through PATCH — they use
+  <code>POST /sold</code> or <code>DELETE</code>. All mutating routes require auth and owner check
+  (<code>listing.userId === token.sub</code>).
+</div>
+
+<h3>Contents</h3>
+<ul class="toc">
+  <li><a href="#overview">1 · Feature overview</a></li>
+  <li><a href="#ui-flow">2 · UI journey flow</a></li>
+  <li><a href="#status">3 · Listing status lifecycle</a></li>
+  <li><a href="#api-map">4 · API surface map</a></li>
+  <li><a href="#database">5 · Database schema</a></li>
+  <li><a href="#endpoints">6 · Endpoint reference</a></li>
+  <li><a href="#sequences">7 · Sequence diagrams</a></li>
+  <li><a href="#side-effects">8 · Side effects &amp; notifications</a></li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="overview" />
+<h2>1 · Feature overview</h2>
+
+<p>
+  The profile <strong>closet</strong> shows a grid of the user's non-deleted listings
+  (<code>status != 'deleted'</code>). Tapping a card opens the <strong>listing detail</strong> screen.
+  When the viewer is the owner, the app shows owner actions: Edit, Mark Sold, Delete.
+</p>
+
+<table class="ref-table">
+  <thead>
+    <tr><th>Screen</th><th>Primary API</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Profile closet grid</td>
+      <td><span class="method-get">GET</span> <span class="path">/api/users/:userId/listings</span></td>
+      <td>Public. Returns <code>items</code>, <code>total</code>, cursor pagination.</td>
+    </tr>
+    <tr>
+      <td>Listing detail (owner)</td>
+      <td><span class="method-get">GET</span> <span class="path">/api/listings/:listingId</span></td>
+      <td>Public. Includes seller snapshot. Client compares <code>listing.userId</code> to session.</td>
+    </tr>
+    <tr>
+      <td>View count ping</td>
+      <td><span class="method-post">POST</span> <span class="path">/api/listings/:listingId/view</span></td>
+      <td>Auth. Fire-and-forget 204; increments <code>view_count</code>.</td>
+    </tr>
+    <tr>
+      <td>Edit listing</td>
+      <td><span class="method-patch">PATCH</span> <span class="path">/api/listings/:listingId</span></td>
+      <td>Auth + owner. Title, value, condition, category, description, trade wants.</td>
+    </tr>
+    <tr>
+      <td>Photo add / remove</td>
+      <td><span class="method-post">POST</span> / <span class="method-delete">DELETE</span> <span class="path">…/images</span></td>
+      <td>Auth + owner. Presigned upload via <code>POST /api/media/presign</code> first.</td>
+    </tr>
+    <tr>
+      <td>Mark as sold</td>
+      <td><span class="method-post">POST</span> <span class="path">/api/listings/:listingId/sold</span></td>
+      <td>Auth + owner. Sets <code>status = traded</code>, records <code>sold_method</code>.</td>
+    </tr>
+    <tr>
+      <td>Delete listing</td>
+      <td><span class="method-delete">DELETE</span> <span class="path">/api/listings/:listingId</span></td>
+      <td>Auth + owner. Soft-delete (<code>status = deleted</code>). 409 if already deleted.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn" style="margin-top:16px">
+  <strong>Product note — Mark Sold UI:</strong> The mobile app sends only
+  <code>{ soldMethod, shareWin }</code>. The API accepts optional <code>tradedWithUserId</code> but
+  the "Who did you trade with?" field is intentionally omitted from the UI.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="ui-flow" />
+<h2>2 · UI journey flow</h2>
+<p>High-level navigation and decision points from profile to owner actions.</p>
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 880 520" xmlns="http://www.w3.org/2000/svg">
+    <!-- Start -->
+    <rect x="340" y="16" width="200" height="40" rx="20" fill="#161616" stroke="#5b9cf6" stroke-width="2"/>
+    <text x="440" y="41" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Profile → Closet tab</text>
+
+    <line x1="440" y1="56" x2="440" y2="88" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Closet load -->
+    <rect x="280" y="88" width="320" height="52" rx="6" fill="#161616" stroke="#2a2a2a"/>
+    <text x="440" y="110" text-anchor="middle" font-size="11" fill="#e8e8e8">GET /api/users/:userId/listings</text>
+    <text x="440" y="128" text-anchor="middle" font-size="10" fill="#666">Render grid · show total count</text>
+
+    <line x1="440" y1="140" x2="440" y2="172" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Tap card -->
+    <rect x="300" y="172" width="280" height="40" rx="6" fill="#161616" stroke="#2a2a2a"/>
+    <text x="440" y="197" text-anchor="middle" font-size="12" fill="#e8e8e8">Tap listing card</text>
+
+    <line x1="440" y1="212" x2="440" y2="244" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Detail -->
+    <rect x="260" y="244" width="360" height="52" rx="6" fill="#161616" stroke="#2a2a2a"/>
+    <text x="440" y="266" text-anchor="middle" font-size="11" fill="#e8e8e8">GET /api/listings/:id + POST /view</text>
+    <text x="440" y="284" text-anchor="middle" font-size="10" fill="#666">Owner? → show Edit · Mark Sold · Delete</text>
+
+    <line x1="440" y1="296" x2="440" y2="328" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Decision diamond -->
+    <polygon points="440,328 520,368 440,408 360,368" fill="#1e2430" stroke="#5b9cf6" stroke-width="1.5"/>
+    <text x="440" y="372" text-anchor="middle" font-size="11" fill="#e8e8e8">Owner action?</text>
+
+    <!-- Edit branch -->
+    <line x1="360" y1="368" x2="140" y2="368" stroke="#444" stroke-width="1.5"/>
+    <line x1="140" y1="368" x2="140" y2="420" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="40" y="420" width="200" height="72" rx="6" fill="#161616" stroke="#e6a23c"/>
+    <text x="140" y="442" text-anchor="middle" font-size="11" font-weight="600" fill="#e6a23c">Edit</text>
+    <text x="140" y="460" text-anchor="middle" font-size="10" fill="#a0a0a0">PATCH /listings/:id</text>
+    <text x="140" y="476" text-anchor="middle" font-size="10" fill="#666">+ image POST/DELETE</text>
+
+    <!-- Mark sold branch -->
+    <line x1="440" y1="408" x2="440" y2="448" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="320" y="448" width="240" height="56" rx="6" fill="#161616" stroke="#4caf82"/>
+    <text x="440" y="470" text-anchor="middle" font-size="11" font-weight="600" fill="#4caf82">Mark Sold</text>
+    <text x="440" y="488" text-anchor="middle" font-size="10" fill="#a0a0a0">POST /listings/:id/sold</text>
+
+    <!-- Delete branch -->
+    <line x1="520" y1="368" x2="740" y2="368" stroke="#444" stroke-width="1.5"/>
+    <line x1="740" y1="368" x2="740" y2="420" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="640" y="420" width="200" height="72" rx="6" fill="#161616" stroke="#e05c5c"/>
+    <text x="740" y="442" text-anchor="middle" font-size="11" font-weight="600" fill="#e05c5c">Delete</text>
+    <text x="740" y="460" text-anchor="middle" font-size="10" fill="#a0a0a0">Confirm dialog</text>
+    <text x="740" y="476" text-anchor="middle" font-size="10" fill="#666">DELETE /listings/:id → 204</text>
+
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#444"/>
+      </marker>
+    </defs>
+  </svg>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="status" />
+<h2>3 · Listing status lifecycle</h2>
+<p>
+  Listings use enum <code>listing_status</code>: <code>active</code>, <code>traded</code>,
+  <code>paused</code>, <code>deleted</code>. Owner actions in this feature transition
+  <code>active → traded</code> (mark sold) or <code>active → deleted</code> (delete).
+</p>
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 880 220" xmlns="http://www.w3.org/2000/svg">
+    <!-- active -->
+    <rect x="40" y="80" width="120" height="44" rx="22" fill="#0f2a1a" stroke="#4caf82" stroke-width="2"/>
+    <text x="100" y="107" text-anchor="middle" font-size="12" font-weight="600" fill="#4caf82">active</text>
+
+    <!-- traded -->
+    <rect x="340" y="20" width="120" height="44" rx="22" fill="#1a2430" stroke="#5b9cf6" stroke-width="2"/>
+    <text x="400" y="47" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">traded</text>
+
+    <!-- deleted -->
+    <rect x="340" y="140" width="120" height="44" rx="22" fill="#2a1515" stroke="#e05c5c" stroke-width="2"/>
+    <text x="400" y="167" text-anchor="middle" font-size="12" font-weight="600" fill="#e05c5c">deleted</text>
+
+    <!-- arrows -->
+    <line x1="160" y1="92" x2="330" y2="50" stroke="#5b9cf6" stroke-width="2" marker-end="url(#arrowB)"/>
+    <text x="230" y="58" font-size="10" fill="#a0a0a0">POST /sold</text>
+    <text x="230" y="72" font-size="9" fill="#666">+ sold_method</text>
+
+    <line x1="160" y1="112" x2="330" y2="162" stroke="#e05c5c" stroke-width="2" marker-end="url(#arrowR)"/>
+    <text x="230" y="148" font-size="10" fill="#a0a0a0">DELETE</text>
+    <text x="230" y="162" font-size="9" fill="#666">soft-delete</text>
+
+    <!-- terminal notes -->
+    <rect x="540" y="12" width="300" height="56" rx="4" fill="#1e1e1e"/>
+    <text x="554" y="32" font-size="10" fill="#a0a0a0">Hidden from closet &amp; swipe deck</text>
+    <text x="554" y="48" font-size="10" fill="#666">Still in DB · pending offers denied</text>
+    <text x="554" y="62" font-size="10" fill="#666">buyers get offer_denied notification</text>
+
+    <rect x="540" y="132" width="300" height="56" rx="4" fill="#1e1e1e"/>
+    <text x="554" y="152" font-size="10" fill="#a0a0a0">409 if DELETE again</text>
+    <text x="554" y="168" font-size="10" fill="#666">GET /listings/:id → 404</text>
+    <text x="554" y="184" font-size="10" fill="#666">Closet query excludes deleted</text>
+
+    <defs>
+      <marker id="arrowB" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5b9cf6"/></marker>
+      <marker id="arrowR" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e05c5c"/></marker>
+    </defs>
+  </svg>
+</div>
+
+<p><strong>sold_method</strong> values (set only on POST /sold):</p>
+<ul>
+  <li><code>traded_on_barter</code> — increments seller <code>user_profiles.total_trades</code></li>
+  <li><code>sold_for_cash</code></li>
+  <li><code>given_away</code></li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="api-map" />
+<h2>4 · API surface map</h2>
+<p>Routes involved in listing management, grouped by router mount.</p>
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 880 380" xmlns="http://www.w3.org/2000/svg">
+    <!-- Mobile -->
+    <rect x="24" y="140" width="120" height="44" rx="6" fill="#0f1f3a" stroke="#5b9cf6" stroke-width="1.5"/>
+    <text x="84" y="167" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Mobile App</text>
+
+    <!-- API box -->
+    <rect x="200" y="24" width="656" height="332" rx="8" fill="#161616" stroke="#2a2a2a"/>
+    <text x="220" y="48" font-size="11" font-weight="600" fill="#666" letter-spacing="1">SWAPHAVEN API</text>
+
+    <!-- users router -->
+    <rect x="220" y="64" width="280" height="88" rx="6" fill="#1e1e1e" stroke="#333"/>
+    <text x="236" y="84" font-size="10" fill="#666">/api/users  ·  users.ts</text>
+    <text x="236" y="104" font-size="11" fill="#e8e8e8" font-family="monospace">GET /:userId/listings</text>
+    <text x="236" y="122" font-size="10" fill="#a0a0a0">Closet grid · total · cursor</text>
+    <text x="236" y="140" font-size="10" fill="#666">Public · no auth required</text>
+
+    <!-- listings router -->
+    <rect x="520" y="64" width="316" height="280" rx="6" fill="#1e1e1e" stroke="#333"/>
+    <text x="536" y="84" font-size="10" fill="#666">/api/listings  ·  listings.ts</text>
+
+    <text x="536" y="108" font-size="11" fill="#a0a0a0" font-family="monospace">GET  /:listingId</text>
+    <text x="536" y="124" font-size="11" fill="#5b9cf6" font-family="monospace">POST /:listingId/view</text>
+    <text x="536" y="140" font-size="11" fill="#e6a23c" font-family="monospace">PATCH /:listingId</text>
+    <text x="536" y="156" font-size="11" fill="#5b9cf6" font-family="monospace">POST /:listingId/sold</text>
+    <text x="536" y="172" font-size="11" fill="#e05c5c" font-family="monospace">DELETE /:listingId</text>
+    <text x="536" y="188" font-size="11" fill="#5b9cf6" font-family="monospace">POST /:listingId/images</text>
+    <text x="536" y="204" font-size="11" fill="#e05c5c" font-family="monospace">DELETE …/images/:imageId</text>
+
+    <line x1="536" y1="216" x2="820" y2="216" stroke="#2a2a2a"/>
+    <text x="536" y="234" font-size="10" fill="#666">Auth: requireAuth on mutating routes</text>
+    <text x="536" y="250" font-size="10" fill="#666">Owner: listing.userId === req.user.sub</text>
+    <text x="536" y="266" font-size="10" fill="#666">Errors: 400 validation · 403 forbidden</text>
+    <text x="536" y="282" font-size="10" fill="#666">404 not_found · 409 conflict</text>
+    <text x="536" y="298" font-size="10" fill="#666">204 on DELETE &amp; POST /view</text>
+    <text x="536" y="314" font-size="10" fill="#666">200 JSON on PATCH &amp; POST /sold</text>
+    <text x="536" y="330" font-size="10" fill="#666">201 on POST /images</text>
+
+    <!-- media (supporting) -->
+    <rect x="220" y="168" width="280" height="72" rx="6" fill="#1e1e1e" stroke="#333" stroke-dasharray="4 3"/>
+    <text x="236" y="188" font-size="10" fill="#666">/api/media  ·  supporting</text>
+    <text x="236" y="208" font-size="11" fill="#e8e8e8" font-family="monospace">POST /presign</text>
+    <text x="236" y="226" font-size="10" fill="#a0a0a0">Upload photo before POST …/images</text>
+
+    <!-- arrows from mobile -->
+    <line x1="144" y1="162" x2="218" y2="110" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="144" y1="162" x2="518" y2="130" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="144" y1="162" x2="218" y2="200" stroke="#444" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  </svg>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="database" />
+<h2>5 · Database schema</h2>
+<p>Core tables touched by listing management. Migration <code>0012_listing_sold_meta.sql</code> adds sold columns.</p>
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 880 560" xmlns="http://www.w3.org/2000/svg">
+    <!-- users -->
+    <rect x="24" y="40" width="200" height="120" rx="4" fill="#161616" stroke="#5b9cf6"/>
+    <text x="124" y="62" text-anchor="middle" font-size="12" font-weight="700" fill="#5b9cf6">users</text>
+    <line x1="24" y1="72" x2="224" y2="72" stroke="#333"/>
+    <text x="36" y="90" font-size="10" fill="#a0a0a0" font-family="monospace">id uuid PK</text>
+    <text x="36" y="106" font-size="10" fill="#666" font-family="monospace">email, …</text>
+
+    <!-- user_profiles -->
+    <rect x="24" y="200" width="200" height="100" rx="4" fill="#161616" stroke="#4caf82"/>
+    <text x="124" y="222" text-anchor="middle" font-size="12" font-weight="700" fill="#4caf82">user_profiles</text>
+    <line x1="24" y1="232" x2="224" y2="232" stroke="#333"/>
+    <text x="36" y="250" font-size="10" fill="#a0a0a0" font-family="monospace">id → users.id</text>
+    <text x="36" y="266" font-size="10" fill="#e6a23c" font-family="monospace">total_trades int</text>
+    <text x="36" y="282" font-size="10" fill="#666" font-family="monospace">display_name, avatar_url</text>
+
+    <!-- listings -->
+    <rect x="300" y="24" width="280" height="320" rx="4" fill="#161616" stroke="#e8e8e8"/>
+    <text x="440" y="46" text-anchor="middle" font-size="13" font-weight="700" fill="#e8e8e8">listings</text>
+    <line x1="300" y1="56" x2="580" y2="56" stroke="#333"/>
+    <text x="312" y="74" font-size="10" fill="#a0a0a0" font-family="monospace">id uuid PK</text>
+    <text x="312" y="90" font-size="10" fill="#a0a0a0" font-family="monospace">user_id → users.id</text>
+    <text x="312" y="106" font-size="10" fill="#a0a0a0" font-family="monospace">category_id → categories</text>
+    <text x="312" y="122" font-size="10" fill="#666" font-family="monospace">title, description, category</text>
+    <text x="312" y="138" font-size="10" fill="#666" font-family="monospace">condition, estimated_value*</text>
+    <text x="312" y="154" font-size="10" fill="#666" font-family="monospace">wanted_category_ids jsonb</text>
+    <text x="312" y="170" font-size="10" fill="#666" font-family="monospace">wanted_categories jsonb</text>
+    <text x="312" y="186" font-size="10" fill="#e6a23c" font-family="monospace">status listing_status</text>
+    <text x="312" y="202" font-size="10" fill="#e6a23c" font-family="monospace">sold_method text ★</text>
+    <text x="312" y="218" font-size="10" fill="#e6a23c" font-family="monospace">traded_with_user_id ★</text>
+    <text x="312" y="234" font-size="10" fill="#666" font-family="monospace">view_count, location_*</text>
+    <text x="312" y="250" font-size="10" fill="#666" font-family="monospace">created_at, updated_at</text>
+    <text x="312" y="272" font-size="9" fill="#666">★ added in 0012_listing_sold_meta</text>
+    <text x="312" y="290" font-size="9" fill="#666">Indexes: user_id, (status, created_at)</text>
+    <text x="312" y="306" font-size="9" fill="#666">PATCH syncs listing_wants rows</text>
+    <text x="312" y="322" font-size="9" fill="#666">Location set at create only</text>
+
+    <!-- listing_images -->
+    <rect x="620" y="40" width="236" height="100" rx="4" fill="#161616" stroke="#333"/>
+    <text x="738" y="62" text-anchor="middle" font-size="12" font-weight="700" fill="#a0a0a0">listing_images</text>
+    <line x1="620" y1="72" x2="856" y2="72" stroke="#333"/>
+    <text x="632" y="90" font-size="10" fill="#a0a0a0" font-family="monospace">listing_id → listings</text>
+    <text x="632" y="106" font-size="10" fill="#666" font-family="monospace">url, position</text>
+    <text x="632" y="122" font-size="10" fill="#666" font-family="monospace">ON DELETE CASCADE</text>
+
+    <!-- listing_wants -->
+    <rect x="620" y="168" width="236" height="100" rx="4" fill="#161616" stroke="#333"/>
+    <text x="738" y="190" text-anchor="middle" font-size="12" font-weight="700" fill="#a0a0a0">listing_wants</text>
+    <line x1="620" y1="200" x2="856" y2="200" stroke="#333"/>
+    <text x="632" y="218" font-size="10" fill="#a0a0a0" font-family="monospace">listing_id → listings</text>
+    <text x="632" y="234" font-size="10" fill="#666" font-family="monospace">category_id → categories</text>
+    <text x="632" y="250" font-size="10" fill="#666" font-family="monospace">Rebuilt on PATCH wants</text>
+
+    <!-- categories -->
+    <rect x="620" y="296" width="236" height="80" rx="4" fill="#161616" stroke="#333"/>
+    <text x="738" y="318" text-anchor="middle" font-size="12" font-weight="700" fill="#a0a0a0">categories</text>
+    <text x="632" y="340" font-size="10" fill="#666" font-family="monospace">id, name, slug, icon</text>
+
+    <!-- offers -->
+    <rect x="300" y="380" width="280" height="100" rx="4" fill="#161616" stroke="#e05c5c"/>
+    <text x="440" y="402" text-anchor="middle" font-size="12" font-weight="700" fill="#e05c5c">offers</text>
+    <line x1="300" y1="412" x2="580" y2="412" stroke="#333"/>
+    <text x="312" y="430" font-size="10" fill="#a0a0a0" font-family="monospace">listing_id → listings</text>
+    <text x="312" y="446" font-size="10" fill="#a0a0a0" font-family="monospace">buyer_id, seller_id</text>
+    <text x="312" y="462" font-size="10" fill="#e05c5c" font-family="monospace">status → denied on sold/delete</text>
+
+    <!-- notifications -->
+    <rect x="620" y="400" width="236" height="100" rx="4" fill="#161616" stroke="#e05c5c"/>
+    <text x="738" y="422" text-anchor="middle" font-size="12" font-weight="700" fill="#e05c5c">notifications</text>
+    <line x1="620" y1="432" x2="856" y2="432" stroke="#333"/>
+    <text x="632" y="450" font-size="10" fill="#a0a0a0" font-family="monospace">user_id → users</text>
+    <text x="632" y="466" font-size="10" fill="#e05c5c" font-family="monospace">type: offer_denied</text>
+    <text x="632" y="482" font-size="10" fill="#666" font-family="monospace">related_offer_id</text>
+
+    <!-- FK lines -->
+    <line x1="224" y1="100" x2="300" y2="100" stroke="#444" stroke-width="1.5"/>
+    <line x1="124" y1="160" x2="124" y2="200" stroke="#444" stroke-width="1.5"/>
+    <line x1="580" y1="90" x2="620" y2="90" stroke="#444" stroke-width="1.5"/>
+    <line x1="580" y1="210" x2="620" y2="210" stroke="#444" stroke-width="1.5"/>
+    <line x1="440" y1="344" x2="440" y2="380" stroke="#e05c5c" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <line x1="520" y1="430" x2="620" y2="450" stroke="#e05c5c" stroke-width="1" stroke-dasharray="4 3"/>
+  </svg>
+</div>
+
+<div class="callout callout-warn">
+  <strong>Deployment:</strong> Code referencing <code>sold_method</code> requires migration
+  <code>0012_listing_sold_meta.sql</code> on the target database. Missing columns cause 500s on
+  any query selecting from <code>listings</code> (e.g. swipe deck, closet).
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="endpoints" />
+<h2>6 · Endpoint reference</h2>
+
+<table class="ref-table">
+  <thead>
+    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Request body</th><th>Response</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="method-get">GET</span></td>
+      <td><span class="path">/api/users/:userId/listings</span></td>
+      <td><span class="badge badge-public">Public</span></td>
+      <td>—</td>
+      <td><code>{ items, total, nextCursor }</code></td>
+    </tr>
+    <tr>
+      <td><span class="method-get">GET</span></td>
+      <td><span class="path">/api/listings/:listingId</span></td>
+      <td><span class="badge badge-public">Public</span></td>
+      <td>—</td>
+      <td><code>{ listing, id, title, status, images }</code> · 404 if deleted</td>
+    </tr>
+    <tr>
+      <td><span class="method-post">POST</span></td>
+      <td><span class="path">/api/listings/:listingId/view</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>—</td>
+      <td><code>204</code> (async increment)</td>
+    </tr>
+    <tr>
+      <td><span class="method-patch">PATCH</span></td>
+      <td><span class="path">/api/listings/:listingId</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>
+        <code>title?</code>, <code>description?</code>, <code>category?</code>,
+        <code>categoryId?</code>, <code>condition?</code>, <code>estimatedValue?</code>,
+        <code>estimatedValueCents?</code>, <code>wantedCategoryIds?</code>,
+        <code>wantedCategories?</code>
+      </td>
+      <td><code>{ listing, id, title, status }</code></td>
+    </tr>
+    <tr>
+      <td><span class="method-post">POST</span></td>
+      <td><span class="path">/api/listings/:listingId/sold</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td><code>{ soldMethod, shareWin? }</code></td>
+      <td><code>{ listing, id, status, soldMethod, shareWin }</code></td>
+    </tr>
+    <tr>
+      <td><span class="method-delete">DELETE</span></td>
+      <td><span class="path">/api/listings/:listingId</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>—</td>
+      <td><code>204</code> · 409 if already deleted</td>
+    </tr>
+    <tr>
+      <td><span class="method-post">POST</span></td>
+      <td><span class="path">/api/listings/:listingId/images</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td><code>{ url, position? }</code></td>
+      <td><code>201</code> image row</td>
+    </tr>
+    <tr>
+      <td><span class="method-delete">DELETE</span></td>
+      <td><span class="path">/api/listings/:listingId/images/:imageId</span></td>
+      <td><span class="badge badge-auth">Auth</span></td>
+      <td>—</td>
+      <td><code>204</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>PATCH — fields intentionally excluded</h3>
+<p>These exist on the listing row but are <strong>not</strong> editable via PATCH (Edit Listing screen):</p>
+<ul>
+  <li><code>status</code> — use POST /sold or DELETE</li>
+  <li><code>locationCity</code>, <code>location*</code> — set at create time only</li>
+  <li><code>acceptCashTopUps</code>, <code>isSwipeOnly</code> — not on edit screen</li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="sequences" />
+<h2>7 · Sequence diagrams</h2>
+<p>Two actors only: <strong>Mobile App</strong> ↔ <strong>SwapHaven API</strong> (same style as review flow).</p>
+
+<!-- Flow 1: Closet -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">1 · Load profile closet</span>
+    <span class="flow-screen">Screen: Profile → Closet</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="232" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="232" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8">SwapHaven API</text>
+
+      <line x1="130" y1="100" x2="619" y2="100" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,95 630,100 619,105" fill="#5b9cf6"/>
+      <text x="380" y="92" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/users/:userId/listings</text>
+      <text x="380" y="116" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">?limit=20 · optional cursor</text>
+
+      <line x1="630" y1="168" x2="141" y2="168" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,163 130,168 141,173" fill="#444"/>
+      <text x="380" y="160" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK</text>
+      <text x="380" y="183" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ items[], total, nextCursor }</text>
+
+      <rect x="16" y="200" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="223" font-size="11" fill="#a0a0a0" font-style="italic">Filter: status != deleted. Render grid; paginate with nextCursor.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- Flow 2: Detail -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">2 · Open listing detail (owner)</span>
+    <span class="flow-screen">Screen: Listing Detail</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="312" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="312" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8">SwapHaven API</text>
+
+      <line x1="130" y1="96" x2="619" y2="96" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,91 630,96 619,101" fill="#5b9cf6"/>
+      <text x="380" y="88" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">GET /api/listings/:listingId</text>
+
+      <line x1="630" y1="148" x2="141" y2="148" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,143 130,148 141,153" fill="#444"/>
+      <text x="380" y="140" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — listing + seller snapshot</text>
+      <text x="380" y="163" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ listing.userId, status, wantedCategories, images }</text>
+
+      <line x1="130" y1="200" x2="619" y2="200" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,195 630,200 619,205" fill="#5b9cf6"/>
+      <text x="380" y="192" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">POST /api/listings/:listingId/view</text>
+      <text x="380" y="216" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">Authorization: Bearer &lt;token&gt;</text>
+
+      <line x1="630" y1="252" x2="141" y2="252" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,247 130,252 141,257" fill="#444"/>
+      <text x="380" y="248" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">204 No Content</text>
+
+      <rect x="16" y="272" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="295" font-size="11" fill="#a0a0a0" font-style="italic">If listing.userId == session.userId → show Edit · Mark Sold · Delete action bar.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- Flow 3: Edit -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">3 · Edit listing</span>
+    <span class="flow-screen">Screen: Edit Listing</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 380" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="352" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="352" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8">SwapHaven API</text>
+
+      <rect x="16" y="63" width="728" height="30" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="82" font-size="11" fill="#a0a0a0" font-style="italic">Optional: POST /api/media/presign → upload → POST …/images or DELETE …/images/:imageId</text>
+
+      <line x1="130" y1="130" x2="619" y2="130" stroke="#e6a23c" stroke-width="2"/>
+      <polygon points="619,125 630,130 619,135" fill="#e6a23c"/>
+      <text x="380" y="122" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">PATCH /api/listings/:listingId</text>
+      <text x="380" y="146" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ title, description, condition, categoryId, estimatedValue,</text>
+      <text x="380" y="160" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">  wantedCategoryIds, wantedCategories }</text>
+
+      <line x1="630" y1="210" x2="141" y2="210" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,205 130,210 141,215" fill="#444"/>
+      <text x="380" y="202" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK — updated listing</text>
+      <text x="380" y="225" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">Server syncs listing_wants rows from wantedCategoryIds</text>
+
+      <rect x="16" y="248" width="728" height="52" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="268" font-size="11" fill="#a0a0a0" font-style="italic">403 if not owner · 400 on validation · status/location fields in body are ignored.</text>
+      <text x="30" y="286" font-size="11" fill="#a0a0a0" font-style="italic">Navigate back to detail; closet reflects changes on next load.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- Flow 4: Mark sold -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">4 · Mark as sold</span>
+    <span class="flow-screen">Screen: Mark as Sold sheet</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 420" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="392" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="392" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8">SwapHaven API</text>
+
+      <rect x="16" y="63" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="82" font-size="11" fill="#a0a0a0" font-style="italic">User picks: Traded on Barter · Sold for cash · Given away · optional "Share win" toggle.</text>
+      <text x="30" y="96" font-size="11" fill="#a0a0a0" font-style="italic">No "trade partner" field in UI.</text>
+
+      <line x1="130" y1="140" x2="619" y2="140" stroke="#5b9cf6" stroke-width="2"/>
+      <polygon points="619,135 630,140 619,145" fill="#5b9cf6"/>
+      <text x="380" y="132" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">POST /api/listings/:listingId/sold</text>
+      <text x="380" y="156" text-anchor="middle" font-size="10" fill="#666" font-family="monospace">{ soldMethod: 'traded_on_barter' | 'sold_for_cash' | 'given_away', shareWin: bool }</text>
+
+      <rect x="200" y="178" width="360" height="72" rx="4" fill="#1a1a1a" stroke="#333"/>
+      <text x="380" y="198" text-anchor="middle" font-size="10" fill="#666">Server (inside API):</text>
+      <text x="380" y="214" text-anchor="middle" font-size="10" fill="#a0a0a0">UPDATE listings SET status='traded', sold_method=…</text>
+      <text x="380" y="230" text-anchor="middle" font-size="10" fill="#a0a0a0">Deny pending offers → insert offer_denied notifications</text>
+      <text x="380" y="246" text-anchor="middle" font-size="10" fill="#a0a0a0">If traded_on_barter → user_profiles.total_trades += 1</text>
+
+      <line x1="630" y1="290" x2="141" y2="290" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,285 130,290 141,295" fill="#444"/>
+      <text x="380" y="282" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">200 OK { listing, status: 'traded', soldMethod, shareWin }</text>
+
+      <rect x="16" y="312" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="335" font-size="11" fill="#a0a0a0" font-style="italic">409 if already traded or deleted. Pop closet/detail; listing no longer in active closet.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- Flow 5: Delete -->
+<div class="flow">
+  <div class="flow-header">
+    <span class="flow-title">5 · Delete listing</span>
+    <span class="flow-screen">Screen: Delete confirmation dialog</span>
+  </div>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg">
+      <line x1="130" y1="60" x2="130" y2="312" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <line x1="630" y1="60" x2="630" y2="312" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="5 4"/>
+      <rect x="68" y="8" width="124" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="130" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#5b9cf6">Mobile App</text>
+      <rect x="558" y="8" width="144" height="34" rx="6" fill="#161616" stroke="#2a2a2a"/>
+      <text x="630" y="29" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e8e8">SwapHaven API</text>
+
+      <rect x="16" y="63" width="728" height="30" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="82" font-size="11" fill="#a0a0a0" font-style="italic">User confirms destructive action in modal.</text>
+
+      <line x1="130" y1="120" x2="619" y2="120" stroke="#e05c5c" stroke-width="2"/>
+      <polygon points="619,115 630,120 619,125" fill="#e05c5c"/>
+      <text x="380" y="112" text-anchor="middle" font-size="12" fill="#e8e8e8" font-family="monospace">DELETE /api/listings/:listingId</text>
+
+      <rect x="200" y="148" width="360" height="56" rx="4" fill="#1a1a1a" stroke="#333"/>
+      <text x="380" y="168" text-anchor="middle" font-size="10" fill="#a0a0a0">UPDATE listings SET status='deleted'</text>
+      <text x="380" y="184" text-anchor="middle" font-size="10" fill="#a0a0a0">Deny pending offers + offer_denied notifications</text>
+
+      <line x1="630" y1="240" x2="141" y2="240" stroke="#444" stroke-width="1.5" stroke-dasharray="7 4"/>
+      <polygon points="141,235 130,240 141,245" fill="#444"/>
+      <text x="380" y="232" text-anchor="middle" font-size="12" fill="#a0a0a0" font-family="monospace">204 No Content</text>
+
+      <rect x="16" y="264" width="728" height="38" rx="4" fill="#1e1e1e"/>
+      <text x="30" y="287" font-size="11" fill="#a0a0a0" font-style="italic">Navigate to closet. 409 on repeat delete. GET detail returns 404 thereafter.</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<hr id="side-effects" />
+<h2>8 · Side effects &amp; notifications</h2>
+
+<div class="diagram-wrap">
+  <svg viewBox="0 0 880 200" xmlns="http://www.w3.org/2000/svg">
+    <rect x="40" y="60" width="160" height="48" rx="6" fill="#161616" stroke="#e05c5c"/>
+    <text x="120" y="82" text-anchor="middle" font-size="11" font-weight="600" fill="#e05c5c">DELETE or POST /sold</text>
+    <text x="120" y="98" text-anchor="middle" font-size="10" fill="#666">Owner action</text>
+
+    <line x1="200" y1="84" x2="280" y2="84" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <rect x="280" y="48" width="200" height="72" rx="6" fill="#161616" stroke="#333"/>
+    <text x="380" y="72" text-anchor="middle" font-size="11" fill="#e8e8e8">cancelPendingOffersAndNotify()</text>
+    <text x="380" y="90" text-anchor="middle" font-size="10" fill="#666">Find offers WHERE status=pending</text>
+    <text x="380" y="106" text-anchor="middle" font-size="10" fill="#666">SET status = denied</text>
+
+    <line x1="480" y1="84" x2="560" y2="84" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <rect x="560" y="48" width="280" height="72" rx="6" fill="#161616" stroke="#e05c5c"/>
+    <text x="700" y="72" text-anchor="middle" font-size="11" fill="#e8e8e8">INSERT notifications</text>
+    <text x="700" y="90" text-anchor="middle" font-size="10" fill="#666">type: offer_denied · one per buyer</text>
+    <text x="700" y="106" text-anchor="middle" font-size="10" fill="#666">body mentions sold vs removed</text>
+
+    <rect x="280" y="140" width="560" height="44" rx="4" fill="#0f2a1a" stroke="#4caf82"/>
+    <text x="560" y="158" text-anchor="middle" font-size="10" fill="#4caf82">POST /sold with soldMethod = traded_on_barter additionally increments user_profiles.total_trades</text>
+    <text x="560" y="174" text-anchor="middle" font-size="10" fill="#666">shareWin is echoed in response; feed integration is client-side / future work</text>
+  </svg>
+</div>
+
+<h3>Implementation files</h3>
+<table class="ref-table">
+  <thead><tr><th>Area</th><th>Path</th></tr></thead>
+  <tbody>
+    <tr><td>Routes</td><td><code>src/routes/listings.ts</code>, <code>src/routes/users.ts</code></td></tr>
+    <tr><td>Schema</td><td><code>src/db/schema/listings.ts</code></td></tr>
+    <tr><td>Migration</td><td><code>drizzle/0012_listing_sold_meta.sql</code></td></tr>
+    <tr><td>OpenAPI</td><td><code>src/openapi/spec.ts</code></td></tr>
+    <tr><td>Tests</td><td><code>tests/listings.test.ts</code></td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:32px;color:var(--text-3);font-size:12px">
+  Open this file in a browser: <code>docs/listing-management-feature.html</code>
+</p>
+
+</body>
+</html>

@@ -11,6 +11,7 @@ import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { filterListingImageUrls } from "../lib/media.js";
+import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import {
   buildReviewSnapshot,
   createListingBodySchema,
@@ -90,6 +91,10 @@ router.get("/", optionalAuth, async (req, res) => {
   if (cursor) conditions.push(lt(listingsTable.createdAt, new Date(cursor)));
   if (excludeMine !== "false" && req.user) {
     conditions.push(ne(listingsTable.userId, req.user.sub));
+  }
+  if (req.user) {
+    const hidden = await getActiveNegotiationListingIds(req.user.sub);
+    if (hidden.length) conditions.push(notInArray(listingsTable.id, hidden));
   }
 
   const rawItems = await db.query.listingsTable.findMany({
@@ -215,7 +220,11 @@ router.get("/trending", optionalAuth, async (req, res) => {
     !isNaN(rawLat) && !isNaN(rawLng) && !isNaN(rawRadius) && rawRadius > 0;
 
   const baseConditions: SQL<unknown>[] = [eq(listingsTable.status, "active")];
-  if (userId) baseConditions.push(ne(listingsTable.userId, userId));
+  if (userId) {
+    baseConditions.push(ne(listingsTable.userId, userId));
+    const hidden = await getActiveNegotiationListingIds(userId);
+    if (hidden.length) baseConditions.push(notInArray(listingsTable.id, hidden));
+  }
 
   // Haversine distance in miles. Listings without coordinates are included as a
   // fallback so the feed is never unexpectedly empty.

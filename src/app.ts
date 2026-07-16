@@ -19,6 +19,7 @@ import inboxRouter from "./routes/inbox.js";
 import notificationsRouter from "./routes/notifications.js";
 import mediaRouter from "./routes/media.js";
 import adsRouter from "./routes/ads.js";
+import searchRouter from "./routes/search.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -161,6 +162,7 @@ export function createApp(): express.Express {
   app.use("/api/notifications", notificationsRouter);
   app.use("/api/media", mediaRouter);
   app.use("/api/ads",           adsRouter);
+  app.use("/api/search",        searchRouter);
 
   // ─── Error handling ───────────────────────────────────────────────────────────
   app.use(notFoundHandler);
