@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { registerUser, fullTradeSetup } from "./helpers/fixtures.js";
+import { db } from "../src/db/client.js";
+import { tradesTable } from "../src/db/schema/index.js";
 
 // ─── GET /api/trades ──────────────────────────────────────────────────────────
 describe("GET /api/trades", () => {
@@ -124,6 +127,10 @@ describe("POST /api/trades/:tradeId/complete", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("completed");
     expect(res.body.completedAt).toBeTruthy();
+    expect(res.body.reviewWindowClosesAt).toBeTruthy();
+    const closesAt = new Date(res.body.reviewWindowClosesAt).getTime();
+    const completedAt = new Date(res.body.completedAt).getTime();
+    expect(closesAt - completedAt).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it("cannot complete an already-completed trade", async () => {
@@ -237,5 +244,62 @@ describe("POST /api/trades/:tradeId/reviews", () => {
 
     expect(r1.status).toBe(201);
     expect(r2.status).toBe(201);
+  });
+
+  it("allows review when reviewWindowClosesAt is null by deriving from completedAt", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/complete`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    // Simulate pre-migration / unbackfilled completed trades
+    await db
+      .update(tradesTable)
+      .set({ reviewWindowClosesAt: null })
+      .where(eq(tradesTable.id, trade.id));
+
+    const statusRes = await request(app)
+      .get(`/api/trades/${trade.id}/review-status`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+
+    expect(statusRes.status).toBe(200);
+    expect(statusRes.body.windowOpen).toBe(true);
+    expect(statusRes.body.windowClosesAt).toBeTruthy();
+
+    const res = await request(app)
+      .post(`/api/trades/${trade.id}/reviews`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ rating: 5, comment: "Still within window" });
+
+    expect(res.status).toBe(201);
+
+    const [updated] = await db
+      .select({ reviewWindowClosesAt: tradesTable.reviewWindowClosesAt })
+      .from(tradesTable)
+      .where(eq(tradesTable.id, trade.id));
+    expect(updated.reviewWindowClosesAt).toBeTruthy();
+  });
+
+  it("rejects review when derived window from completedAt has already closed", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/complete`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await db
+      .update(tradesTable)
+      .set({ completedAt: eightDaysAgo, reviewWindowClosesAt: null })
+      .where(eq(tradesTable.id, trade.id));
+
+    const res = await request(app)
+      .post(`/api/trades/${trade.id}/reviews`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ rating: 4 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/review window/i);
   });
 });
