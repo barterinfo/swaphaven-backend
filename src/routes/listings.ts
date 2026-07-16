@@ -356,6 +356,8 @@ router.post("/:listingId/view", requireAuth, (req, res) => {
 });
 
 // ─── PATCH /api/listings/:listingId ───────────────────────────────────────────
+// Edit Listing screen — title, value, condition, category, description, trade wants.
+// Status changes use POST /sold or DELETE; location is set at create time only.
 const updateListingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(10000).optional(),
@@ -364,23 +366,20 @@ const updateListingSchema = z.object({
   condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
   estimatedValue: z.coerce.number().nonnegative().optional(),
   estimatedValueCents: z.number().int().positive().optional(),
-  acceptCashTopUps: z.boolean().optional(),
-  isSwipeOnly: z.boolean().optional(),
-  locationCity: z.string().max(100).optional(),
-  location: locationSchemaFromBarter().optional(),
-  status: z.enum(["active", "traded", "paused", "deleted"]).optional(),
+  wantedCategoryIds: z.array(z.string()).optional(),
+  wantedCategories: z.array(z.string()).optional(),
 });
 
-function locationSchemaFromBarter() {
-  return z.object({
-    lat: z.union([z.number(), z.string()]).optional().nullable(),
-    lng: z.union([z.number(), z.string()]).optional().nullable(),
-    address: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    country: z.string().optional(),
-    postalCode: z.string().optional(),
-  });
+async function syncListingWants(
+  listingId: string,
+  wantedCategoryIds: string[],
+): Promise<void> {
+  await db.delete(listingWantsTable).where(eq(listingWantsTable.listingId, listingId));
+  const wantRows: { listingId: string; categoryId?: string | null }[] = [];
+  for (const cid of wantedCategoryIds) {
+    if (isUuid(cid)) wantRows.push({ listingId, categoryId: cid });
+  }
+  if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
 }
 
 router.patch("/:listingId", requireAuth, async (req, res) => {
@@ -397,16 +396,9 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const patch = parsed.data;
-  const loc = patch.location
-    ? resolveLocation(
-        createListingBodySchema.parse({
-          title: patch.title ?? listing.title,
-          condition: patch.condition ?? listing.condition,
-          location: patch.location,
-          locationCity: patch.locationCity,
-        }),
-      )
-    : null;
+  const wantsChanged =
+    patch.wantedCategoryIds !== undefined || patch.wantedCategories !== undefined;
+  const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
 
   const [updated] = await db
     .update(listingsTable)
@@ -421,27 +413,21 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(patch.estimatedValue !== undefined
         ? { estimatedValue: Math.round(patch.estimatedValue) }
         : {}),
-      ...(patch.acceptCashTopUps !== undefined
-        ? { acceptCashTopUps: patch.acceptCashTopUps }
+      ...(patch.estimatedValueCents !== undefined
+        ? { estimatedValueCents: patch.estimatedValueCents }
         : {}),
-      ...(patch.isSwipeOnly !== undefined ? { isSwipeOnly: patch.isSwipeOnly } : {}),
-      ...(patch.status !== undefined ? { status: patch.status } : {}),
-      ...(patch.locationCity !== undefined ? { locationCity: patch.locationCity } : {}),
-      ...(loc
-        ? {
-            locationLat: toDecimalStr(loc.lat),
-            locationLng: toDecimalStr(loc.lng),
-            locationAddress: loc.address,
-            locationCity: loc.city || patch.locationCity,
-            locationState: loc.state,
-            locationCountry: loc.country,
-            locationPostalCode: loc.postalCode,
-          }
+      ...(patch.wantedCategoryIds !== undefined
+        ? { wantedCategoryIds: patch.wantedCategoryIds }
+        : {}),
+      ...(patch.wantedCategories !== undefined
+        ? { wantedCategories: patch.wantedCategories }
         : {}),
       updatedAt: new Date(),
     })
     .where(eq(listingsTable.id, listingId))
     .returning();
+
+  if (wantsChanged) await syncListingWants(listingId, nextWantedIds);
 
   const images = await loadListingImages(updated.id);
   const serialized = serializeListingBarter(updated, { images });

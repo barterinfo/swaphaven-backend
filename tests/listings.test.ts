@@ -266,6 +266,37 @@ describe("PATCH /api/listings/:id", () => {
 
     expect(res.status).toBe(403);
   });
+
+  it("owner can update open-to-trade preferences", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+
+    const res = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        wantedCategoryIds: ["sneakers", "electronics"],
+        wantedCategories: ["Sneakers", "Electronics"],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.listing.wanted_categories).toEqual(["Sneakers", "Electronics"]);
+    expect(res.body.listing.wanted_category_ids).toEqual(["sneakers", "electronics"]);
+  });
+
+  it("ignores status and locationCity — not part of the edit contract", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+
+    const res = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ status: "deleted", locationCity: "Elsewhere", title: "Still active listing" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe("Still active listing");
+    expect(res.body.status).toBe("active");
+  });
 });
 
 // ─── DELETE /api/listings/:id ─────────────────────────────────────────────────
