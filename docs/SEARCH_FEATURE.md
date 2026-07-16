@@ -178,7 +178,7 @@ sequenceDiagram
 
   User->>UI: type "nike shoes" (or submit)
   UI->>N: setQueryText / submitQuery
-  Note over N: debounce 300ms; bump requestSeq
+  Note over N: debounce 300ms&#59; bump requestSeq
   opt submit (not debounce-only)
     N->>Prefs: add recent keyword
   end
@@ -215,7 +215,7 @@ sequenceDiagram
   else
     N->>API: same filters, offset=nextOffset
     API-->>N: next page
-    N-->>UI: append listings; update nextOffset
+    N-->>UI: append listings&#59; update nextOffset
   end
 ```
 
@@ -383,7 +383,7 @@ flowchart TD
   H --> I[LIMIT / OFFSET]
   I --> J[Load images by listing ids]
   J --> K[serializeListingBarter + distance_miles]
-  F --> L[{ listings, total, nextOffset }]
+  F --> L["{ listings, total, nextOffset }"]
   K --> L
 ```
 
