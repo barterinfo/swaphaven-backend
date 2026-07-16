@@ -7,6 +7,11 @@ import {
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
+import {
+  REVIEW_WINDOW_MS,
+  isReviewWindowOpen,
+  resolveReviewWindowClosesAt,
+} from "../lib/review-window.js";
 import { p } from "../lib/route-helpers.js";
 
 const router = Router();
@@ -105,7 +110,7 @@ router.post("/:tradeId/complete", requireAuth, async (req, res) => {
 
   const completedAt = new Date();
   // Review window: 7 days from completion. Both parties can review until this closes.
-  const reviewWindowClosesAt = new Date(completedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const reviewWindowClosesAt = new Date(completedAt.getTime() + REVIEW_WINDOW_MS);
 
   const [updated] = await db
     .update(tradesTable)
@@ -144,14 +149,14 @@ router.get("/:tradeId/review-status", requireAuth, async (req, res) => {
 
   const myReview    = trade.reviews.find((r) => r.reviewerId === userId) ?? null;
   const theirReview = trade.reviews.find((r) => r.reviewerId !== userId) ?? null;
-  const now         = new Date();
-  const windowOpen  = trade.reviewWindowClosesAt != null && trade.reviewWindowClosesAt > now;
+  const windowClosesAt = resolveReviewWindowClosesAt(trade);
+  const windowOpen     = isReviewWindowOpen(trade);
   // Reviews reveal when both parties submit or the window closes
-  const revealed    = !windowOpen || trade.reviews.length >= 2;
+  const revealed       = !windowOpen || trade.reviews.length >= 2;
 
   return res.json({
     tradeId,
-    windowClosesAt: trade.reviewWindowClosesAt,
+    windowClosesAt,
     windowOpen,
     revealed,
     myReview: myReview
@@ -209,10 +214,18 @@ router.post("/:tradeId/reviews", requireAuth, async (req, res) => {
     return res.status(409).json({ error: "conflict", message: "Trade must be completed before leaving a review" });
   }
 
-  // Enforce 7-day review window
-  const now = new Date();
-  if (!trade.reviewWindowClosesAt || trade.reviewWindowClosesAt < now) {
+  // Enforce 7-day review window (derive from completedAt when close time was never stored)
+  if (!isReviewWindowOpen(trade)) {
     return res.status(409).json({ error: "conflict", message: "The review window for this trade has closed" });
+  }
+
+  // Lazily backfill missing close timestamp so status/list endpoints stay consistent
+  if (trade.reviewWindowClosesAt == null && trade.completedAt != null) {
+    const reviewWindowClosesAt = resolveReviewWindowClosesAt(trade)!;
+    await db
+      .update(tradesTable)
+      .set({ reviewWindowClosesAt, updatedAt: new Date() })
+      .where(eq(tradesTable.id, tradeId));
   }
 
   const reviewerId = req.user!.sub;

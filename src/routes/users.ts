@@ -137,8 +137,9 @@ router.get("/:userId/reviews", async (req, res) => {
       and(
         eq(tradeReviewsTable.revieweeId, userId),
         or(
-          // Window has closed — reviews are public regardless of both submitting
-          sql`${tradesTable.reviewWindowClosesAt} < NOW()`,
+          // Window has closed — reviews are public regardless of both submitting.
+          // COALESCE covers completed trades that never got review_window_closes_at backfilled.
+          sql`COALESCE(${tradesTable.reviewWindowClosesAt}, ${tradesTable.completedAt} + INTERVAL '7 days') < NOW()`,
           // Both parties submitted early — reveal immediately
           sql`(SELECT COUNT(*) FROM trade_reviews r2 WHERE r2.trade_id = ${tradeReviewsTable.tradeId}) >= 2`,
         ),
