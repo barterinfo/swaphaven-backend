@@ -2,7 +2,7 @@ import { Router } from "express";
 import { and, count, desc, eq, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { userProfilesTable, listingsTable, tradeReviewsTable, tradesTable } from "../db/schema/index.js";
+import { userProfilesTable, listingsTable, tradeReviewsTable, tradesTable, offersTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
@@ -74,6 +74,7 @@ router.get("/:userId", async (req, res) => {
     hasLocation: locationLat != null,
     totalTrades: profile.totalTrades,
     rating,
+    ratingCount: profile.ratingCount,
     isVerified: profile.isVerified,
     isPhoneVerified: profile.isPhoneVerified,
     completionRate: profile.completionRate,
@@ -129,9 +130,19 @@ router.get("/:userId/reviews", async (req, res) => {
       createdAt:           tradeReviewsTable.createdAt,
       reviewerDisplayName: userProfilesTable.displayName,
       reviewerAvatarUrl:   userProfilesTable.avatarUrl,
+      tradeListingTitle:   listingsTable.title,
+      listingThumbnailUrl: sql<string | null>`(
+        SELECT li.url
+        FROM listing_images li
+        WHERE li.listing_id = ${listingsTable.id}
+        ORDER BY li.position ASC
+        LIMIT 1
+      )`.as("listing_thumbnail_url"),
     })
     .from(tradeReviewsTable)
     .innerJoin(tradesTable, eq(tradesTable.id, tradeReviewsTable.tradeId))
+    .innerJoin(offersTable, eq(offersTable.id, tradesTable.offerId))
+    .innerJoin(listingsTable, eq(listingsTable.id, offersTable.listingId))
     .innerJoin(userProfilesTable, eq(userProfilesTable.id, tradeReviewsTable.reviewerId))
     .where(
       and(

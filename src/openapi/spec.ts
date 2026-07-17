@@ -69,6 +69,7 @@ export const openApiSpec = {
           hasLocation:        { type: "boolean", description: "True when lat/lng are on file; exact coords are private." },
           totalTrades:        { type: "integer" },
           rating:             { type: "number", nullable: true, description: "Computed from ratingSum / ratingCount, rounded to 1 decimal. Null when no reviews yet." },
+          ratingCount:        { type: "integer", description: "Number of revealed reviews received (matches aggregate on profile)." },
           isVerified:         { type: "boolean" },
           isPhoneVerified:    { type: "boolean", description: "Reserved; not populated yet (defaults to false)." },
           completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Reserved; not populated yet (null until trade stats flow lands)." },
@@ -340,6 +341,8 @@ export const openApiSpec = {
           createdAt:           { type: "string", format: "date-time" },
           reviewerDisplayName: { type: "string", nullable: true },
           reviewerAvatarUrl:   { type: "string", nullable: true },
+          tradeListingTitle:   { type: "string", nullable: true, description: "Title of the offer's target listing for trade context in review cards." },
+          listingThumbnailUrl: { type: "string", nullable: true, description: "First listing image URL (by position) for the trade's target listing." },
         },
       },
       ReviewStatus: {
