@@ -59,6 +59,10 @@ const envSchema = z.object({
   /** Firebase Admin service-account JSON (stringified). When set, push
    *  notifications are delivered via FCM. Omit in dev/test to disable push. */
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** Resend API key — required to deliver password-reset OTP emails. */
+  RESEND_API_KEY: z.string().optional(),
+  /** Verified Resend From address, e.g. `SwapHaven <noreply@mail.example.com>`. */
+  EMAIL_FROM: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));

@@ -13,6 +13,7 @@ export const usersTable = pgTable("users", {
   name:                   text("name").notNull(),
   passwordResetTokenHash: text("password_reset_token_hash"),
   passwordResetExpires:   timestamp("password_reset_expires"),
+  passwordResetAttempts:  integer("password_reset_attempts").notNull().default(0),
   createdAt:              timestamp("created_at").notNull().defaultNow(),
   updatedAt:              timestamp("updated_at").notNull().defaultNow(),
 });

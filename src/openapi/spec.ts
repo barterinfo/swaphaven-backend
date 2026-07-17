@@ -601,16 +601,45 @@ export const openApiSpec = {
     },
     "/api/auth/forgot-password": {
       post: {
-        tags: ["Auth"], summary: "Request password reset email", security: [],
+        tags: ["Auth"],
+        summary: "Request password reset OTP email",
+        description:
+          "If an account exists, emails a 6-digit OTP (10 minute TTL) via Resend. " +
+          "Always returns 200 for valid email format (anti-enumeration), except 503 when email delivery fails for an existing account.",
+        security: [],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["email"], properties: { email: { type: "string", format: "email" } } } } } },
-        responses: { "200": { description: "Always succeeds (prevents enumeration)" } },
+        responses: {
+          "200": { description: "Generic success (prevents enumeration)" },
+          "503": { description: "Unable to send reset email (account exists but mailer failed)" },
+        },
       },
     },
     "/api/auth/reset-password": {
       post: {
-        tags: ["Auth"], summary: "Reset password with token", security: [],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["email","token","newPassword"], properties: { email: { type: "string", format: "email" }, token: { type: "string" }, newPassword: { type: "string", minLength: 8 } } } } } },
-        responses: { "200": { description: "Password reset" }, "400": { description: "Invalid or expired token" } },
+        tags: ["Auth"],
+        summary: "Reset password with email OTP",
+        description: "Redeems the 6-digit OTP from the reset email. Max 5 attempts. Field name `token` is the OTP.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "token", "newPassword"],
+                properties: {
+                  email: { type: "string", format: "email" },
+                  token: { type: "string", description: "6-digit OTP from email", minLength: 1 },
+                  newPassword: { type: "string", minLength: 8 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Password reset" },
+          "400": { description: "Invalid or expired reset code" },
+        },
       },
     },
     "/api/auth/device-token": {
