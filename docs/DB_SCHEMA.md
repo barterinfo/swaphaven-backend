@@ -216,7 +216,8 @@ Legend: **PK** primary key · **FK** foreign key · **UK** unique · `NN` not-nu
 | `password_hash` | text | NN | bcrypt hash — **never serialized to clients** |
 | `name` | text | NN | legal/fallback name |
 | `password_reset_token_hash` | text | | set during reset flow |
-| `password_reset_expires` | timestamp | | reset token TTL |
+| `password_reset_expires` | timestamp | | reset OTP TTL (10 minutes) |
+| `password_reset_attempts` | integer | not null, default 0 | failed OTP redeem attempts (max 5) |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
 
 #### `user_profiles` — public-facing profile (1:1 with `users`)

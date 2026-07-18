@@ -9,6 +9,7 @@ import { testDb } from "./helpers/db.js";
 import { db } from "../src/db/client.js";
 import { usersTable, deviceTokensTable } from "../src/db/schema/index.js";
 import { SocialAuthError, verifySocialToken } from "../src/lib/social-auth.js";
+import { sendPasswordResetOtp } from "../src/lib/mailer.js";
 
 // Mock the provider verification so tests never hit Google / Facebook.
 vi.mock("../src/lib/social-auth.js", async () => {
@@ -18,7 +19,18 @@ vi.mock("../src/lib/social-auth.js", async () => {
   return { ...actual, verifySocialToken: vi.fn() };
 });
 
+vi.mock("../src/lib/mailer.js", () => ({
+  sendPasswordResetOtp: vi.fn().mockResolvedValue(undefined),
+  MailerError: class MailerError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "MailerError";
+    }
+  },
+}));
+
 const mockVerify = vi.mocked(verifySocialToken);
+const mockSendOtp = vi.mocked(sendPasswordResetOtp);
 
 // ─── POST /api/auth/register ──────────────────────────────────────────────────
 describe("POST /api/auth/register", () => {
@@ -309,7 +321,12 @@ describe("GET /api/auth/me", () => {
 
 // ─── POST /api/auth/forgot-password ──────────────────────────────────────────
 describe("POST /api/auth/forgot-password", () => {
-  it("returns generic message for registered email", async () => {
+  beforeEach(() => {
+    mockSendOtp.mockReset();
+    mockSendOtp.mockResolvedValue(undefined);
+  });
+
+  it("returns generic message and emails OTP for registered email", async () => {
     const { email } = await registerUser();
     const res = await request(app)
       .post("/api/auth/forgot-password")
@@ -317,15 +334,40 @@ describe("POST /api/auth/forgot-password", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.message).toContain("If an account exists");
+    expect(mockSendOtp).toHaveBeenCalledOnce();
+    expect(mockSendOtp.mock.calls[0]![0]).toMatchObject({
+      to: email,
+      expiresMinutes: 10,
+    });
+    expect(mockSendOtp.mock.calls[0]![0].otp).toMatch(/^\d{6}$/);
   });
 
-  it("returns same generic message for unknown email (prevents enumeration)", async () => {
+  it("returns same generic message for unknown email without sending (prevents enumeration)", async () => {
     const res = await request(app)
       .post("/api/auth/forgot-password")
       .send({ email: `ghost-${uid()}@nowhere.com` });
 
     expect(res.status).toBe(200);
     expect(res.body.message).toContain("If an account exists");
+    expect(mockSendOtp).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 and clears OTP when mailer fails", async () => {
+    const { email } = await registerUser();
+    mockSendOtp.mockRejectedValueOnce(new Error("resend down"));
+
+    const res = await request(app)
+      .post("/api/auth/forgot-password")
+      .send({ email });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("service_unavailable");
+
+    const row = await testDb.query.usersTable.findFirst({
+      where: eq(usersTable.email, email),
+    });
+    expect(row?.passwordResetTokenHash).toBeNull();
+    expect(row?.passwordResetExpires).toBeNull();
   });
 
   it("rejects invalid email", async () => {
@@ -338,37 +380,89 @@ describe("POST /api/auth/forgot-password", () => {
 
 // ─── POST /api/auth/reset-password ───────────────────────────────────────────
 describe("POST /api/auth/reset-password", () => {
-  it("resets password with a valid token and allows re-login", async () => {
-    const { email } = await registerUser();
-    const rawToken  = "test-reset-token-abcdef1234567890";
-    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  beforeEach(() => {
+    mockSendOtp.mockReset();
+    mockSendOtp.mockResolvedValue(undefined);
+  });
 
-    // Manually inject a reset token (simulates what forgot-password would send via email)
-    await testDb
-      .update(usersTable)
-      .set({ passwordResetTokenHash: tokenHash, passwordResetExpires: new Date(Date.now() + 3_600_000) })
-      .where(eq(usersTable.email, email));
+  it("resets password with OTP from forgot-password and allows re-login", async () => {
+    const { email } = await registerUser();
+    let otp = "";
+    mockSendOtp.mockImplementationOnce(async (params) => {
+      otp = params.otp;
+    });
+
+    await request(app).post("/api/auth/forgot-password").send({ email });
+    expect(otp).toMatch(/^\d{6}$/);
 
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ email, token: rawToken, newPassword: "NewSecurePass99!" });
+      .send({ email, token: otp, newPassword: "NewSecurePass99!" });
 
     expect(res.status).toBe(200);
 
-    // Should be able to log in with new password
     const loginRes = await request(app)
       .post("/api/auth/login")
       .send({ email, password: "NewSecurePass99!" });
     expect(loginRes.status).toBe(200);
   });
 
-  it("rejects an expired or wrong token", async () => {
+  it("rejects a wrong OTP", async () => {
     const { email } = await registerUser();
+    const otp = "123456";
+    const tokenHash = createHash("sha256").update(otp).digest("hex");
+
+    await testDb
+      .update(usersTable)
+      .set({
+        passwordResetTokenHash: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 600_000),
+        passwordResetAttempts: 0,
+      })
+      .where(eq(usersTable.email, email));
+
     const res = await request(app)
       .post("/api/auth/reset-password")
-      .send({ email, token: "wrong-token", newPassword: "NewPass1234!" });
+      .send({ email, token: "000000", newPassword: "NewPass1234!" });
 
     expect(res.status).toBe(400);
+
+    const row = await testDb.query.usersTable.findFirst({
+      where: eq(usersTable.email, email),
+    });
+    expect(row?.passwordResetAttempts).toBe(1);
+  });
+
+  it("locks out after 5 failed OTP attempts", async () => {
+    const { email } = await registerUser();
+    const otp = "654321";
+    const tokenHash = createHash("sha256").update(otp).digest("hex");
+
+    await testDb
+      .update(usersTable)
+      .set({
+        passwordResetTokenHash: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 600_000),
+        passwordResetAttempts: 0,
+      })
+      .where(eq(usersTable.email, email));
+
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app)
+        .post("/api/auth/reset-password")
+        .send({ email, token: "000000", newPassword: "NewPass1234!" });
+      expect(res.status).toBe(400);
+    }
+
+    const afterLock = await testDb.query.usersTable.findFirst({
+      where: eq(usersTable.email, email),
+    });
+    expect(afterLock?.passwordResetTokenHash).toBeNull();
+
+    const withCorrect = await request(app)
+      .post("/api/auth/reset-password")
+      .send({ email, token: otp, newPassword: "NewPass1234!" });
+    expect(withCorrect.status).toBe(400);
   });
 });
 

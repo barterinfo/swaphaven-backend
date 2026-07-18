@@ -8,11 +8,31 @@ import { db } from "../db/client.js";
 import { usersTable, userProfilesTable, deviceTokensTable } from "../db/schema/index.js";
 import { requireAuth, signTokens, verifyRefreshToken } from "../middleware/auth.js";
 import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
+import { sendPasswordResetOtp } from "../lib/mailer.js";
+import { env } from "../config/env.js";
 
 const router = Router();
 
+const PASSWORD_RESET_OTP_TTL_MS = 10 * 60 * 1000;
+const PASSWORD_RESET_OTP_EXPIRES_MINUTES = 10;
+const PASSWORD_RESET_MAX_ATTEMPTS = 5;
+
 function sha256Hex(value: string): string {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function generatePasswordResetOtp(): string {
+  return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
+
+async function clearPasswordReset(userId: string): Promise<void> {
+  await db.update(usersTable)
+    .set({
+      passwordResetTokenHash: null,
+      passwordResetExpires: null,
+      passwordResetAttempts: 0,
+    })
+    .where(eq(usersTable.id, userId));
 }
 
 function userPublic(u: { id: string; email: string; name: string }) {
@@ -177,7 +197,7 @@ router.post("/forgot-password", async (req, res) => {
 
   // Always return the same response — prevents email enumeration
   const generic = {
-    message: "If an account exists for that email, password reset instructions have been sent.",
+    message: "If an account exists for that email, a password reset code has been sent.",
   };
 
   const user = await db.query.usersTable.findFirst({
@@ -185,17 +205,36 @@ router.post("/forgot-password", async (req, res) => {
   });
   if (!user) return res.json(generic);
 
-  const rawToken = crypto.randomBytes(32).toString("hex");
-  const tokenHash = sha256Hex(rawToken);
-  const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  const otp = generatePasswordResetOtp();
+  const tokenHash = sha256Hex(otp);
+  const expires = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MS);
 
   await db.update(usersTable)
-    .set({ passwordResetTokenHash: tokenHash, passwordResetExpires: expires })
+    .set({
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpires: expires,
+      passwordResetAttempts: 0,
+    })
     .where(eq(usersTable.id, user.id));
 
-  // In development, log the raw token. In production, send via email service.
-  if (process.env.NODE_ENV !== "production") {
-    console.info(`[auth] Password reset token for ${user.email} (dev only): ${rawToken}`);
+  try {
+    await sendPasswordResetOtp({
+      to: user.email,
+      otp,
+      expiresMinutes: PASSWORD_RESET_OTP_EXPIRES_MINUTES,
+    });
+  } catch (err) {
+    console.error(`[auth] Failed to send password reset OTP to ${user.email}:`, err);
+    await clearPasswordReset(user.id);
+    return res.status(503).json({
+      error: "service_unavailable",
+      message: "Unable to send reset email. Please try again.",
+    });
+  }
+
+  // Dev aid — OTP is still emailed; log only outside production.
+  if (env.NODE_ENV !== "production") {
+    console.info(`[auth] Password reset OTP for ${user.email} (dev only): ${otp}`);
   }
 
   return res.json(generic);
@@ -204,6 +243,7 @@ router.post("/forgot-password", async (req, res) => {
 // ─── POST /api/auth/reset-password ───────────────────────────────────────────
 const resetPasswordSchema = z.object({
   email:       z.string().email(),
+  /** 6-digit OTP from the reset email (field name kept for mobile compatibility). */
   token:       z.string().min(1),
   newPassword: z.string().min(8, "New password must be at least 8 characters"),
 });
@@ -220,22 +260,35 @@ router.post("/reset-password", async (req, res) => {
   });
 
   const invalid = !user || !user.passwordResetTokenHash || !user.passwordResetExpires
-    || user.passwordResetExpires < new Date();
+    || user.passwordResetExpires < new Date()
+    || user.passwordResetAttempts >= PASSWORD_RESET_MAX_ATTEMPTS;
 
   if (invalid) {
-    return res.status(400).json({ error: "bad_request", message: "Invalid or expired reset token" });
+    return res.status(400).json({ error: "bad_request", message: "Invalid or expired reset code" });
   }
 
-  // Timing-safe token comparison
   const submitted = Buffer.from(sha256Hex(token.trim()), "hex");
   const stored    = Buffer.from(user.passwordResetTokenHash!, "hex");
   if (submitted.length !== stored.length || !crypto.timingSafeEqual(submitted, stored)) {
-    return res.status(400).json({ error: "bad_request", message: "Invalid or expired reset token" });
+    const attempts = user.passwordResetAttempts + 1;
+    if (attempts >= PASSWORD_RESET_MAX_ATTEMPTS) {
+      await clearPasswordReset(user.id);
+    } else {
+      await db.update(usersTable)
+        .set({ passwordResetAttempts: attempts })
+        .where(eq(usersTable.id, user.id));
+    }
+    return res.status(400).json({ error: "bad_request", message: "Invalid or expired reset code" });
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await db.update(usersTable)
-    .set({ passwordHash, passwordResetTokenHash: null, passwordResetExpires: null })
+    .set({
+      passwordHash,
+      passwordResetTokenHash: null,
+      passwordResetExpires: null,
+      passwordResetAttempts: 0,
+    })
     .where(eq(usersTable.id, user.id));
 
   return res.json({ message: "Password has been reset. You can now log in." });
