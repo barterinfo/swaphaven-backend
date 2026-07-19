@@ -807,18 +807,18 @@ export const openApiSpec = {
           content: {
             "application/json": {
               schema: {
-                type: "object", required: ["title","condition"],
+                type: "object", required: ["title","condition","categoryId"],
                 properties: {
                   title: { type: "string", maxLength: 200 },
                   description: { type: "string", maxLength: 10000 },
-                  category: { type: "string", description: "Category label or slug (barter-stack)" },
-                  categoryId: { type: "string", description: "Category slug (e.g. cameras) or UUID" },
+                  category: { type: "string", description: "Optional display label; defaults to category name" },
+                  categoryId: { type: "string", format: "uuid", description: "Required categories.id UUID" },
                   condition: { type: "string", enum: ["new","like_new","great","good","fair"] },
                   estimatedValue: { type: "integer", description: "Dollar estimate (barter-stack / Flutter)" },
                   estimatedValueCents: { type: "integer" },
                   acceptCashTopUps: { type: "boolean" },
                   isSwipeOnly: { type: "boolean" },
-                  wantedCategoryIds: { type: "array", items: { type: "string" } },
+                  wantedCategoryIds: { type: "array", items: { type: "string", format: "uuid" } },
                   wantedCategories: { type: "array", items: { type: "string" } },
                   wantedFreeText: { type: "string" },
                   details: {
@@ -883,12 +883,12 @@ export const openApiSpec = {
                 properties: {
                   title:               { type: "string", maxLength: 200 },
                   description:         { type: "string", maxLength: 10000 },
-                  category:            { type: "string", description: "Category slug (e.g. 'cameras')." },
-                  categoryId:          { type: "string", format: "uuid", description: "Category UUID when known." },
+                  category:            { type: "string", description: "Display label (optional when categoryId is set)." },
+                  categoryId:          { type: "string", format: "uuid", description: "categories.id UUID when changing category." },
                   condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
                   estimatedValue:      { type: "integer", description: "Dollar estimate (Est. Value field)." },
                   estimatedValueCents: { type: "integer", description: "Value in cents — alternative to estimatedValue." },
-                  wantedCategoryIds:   { type: "array", items: { type: "string" }, description: "Open to trade for — category slugs or UUIDs." },
+                  wantedCategoryIds:   { type: "array", items: { type: "string", format: "uuid" }, description: "Open to trade for — category UUIDs." },
                   wantedCategories:    { type: "array", items: { type: "string" }, description: "Open to trade for — display labels (e.g. 'Vintage Clothing', 'Sneakers')." },
                 },
               },
@@ -1013,6 +1013,14 @@ export const openApiSpec = {
               ],
             },
             description: "Listing IDs already held in the client deck (for prefetch pages).",
+          },
+          {
+            name: "category",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description:
+              "Browse category slug (e.g. electronics). Omit or pass `all` for an unfiltered deck.",
           },
         ],
         responses: {

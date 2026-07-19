@@ -1,9 +1,14 @@
 import { Router } from "express";
-import { and, eq, gte, notInArray, sql } from "drizzle-orm";
+import { and, eq, gte, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { db } from "../db/client.js";
-import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
+import {
+  swipesTable,
+  swipeStreaksTable,
+  listingsTable,
+  categoriesTable,
+} from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 
@@ -55,6 +60,15 @@ const deckQuerySchema = z.object({
       return [...new Set(parts.map((p) => p.trim()).filter(Boolean))];
     })
     .pipe(z.array(z.string().uuid())),
+  /** Browse category slug (e.g. `electronics`). Omit or `all` for unfiltered. */
+  category: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => {
+      if (v == null || v === "" || v.toLowerCase() === "all") return undefined;
+      return v;
+    }),
 });
 
 // ─── GET /api/swipe/deck ──────────────────────────────────────────────────────
@@ -69,6 +83,7 @@ router.get("/deck", requireAuth, async (req, res) => {
 
   const userId = req.user!.sub;
   const clientExcludeIds = parsedQuery.data.excludeIds;
+  const categorySlug = parsedQuery.data.category;
 
   const alreadySwiped = await db
     .select({ listingId: swipesTable.listingId })
@@ -90,6 +105,22 @@ router.get("/deck", requireAuth, async (req, res) => {
     sql`${listingsTable.userId} != ${userId}`,
   ];
   if (excludeIds.length) conditions.push(notInArray(listingsTable.id, excludeIds));
+
+  if (categorySlug) {
+    // Browse bar sends slug (`electronics`); resolve once to categories.id.
+    const catRow = await db.query.categoriesTable.findFirst({
+      where: or(
+        eq(categoriesTable.slug, categorySlug),
+        sql`lower(${categoriesTable.name}) = ${categorySlug.toLowerCase()}`,
+      ),
+      columns: { id: true },
+    });
+    if (catRow) {
+      conditions.push(eq(listingsTable.categoryId, catRow.id));
+    } else {
+      conditions.push(sql`false`);
+    }
+  }
 
   const cards = await db.query.listingsTable.findMany({
     where: and(...conditions),

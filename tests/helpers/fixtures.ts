@@ -1,4 +1,5 @@
 import request from "supertest";
+import { categoryIdBySlug } from "../../src/lib/categories.js";
 import { app } from "./app.js";
 
 let seq = 0;
@@ -40,10 +41,30 @@ export async function createListing(
   accessToken: string,
   overrides: Record<string, unknown> = {},
 ): Promise<ListingResult> {
+  // Accept legacy slug overrides (`category: "electronics"`) and map to UUID.
+  const slug =
+    typeof overrides.category === "string"
+      ? overrides.category
+      : typeof overrides.categoryId === "string" &&
+          !String(overrides.categoryId).includes("-")
+        ? String(overrides.categoryId)
+        : "electronics";
+  const resolvedCategoryId =
+    (typeof overrides.categoryId === "string" &&
+    String(overrides.categoryId).includes("-")
+      ? overrides.categoryId
+      : categoryIdBySlug(slug)) ?? categoryIdBySlug("electronics")!;
+
+  const { categoryId: _ignoredCategoryId, ...restOverrides } = overrides;
   const res = await request(app)
     .post("/api/listings")
     .set("Authorization", `Bearer ${accessToken}`)
-    .send({ title: `Item-${uid()}`, condition: "good", ...overrides });
+    .send({
+      title: `Item-${uid()}`,
+      condition: "good",
+      ...restOverrides,
+      categoryId: resolvedCategoryId,
+    });
 
   if (res.status !== 201) throw new Error(`createListing failed: ${JSON.stringify(res.body)}`);
   const body = res.body as {

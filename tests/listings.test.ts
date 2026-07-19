@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
+import { categoryIdBySlug } from "../src/lib/categories.js";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
@@ -10,20 +11,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── GET /api/categories ──────────────────────────────────────────────────────
 describe("GET /api/categories", () => {
-  it("returns an empty array when no categories exist", async () => {
+  it("returns the canonical seeded categories", async () => {
     const res = await request(app).get("/api/categories");
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
-  });
-
-  it("returns seeded categories", async () => {
-    await testDb.insert(categoriesTable).values([
-      { name: "Electronics", slug: `electronics-${uid()}` },
-      { name: "Clothing",    slug: `clothing-${uid()}` },
-    ]);
-    const res = await request(app).get("/api/categories");
-    expect(res.status).toBe(200);
-    expect(res.body.length).toBeGreaterThanOrEqual(2);
+    expect(res.body.length).toBeGreaterThanOrEqual(10);
+    expect(res.body.some((c: { slug: string }) => c.slug === "electronics")).toBe(
+      true,
+    );
   });
 });
 
@@ -90,15 +85,31 @@ describe("GET /api/listings", () => {
 describe("POST /api/listings", () => {
   it("creates a new listing", async () => {
     const { accessToken } = await registerUser();
+    const categoryId = categoryIdBySlug("electronics")!;
     const res = await request(app)
       .post("/api/listings")
       .set("Authorization", `Bearer ${accessToken}`)
-      .send({ title: "My Laptop", condition: "like_new", description: "Barely used" });
+      .send({
+        title: "My Laptop",
+        condition: "like_new",
+        description: "Barely used",
+        categoryId,
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.id).toBeTruthy();
     expect(res.body.title).toBe("My Laptop");
     expect(res.body.status).toBe("active");
+    expect(res.body.listing?.category_id).toBe(categoryId);
+  });
+
+  it("rejects create without categoryId", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ title: "My Laptop", condition: "like_new" });
+    expect(res.status).toBe(400);
   });
 
   it("requires authentication", async () => {
@@ -117,20 +128,24 @@ describe("POST /api/listings", () => {
     expect(res.status).toBe(400);
   });
 
-  it("accepts barter-stack / Flutter create listing body (slug categories, no UUID)", async () => {
+  it("requires a UUID categoryId and stores the category FK", async () => {
     const { accessToken } = await registerUser();
+    const camerasId = categoryIdBySlug("cameras")!;
+    const electronicsId = categoryIdBySlug("electronics")!;
+    const booksId = categoryIdBySlug("books")!;
+
     const res = await request(app)
       .post("/api/listings")
       .set("Authorization", `Bearer ${accessToken}`)
       .send({
         title: "Vintage Camera",
         description: "Works great",
-        categoryId: "cameras",
+        categoryId: camerasId,
         category: "Cameras",
         estimatedValue: 250,
         condition: "great",
         acceptCashTopUps: true,
-        wantedCategoryIds: ["electronics", "books"],
+        wantedCategoryIds: [electronicsId, booksId],
         wantedCategories: ["Electronics", "Books"],
         details: { ageRange: "5-10 years", brand: "Canon" },
         location: { lat: 37.77, lng: -122.42, address: "San Francisco, CA" },
@@ -146,10 +161,26 @@ describe("POST /api/listings", () => {
     expect(res.body.listing.category).toBe("Cameras");
     expect(res.body.listing.estimated_value).toBe(250);
     expect(res.body.listing.accept_cash_top_ups).toBe(true);
-    expect(res.body.listing.wanted_category_ids).toEqual(["electronics", "books"]);
+    expect(res.body.listing.wanted_category_ids).toEqual([
+      electronicsId,
+      booksId,
+    ]);
     expect(res.body.listing.images).toEqual([
       "https://cdn.example.com/listings/photo1.jpg",
     ]);
+  });
+
+  it("rejects create listing without a UUID categoryId", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: "No Category",
+        categoryId: "cameras",
+        condition: "good",
+      });
+    expect(res.status).toBe(400);
   });
 });
 
@@ -270,18 +301,23 @@ describe("PATCH /api/listings/:id", () => {
   it("owner can update open-to-trade preferences", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken);
+    const sneakersId = categoryIdBySlug("sneakers")!;
+    const electronicsId = categoryIdBySlug("electronics")!;
 
     const res = await request(app)
       .patch(`/api/listings/${listing.id}`)
       .set("Authorization", `Bearer ${accessToken}`)
       .send({
-        wantedCategoryIds: ["sneakers", "electronics"],
+        wantedCategoryIds: [sneakersId, electronicsId],
         wantedCategories: ["Sneakers", "Electronics"],
       });
 
     expect(res.status).toBe(200);
     expect(res.body.listing.wanted_categories).toEqual(["Sneakers", "Electronics"]);
-    expect(res.body.listing.wanted_category_ids).toEqual(["sneakers", "electronics"]);
+    expect(res.body.listing.wanted_category_ids).toEqual([
+      sneakersId,
+      electronicsId,
+    ]);
   });
 
   it("ignores status and locationCity — not part of the edit contract", async () => {
