@@ -106,6 +106,66 @@ describe("GET /api/swipe/deck", () => {
     expect(res.body.cards).toHaveLength(0);
   });
 
+  it("omits excludeIds from the deck page and keeps page size at most 20", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+
+    const listings = [];
+    for (let i = 0; i < 5; i++) {
+      listings.push(await createListing(owner.accessToken));
+    }
+
+    const first = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(first.status).toBe(200);
+    expect(first.body.cards.length).toBeGreaterThanOrEqual(2);
+    expect(first.body.cards.length).toBeLessThanOrEqual(20);
+    expect(first.body.remainingSwipesToday).toBe(20);
+
+    const excludeIds = first.body.cards
+      .slice(0, 2)
+      .map((c: { listing: { id: string } }) => c.listing.id);
+
+    const second = await request(app)
+      .get(`/api/swipe/deck?excludeIds=${excludeIds.join(",")}`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(second.status).toBe(200);
+    const secondIds = second.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    for (const id of excludeIds) {
+      expect(secondIds).not.toContain(id);
+    }
+    expect(second.body.cards.length).toBeLessThanOrEqual(20);
+  });
+
+  it("decrements remainingSwipesToday after recording swipes", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const a = await createListing(owner.accessToken);
+    const b = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: a.id, direction: "left" })
+      .expect(201);
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: b.id, direction: "left" })
+      .expect(201);
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.remainingSwipesToday).toBe(18);
+  });
+
   it("shows a listing again in the buyer deck after the offer is withdrawn", async () => {
     const seller = await registerUser();
     const buyer = await registerUser();
@@ -262,6 +322,32 @@ describe("POST /api/swipe", () => {
       .send(payload);
 
     expect([200, 201, 204, 409]).toContain(res.status);
+  });
+
+  it("returns 429 when the daily swipe quota is exhausted", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+
+    const listings = [];
+    for (let i = 0; i < 21; i++) {
+      listings.push(await createListing(owner.accessToken));
+    }
+
+    for (let i = 0; i < 20; i++) {
+      const res = await request(app)
+        .post("/api/swipe")
+        .set("Authorization", `Bearer ${viewer.accessToken}`)
+        .send({ listingId: listings[i].id, direction: "left" });
+      expect(res.status).toBe(201);
+    }
+
+    const blocked = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listings[20].id, direction: "left" });
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toBe("daily_limit");
   });
 });
 

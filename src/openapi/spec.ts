@@ -996,13 +996,42 @@ export const openApiSpec = {
     },
     // ── Swipe ────────────────────────────────────────────────────────────────────
     "/api/swipe/deck": {
-      get: { tags: ["Swipe"], summary: "Get today's curated swipe deck", responses: { "200": { description: "Swipe cards", content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeDeckResponse" } } } } } },
+      get: {
+        tags: ["Swipe"],
+        summary: "Get a page of swipe deck cards",
+        parameters: [
+          {
+            name: "excludeIds",
+            in: "query",
+            required: false,
+            style: "form",
+            explode: true,
+            schema: {
+              oneOf: [
+                { type: "string", description: "Comma-separated listing UUIDs already in the client deck" },
+                { type: "array", items: { type: "string", format: "uuid" } },
+              ],
+            },
+            description: "Listing IDs already held in the client deck (for prefetch pages).",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Swipe cards",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeDeckResponse" } } },
+          },
+          "400": { description: "Invalid excludeIds" },
+        },
+      },
     },
     "/api/swipe": {
       post: {
         tags: ["Swipe"], summary: "Record a swipe",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["listingId","direction"], properties: { listingId: { type: "string", format: "uuid" }, direction: { type: "string", enum: ["left","right"] } } } } } },
-        responses: { "201": { description: "Swipe recorded" } },
+        responses: {
+          "201": { description: "Swipe recorded" },
+          "429": { description: "Daily swipe limit reached" },
+        },
       },
     },
     "/api/swipe/streak": {

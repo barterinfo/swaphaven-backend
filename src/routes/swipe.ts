@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, gte, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import { db } from "../db/client.js";
 import { swipesTable, swipeStreaksTable, listingsTable } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -8,11 +9,66 @@ import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js"
 
 const router = Router();
 
-const DAILY_SWIPE_LIMIT = 20;
+/** Cards returned per GET /api/swipe/deck request (independent of daily quota). */
+const DECK_PAGE_SIZE = 20;
+
+/** Sentinel remaining count when DAILY_SWIPE_LIMIT is unset (unlimited). */
+const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
+
+function startOfLocalDay(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function refreshesAtIso(): string {
+  return new Date(new Date().setHours(24, 0, 0, 0)).toISOString();
+}
+
+/** Remaining daily swipes. Unlimited when `env.DAILY_SWIPE_LIMIT` is null. */
+function remainingDailySwipes(swipesToday: number): number {
+  const limit = env.DAILY_SWIPE_LIMIT;
+  if (limit == null) return UNLIMITED_REMAINING;
+  return Math.max(0, limit - swipesToday);
+}
+
+async function countSwipesToday(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(swipesTable)
+    .where(
+      and(
+        eq(swipesTable.swiperId, userId),
+        gte(swipesTable.createdAt, startOfLocalDay()),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+const deckQuerySchema = z.object({
+  excludeIds: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => {
+      if (v == null) return [] as string[];
+      const parts = (Array.isArray(v) ? v : [v]).flatMap((s) => s.split(","));
+      return [...new Set(parts.map((p) => p.trim()).filter(Boolean))];
+    })
+    .pipe(z.array(z.string().uuid())),
+});
 
 // ─── GET /api/swipe/deck ──────────────────────────────────────────────────────
 router.get("/deck", requireAuth, async (req, res) => {
+  const parsedQuery = deckQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return res.status(400).json({
+      error: "validation",
+      message: parsedQuery.error.flatten().fieldErrors,
+    });
+  }
+
   const userId = req.user!.sub;
+  const clientExcludeIds = parsedQuery.data.excludeIds;
 
   const alreadySwiped = await db
     .select({ listingId: swipesTable.listingId })
@@ -25,6 +81,7 @@ router.get("/deck", requireAuth, async (req, res) => {
     ...new Set([
       ...alreadySwiped.map((s) => s.listingId),
       ...activeOfferListingIds,
+      ...clientExcludeIds,
     ]),
   ];
 
@@ -45,7 +102,7 @@ router.get("/deck", requireAuth, async (req, res) => {
         with: { profile: { columns: { displayName: true } } },
       },
     },
-    limit: DAILY_SWIPE_LIMIT,
+    limit: DECK_PAGE_SIZE,
     orderBy: sql`RANDOM()`,
   });
 
@@ -83,9 +140,12 @@ router.get("/deck", requireAuth, async (req, res) => {
     return { mutualFitScore: score, matchedWantedLabels: matched, matchReason: reason };
   }
 
-  const streak = await db.query.swipeStreaksTable.findFirst({
-    where: eq(swipeStreaksTable.userId, userId),
-  });
+  const [streak, swipesToday] = await Promise.all([
+    db.query.swipeStreaksTable.findFirst({
+      where: eq(swipeStreaksTable.userId, userId),
+    }),
+    countSwipesToday(userId),
+  ]);
 
   return res.json({
     cards: cards.map((c) => {
@@ -101,9 +161,9 @@ router.get("/deck", requireAuth, async (req, res) => {
         hotCount: c.rightSwipeCount,
       };
     }),
-    remainingSwipesToday: DAILY_SWIPE_LIMIT,
+    remainingSwipesToday: remainingDailySwipes(swipesToday),
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,
-    refreshesAt: new Date(new Date().setHours(24, 0, 0, 0)).toISOString(),
+    refreshesAt: refreshesAtIso(),
   });
 });
 
@@ -120,15 +180,16 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const { listingId, direction } = parsed.data;
+  const userId = req.user!.sub;
 
   // Validate listing exists and is not the user's own
   const listing = await db.query.listingsTable.findFirst({ where: eq(listingsTable.id, listingId) });
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
-  if (listing.userId === req.user!.sub) {
+  if (listing.userId === userId) {
     return res.status(400).json({ error: "bad_request", message: "Cannot swipe on your own listing" });
   }
 
-  const activeOfferListingIds = await getActiveNegotiationListingIds(req.user!.sub);
+  const activeOfferListingIds = await getActiveNegotiationListingIds(userId);
   if (activeOfferListingIds.includes(listingId)) {
     return res.status(409).json({
       error: "conflict",
@@ -136,15 +197,43 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
+  // Idempotent: already-swiped pairs do not consume quota again.
+  const existingSwipe = await db.query.swipesTable.findFirst({
+    where: and(eq(swipesTable.swiperId, userId), eq(swipesTable.listingId, listingId)),
+  });
+  if (existingSwipe) {
+    return res.status(201).json({
+      swipeId: existingSwipe.id,
+      direction: existingSwipe.direction,
+      streakUpdated: false,
+      newStreakCount: null,
+    });
+  }
+
+  const [swipesToday, streak] = await Promise.all([
+    countSwipesToday(userId),
+    db.query.swipeStreaksTable.findFirst({
+      where: eq(swipeStreaksTable.userId, userId),
+    }),
+  ]);
+  const remainingSwipesToday = remainingDailySwipes(swipesToday);
+  const bonusSwipes = streak?.bonusSwipesRemaining ?? 0;
+  const dailyLimited = env.DAILY_SWIPE_LIMIT != null;
+
+  if (dailyLimited && remainingSwipesToday <= 0 && bonusSwipes <= 0) {
+    return res.status(429).json({
+      error: "daily_limit",
+      message: "Daily swipe limit reached",
+      refreshesAt: refreshesAtIso(),
+    });
+  }
+
   const [swipe] = await db
     .insert(swipesTable)
-    .values({ swiperId: req.user!.sub, listingId, direction })
-    .onConflictDoNothing()
+    .values({ swiperId: userId, listingId, direction })
     .returning();
 
   // Increment the denormalized counter only when a new right-swipe was recorded.
-  // onConflictDoNothing returns nothing on a duplicate, so swipe being defined
-  // guarantees we're counting each (user, listing) pair at most once.
   if (swipe && direction === "right") {
     try {
       await db.update(listingsTable)
@@ -156,18 +245,19 @@ router.post("/", requireAuth, async (req, res) => {
     }
   }
 
-  // Streak logic
+  // Streak + bonus: daily quota first; bonus is consumed only after the daily
+  // quota is exhausted. Keep streak/bonus updates in a single write when possible.
   const today = new Date().toISOString().slice(0, 10);
-  const existing = await db.query.swipeStreaksTable.findFirst({
-    where: eq(swipeStreaksTable.userId, req.user!.sub),
-  });
+  const existing = streak;
+  const consumeBonus =
+    dailyLimited && remainingSwipesToday <= 0 && bonusSwipes > 0;
 
   let newStreakCount: number | null = null;
   let streakUpdated = false;
 
   if (!existing) {
     await db.insert(swipeStreaksTable).values({
-      userId: req.user!.sub,
+      userId,
       currentStreak: 1,
       longestStreak: 1,
       lastSwipeDate: today,
@@ -178,27 +268,28 @@ router.post("/", requireAuth, async (req, res) => {
   } else if (existing.lastSwipeDate !== today) {
     const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
     const newStreak = existing.lastSwipeDate === yesterday ? existing.currentStreak + 1 : 1;
-    const bonusSwipes = newStreak % 7 === 0
-      ? existing.bonusSwipesRemaining + 5
-      : existing.bonusSwipesRemaining;
+    const baseBonus = consumeBonus ? bonusSwipes - 1 : existing.bonusSwipesRemaining;
+    const awardedBonus = newStreak % 7 === 0 ? baseBonus + 5 : baseBonus;
 
     await db.update(swipeStreaksTable)
       .set({
         currentStreak: newStreak,
         longestStreak: Math.max(newStreak, existing.longestStreak),
         lastSwipeDate: today,
-        bonusSwipesRemaining: bonusSwipes,
+        bonusSwipesRemaining: awardedBonus,
       })
-      .where(eq(swipeStreaksTable.userId, req.user!.sub));
+      .where(eq(swipeStreaksTable.userId, userId));
 
     newStreakCount = newStreak;
     streakUpdated = true;
 
-    // Notify on streak milestones
     if (newStreak % 7 === 0) {
-      // Fire-and-forget: notification (extend with actual push service)
-      console.info(`[streak] User ${req.user!.sub} hit ${newStreak}-day streak milestone!`);
+      console.info(`[streak] User ${userId} hit ${newStreak}-day streak milestone!`);
     }
+  } else if (consumeBonus) {
+    await db.update(swipeStreaksTable)
+      .set({ bonusSwipesRemaining: bonusSwipes - 1 })
+      .where(eq(swipeStreaksTable.userId, userId));
   }
 
   return res.status(201).json({

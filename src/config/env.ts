@@ -30,6 +30,15 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().default(20),
   API_RATE_LIMIT_MAX: z.coerce.number().default(300),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
+  /**
+   * Max swipes per user per local calendar day.
+   * Unset / empty = unlimited. Set a positive integer (e.g. `20`) to enforce a daily cap.
+   */
+  DAILY_SWIPE_LIMIT: z.preprocess((v) => {
+    if (v === undefined || v === null) return null;
+    if (typeof v === "string" && v.trim() === "") return null;
+    return v;
+  }, z.union([z.null(), z.coerce.number().int().positive()]).default(null)),
   /** Behind Railway / reverse proxy. Defaults to true when NODE_ENV=production. */
   TRUST_PROXY: z.enum(["true", "false"]).optional(),
   /** Swagger UI at /api-docs. Default off in production. */

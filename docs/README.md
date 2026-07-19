@@ -12,6 +12,7 @@
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Railway deploy, env vars, troubleshooting |
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
+| [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, streaks, mobile UI, make-offer |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Listing search — architecture, sequences, API, DB, mobile flows |
 | [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md) | Google / Apple OAuth setup |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review |
