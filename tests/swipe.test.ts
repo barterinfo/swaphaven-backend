@@ -19,6 +19,11 @@ describe("GET /api/swipe/deck", () => {
     expect(Array.isArray(res.body.cards)).toBe(true);
     expect(res.body.cards).toHaveLength(2);
     expect(typeof res.body.remainingSwipesToday).toBe("number");
+    for (const card of res.body.cards) {
+      expect(typeof card.listing.ownerName).toBe("string");
+      expect(card.listing.ownerName.length).toBeGreaterThan(0);
+      expect(card.listing.user).toBeUndefined();
+    }
   });
 
   it("returns 401 without auth", async () => {

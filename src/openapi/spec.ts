@@ -135,6 +135,7 @@ export const openApiSpec = {
           locationCity:        { type: "string", nullable: true },
           viewCount:           { type: "integer", description: "Approximate page-view count. Incremented by POST /api/listings/:id/view." },
           rightSwipeCount:     { type: "integer", description: "Denormalized right-swipe count. Incremented atomically on each new right swipe." },
+          ownerName:           { type: "string", description: "Seller display name. Present on swipe-deck listing payloads." },
           createdAt:           { type: "string", format: "date-time" },
           updatedAt:           { type: "string", format: "date-time" },
           images:              { type: "array", items: { $ref: "#/components/schemas/ListingImage" } },

@@ -36,7 +36,15 @@ router.get("/deck", requireAuth, async (req, res) => {
 
   const cards = await db.query.listingsTable.findMany({
     where: and(...conditions),
-    with: { images: true, categoryRow: true, wants: true },
+    with: {
+      images: true,
+      categoryRow: true,
+      wants: true,
+      user: {
+        columns: { id: true, name: true },
+        with: { profile: { columns: { displayName: true } } },
+      },
+    },
     limit: DAILY_SWIPE_LIMIT,
     orderBy: sql`RANDOM()`,
   });
@@ -83,8 +91,10 @@ router.get("/deck", requireAuth, async (req, res) => {
     cards: cards.map((c) => {
       const { mutualFitScore, matchedWantedLabels, matchReason } =
         computeMatchScore(c.wantedCategories ?? []);
+      const { user, ...listing } = c;
+      const ownerName = user?.profile?.displayName?.trim() || user?.name?.trim() || "";
       return {
-        listing: c,
+        listing: { ...listing, ownerName },
         matchReason,
         mutualFitScore,
         matchedWantedLabels,
