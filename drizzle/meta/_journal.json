@@ -113,6 +113,20 @@
       "when": 1784250000000,
       "tag": "0014_password_reset_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784500000000,
+      "tag": "0015_seed_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784600000000,
+      "tag": "0016_seed_jewelry_category",
+      "breakpoints": true
     }
   ]
 }

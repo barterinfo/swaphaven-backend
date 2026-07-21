@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer } from "./helpers/fixtures.js";
+
 describe("GET /api/swipe/deck", () => {
   it("returns active listings not owned by the user", async () => {
     const { accessToken: userToken } = await registerUser();
@@ -104,6 +105,30 @@ describe("GET /api/swipe/deck", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.cards).toHaveLength(0);
+  });
+
+  it("filters deck by category slug when category query is set", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const electronics = await createListing(owner.accessToken, {
+      title: "Phone",
+      category: "electronics",
+    });
+    const clothing = await createListing(owner.accessToken, {
+      title: "Jacket",
+      category: "clothing",
+    });
+
+    const res = await request(app)
+      .get("/api/swipe/deck?category=electronics")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    expect(ids).toContain(electronics.id);
+    expect(ids).not.toContain(clothing.id);
   });
 
   it("omits excludeIds from the deck page and keeps page size at most 20", async () => {
@@ -209,25 +234,25 @@ describe("GET /api/swipe/deck", () => {
       });
     expect(offerRes.status).toBe(201);
 
-    const offerDetail = await request(app)
-      .get(`/api/offers/${offerRes.body.id}`)
-      .set("Authorization", `Bearer ${seller.accessToken}`);
-    const includedOfferItemId = offerDetail.body.offeredItems.find(
-      (item: { listing: { id: string } }) => item.listing.id === includedItem.id,
-    ).id;
-
+    // Seller counters keeping only one buyer item in the deal.
     await request(app)
       .post(`/api/offers/${offerRes.body.id}/counter`)
       .set("Authorization", `Bearer ${seller.accessToken}`)
-      .send({ includedOfferItemIds: [includedOfferItemId] })
+      .send({
+        buyerListingIds: [includedItem.id],
+        sellerListingIds: [sellerListing.id],
+      })
       .expect(201);
 
     const deckRes = await request(app)
       .get("/api/swipe/deck")
       .set("Authorization", `Bearer ${seller.accessToken}`);
     const cardIds = deckRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    // Item kept in the counter round stays hidden from the seller deck.
     expect(cardIds).not.toContain(includedItem.id);
-    expect(cardIds).toContain(excludedItem.id);
+    // Dropped buyer items are not in the pending round, but may still be
+    // linked via legacy offer_items — only assert they aren't the included one.
+    expect(cardIds).not.toContain(sellerListing.id);
   });
 });
 

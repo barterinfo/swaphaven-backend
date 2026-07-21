@@ -4,6 +4,8 @@
 import { beforeEach, afterAll } from "vitest";
 import { sql } from "drizzle-orm";
 import dotenv from "dotenv";
+import { categoriesTable } from "../../src/db/schema/index.js";
+import { CANONICAL_CATEGORIES } from "../../src/lib/categories.js";
 import { testDb, testPool } from "./db.js";
 
 dotenv.config({ path: ".env.test" });
@@ -24,6 +26,8 @@ const TRUNCATE = `
 
 beforeEach(async () => {
   await testDb.execute(sql.raw(TRUNCATE));
+  // Re-seed canonical categories (same rows as drizzle/0015_seed_categories.sql).
+  await testDb.insert(categoriesTable).values([...CANONICAL_CATEGORIES]);
 });
 
 afterAll(async () => {

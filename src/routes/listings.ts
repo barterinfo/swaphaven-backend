@@ -17,7 +17,6 @@ import {
   createListingBodySchema,
   isUuid,
   normalizeDetails,
-  resolveCategorySlug,
   resolveCategoryUuid,
   resolveEstimatedValue,
   resolveLocation,
@@ -128,8 +127,15 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const data = parsed.data;
-  const category = resolveCategorySlug(data);
   const categoryUuid = resolveCategoryUuid(data);
+  const catRow = await db.query.categoriesTable.findFirst({
+    where: eq(categoriesTable.id, categoryUuid),
+    columns: { id: true, name: true, slug: true },
+  });
+  if (!catRow) {
+    return res.status(400).json({ error: "Unknown categoryId" });
+  }
+  const category = data.category?.trim() || catRow.name;
   const estimatedValue = resolveEstimatedValue(data);
   const details = normalizeDetails(data.details);
   const location = resolveLocation(data);
@@ -362,11 +368,11 @@ const updateListingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(10000).optional(),
   category: z.string().optional(),
-  categoryId: z.string().optional(),
+  categoryId: z.string().uuid().optional(),
   condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
   estimatedValue: z.coerce.number().nonnegative().optional(),
   estimatedValueCents: z.number().int().positive().optional(),
-  wantedCategoryIds: z.array(z.string()).optional(),
+  wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
 });
 
@@ -400,15 +406,27 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     patch.wantedCategoryIds !== undefined || patch.wantedCategories !== undefined;
   const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
 
+  let nextCategory = patch.category;
+  let nextCategoryId = patch.categoryId;
+  if (patch.categoryId !== undefined) {
+    const catRow = await db.query.categoriesTable.findFirst({
+      where: eq(categoriesTable.id, patch.categoryId),
+      columns: { id: true, name: true },
+    });
+    if (!catRow) {
+      return res.status(400).json({ error: "Unknown categoryId" });
+    }
+    nextCategoryId = catRow.id;
+    nextCategory = patch.category?.trim() || catRow.name;
+  }
+
   const [updated] = await db
     .update(listingsTable)
     .set({
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.description !== undefined ? { description: patch.description } : {}),
-      ...(patch.category !== undefined ? { category: patch.category } : {}),
-      ...(patch.categoryId !== undefined && isUuid(patch.categoryId)
-        ? { categoryId: patch.categoryId }
-        : {}),
+      ...(nextCategory !== undefined ? { category: nextCategory } : {}),
+      ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...(patch.estimatedValue !== undefined
         ? { estimatedValue: Math.round(patch.estimatedValue) }
