@@ -889,6 +889,42 @@ export const openApiSpec = {
         responses: { "201": { description: "Listing created", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } } },
       },
     },
+    "/api/listings/trending": {
+      get: {
+        tags: ["Listings"],
+        summary: "Trending listings plus recent others",
+        description:
+          "Returns up to 20 active listings ordered by right_swipe_count desc (trending), " +
+          "plus additional recent active listings excluding those already in trending. " +
+          "Auth is optional (same optionalAuth as the main feed).",
+        security: [],
+        responses: {
+          "200": {
+            description: "Trending and recent listings",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["trending", "others"],
+                  properties: {
+                    trending: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/BarterListing" },
+                      description: "Highest right-swipe counts first",
+                    },
+                    others: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/BarterListing" },
+                      description: "Recent active listings not already in trending",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/api/listings/{listingId}": {
       get: {
         tags: ["Listings"], summary: "Get listing detail", security: [],

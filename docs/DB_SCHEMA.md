@@ -19,6 +19,7 @@ erDiagram
     users ||--o{ device_tokens : "registers"
     users ||--o| swipe_streaks : "tracks"
     users ||--o{ listings : "owns"
+    users ||--o{ listings : "traded_with (sold)"
     users ||--o{ swipes : "swipes"
     users ||--o{ offers : "buys (buyer)"
     users ||--o{ offers : "sells (seller)"
@@ -36,15 +37,20 @@ erDiagram
     listings ||--o{ swipes : "swiped on"
     listings ||--o{ offers : "target of"
     listings ||--o{ offer_items : "offered as"
+    listings ||--o{ offer_round_items : "in round"
 
     swipes ||--o| offers : "originates"
 
     offers ||--o{ offer_items : "includes"
+    offers ||--o{ offer_rounds : "negotiates via"
     offers ||--o| counter_offers : "countered by"
     offers ||--o| trades : "results in"
     offers ||--o| conversations : "opens"
 
     offer_items ||--o{ counter_offer_items : "referenced by"
+
+    offer_rounds ||--o{ offer_round_items : "includes"
+    offer_rounds ||--o| trades : "accepted as"
 
     counter_offers ||--o{ counter_offer_items : "includes"
     counter_offers ||--o| trades : "settled as"
@@ -52,6 +58,13 @@ erDiagram
     trades ||--o{ trade_reviews : "rated by"
 
     conversations ||--o{ messages : "contains"
+
+    sponsored_ads {
+        uuid id PK
+        text sponsor_name
+        boolean active
+        int weight
+    }
 
     users {
         uuid id PK
@@ -73,7 +86,10 @@ erDiagram
         text display_name
         text avatar_url
         boolean is_verified
+        boolean is_phone_verified
         int trade_score
+        int completion_rate
+        int avg_response_minutes
     }
     listings {
         uuid id PK
@@ -82,7 +98,11 @@ erDiagram
         text title
         int estimated_value
         int estimated_value_cents
+        int view_count
+        int right_swipe_count
         listing_status status
+        text sold_method
+        uuid traded_with_user_id FK
     }
     listing_images {
         uuid id PK
@@ -98,12 +118,30 @@ erDiagram
         uuid swipe_id FK
         offer_status status
         int cash_top_up_cents
+        offer_turn current_turn
+        int round_count
         timestamp created_at
     }
     offer_items {
         uuid id PK
         uuid offer_id FK
         uuid listing_id FK
+        int position
+    }
+    offer_rounds {
+        uuid id PK
+        uuid offer_id FK
+        int round_number
+        offer_turn proposed_by
+        offer_round_status status
+        int buyer_cash_top_up_cents
+        int seller_cash_requested_cents
+    }
+    offer_round_items {
+        uuid id PK
+        uuid offer_round_id FK
+        uuid listing_id FK
+        offer_round_item_side side
         int position
     }
     counter_offers {
@@ -123,10 +161,12 @@ erDiagram
         uuid id PK
         uuid offer_id FK,UK
         uuid counter_offer_id FK
+        uuid accepted_round_id FK
         trade_status status
         timestamp meetup_scheduled_at
         text meetup_location
         timestamp completed_at
+        timestamp review_window_closes_at
     }
     trade_reviews {
         uuid id PK
@@ -134,6 +174,7 @@ erDiagram
         uuid reviewer_id FK
         uuid reviewee_id FK
         int rating
+        text[] tags
     }
     conversations {
         uuid id PK
@@ -192,6 +233,9 @@ erDiagram
 > - `||--o|` = one-to-(zero-or-one); `||--o{` = one-to-many.
 > - `trades.offer_id` and `conversations.offer_id` are **unique** (`FK,UK`), so a
 >   given offer maps to at most one trade and one conversation.
+> - `sponsored_ads` is standalone (no FK to users/listings). See [ADS.md](./ADS.md).
+> - `offer_rounds` / `offer_round_items` are the negotiation history; legacy
+>   `counter_offers` remain for older accept paths.
 
 ---
 
@@ -205,9 +249,18 @@ erDiagram
 | `swipe_direction` | `left`, `right` |
 | `offer_status` | `pending`, `accepted`, `denied`, `countered`, `expired`, `withdrawn` |
 | `counter_offer_status` | `pending`, `accepted`, `denied`, `expired` |
+| `offer_turn` | `buyer`, `seller` |
+| `offer_round_status` | `pending`, `superseded`, `accepted`, `denied` |
+| `offer_round_item_side` | `buyer`, `seller` |
 | `trade_status` | `pending_meetup`, `completed`, `disputed`, `cancelled` |
 | `message_type` | `text`, `image`, `system` |
-| `notification_type` | `offer_received`, `offer_accepted`, `offer_denied`, `offer_withdrawn`, `counter_received`, `counter_accepted`, `counter_denied`, `trade_confirmed`, `trade_completed`, `message`, `review_received`, `swipe_match`, `streak_milestone` |
+| `notification_type` | `offer_received`, `offer_accepted`, `offer_denied`, `offer_withdrawn`, `counter_received`, `counter_accepted`, `counter_denied`, `trade_confirmed`, `trade_completed`, `message`, `review_received`, `reviews_revealed`, `swipe_match`, `streak_milestone` |
+
+Non-enum closed values (text columns):
+
+| Column | Allowed values |
+|--------|----------------|
+| `listings.sold_method` | `traded_on_barter`, `sold_for_cash`, `given_away` |
 
 ---
 
@@ -226,7 +279,7 @@ Legend: **PK** primary key · **FK** foreign key · **UK** unique · `NN` not-nu
 | `name` | text | NN | legal/fallback name |
 | `password_reset_token_hash` | text | | set during reset flow |
 | `password_reset_expires` | timestamp | | reset OTP TTL (10 minutes) |
-| `password_reset_attempts` | integer | not null, default 0 | failed OTP redeem attempts (max 5) |
+| `password_reset_attempts` | integer | NN, default 0 | failed OTP redeem attempts (max 5) |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
 
 #### `pending_registrations` — email OTP signup awaiting verify
@@ -255,6 +308,9 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `total_trades` | int | NN, default 0 | |
 | `rating_sum` / `rating_count` | int | NN, default 0 | average = sum/count |
 | `is_verified` | boolean | NN, default false | blue check |
+| `is_phone_verified` | boolean | NN, default false | server-managed (follow-up) |
+| `completion_rate` | int | nullable | % of trades completed (follow-up) |
+| `avg_response_minutes` | int | nullable | messaging response time (follow-up) |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
 
 #### `device_tokens` — push notification targets
@@ -285,6 +341,8 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `icon` | text | | |
 | `parent_id` | uuid | | logical self-reference (no FK constraint) |
 
+Seeded via `drizzle/0015_seed_categories.sql` and `0016_seed_jewelry_category.sql`.
+
 #### `listings` — items available to trade
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -303,16 +361,22 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `details` | jsonb `{ageRange, brand}` | NN, default `{…}` | |
 | `review_snapshot` | jsonb | NN, default `{}` | |
 | `is_swipe_only` | boolean | NN, default false | |
+| `view_count` | int | NN, default 0 | incremented by `POST /api/listings/:id/view` |
+| `right_swipe_count` | int | NN, default 0 | denormalized; drives trending |
 | `status` | `listing_status` enum | NN, default `active` | |
+| `sold_method` | text | | set on `POST /sold`: `traded_on_barter` \| `sold_for_cash` \| `given_away` |
+| `traded_with_user_id` | uuid | FK→`users.id` | only when `sold_method = traded_on_barter` |
 | `location_*` | text/decimal | various defaults | city/lat/lng/address/state/country/postal |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
+
+Indexes: `(status, created_at)`, `(user_id)`. Trigram search indexes: `0013_search_trgm_indexes.sql`.
 
 #### `listing_images`
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | uuid | PK | |
 | `listing_id` | uuid | NN, FK→`listings.id` (cascade) | |
-| `url` | text | NN | |
+| `url` | text | NN | https public URL from S3 presign |
 | `position` | int | NN, default 0 | gallery order |
 | `created_at` | timestamp | NN, default now | |
 
@@ -336,6 +400,27 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `created_at` | timestamp | NN, default now | |
 | — | — | UK(`swiper_id`,`listing_id`) | one swipe per user/listing |
 
+Right swipes bump `listings.right_swipe_count`. See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md).
+
+#### `sponsored_ads` — house/sponsor cards in the swipe deck
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK | |
+| `sponsor_name` | text | NN | |
+| `tagline` | text | NN | |
+| `cta_label` | text | NN | |
+| `cta_color` | text | NN | hex, e.g. `#F59E0B` |
+| `cta_url` | text | | http(s) or deep link; empty = no-op |
+| `background_image_url` | text | NN, default `""` | |
+| `active` | boolean | NN, default true | |
+| `weight` | int | NN, default 1 | rotation weight |
+| `click_count` | int | NN, default 0 | `POST /api/ads/:id/click` |
+| `impression_count` | int | NN, default 0 | `POST /api/ads/:id/impression` |
+| `starts_at` / `ends_at` | timestamptz | | optional campaign window |
+| `created_at` / `updated_at` | timestamptz | NN, default now | |
+
+See [ADS.md](./ADS.md). Migration: `drizzle/0007_add_sponsored_ads.sql`.
+
 ### 3.4 Offers & counters
 
 #### `offers` — a buyer proposing items for a listing
@@ -349,10 +434,12 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `status` | `offer_status` enum | NN, default `pending` | |
 | `buyer_note` | text | | |
 | `cash_top_up_cents` | int | NN, default 0 | signed; see mapping §4 |
+| `current_turn` | `offer_turn` enum | NN, default `seller` | who must act next |
+| `round_count` | int | NN, default 1 | includes original offer |
 | `expires_at` | timestamp | | |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
 
-#### `offer_items` — listings the buyer is putting up
+#### `offer_items` — listings the buyer is putting up (legacy / list views)
 | Column | Type | Constraints |
 |--------|------|-------------|
 | `id` | uuid | PK |
@@ -360,7 +447,32 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `listing_id` | uuid | NN, FK→`listings.id` |
 | `position` | int | NN, default 0 |
 
-#### `counter_offers` — seller's counter to an offer
+#### `offer_rounds` — full negotiation snapshot per turn
+Round 1 is created with the original offer; each counter inserts a new round and
+marks the previous `pending` round as `superseded`.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK | |
+| `offer_id` | uuid | NN, FK→`offers.id` (cascade) | |
+| `round_number` | int | NN | 1-based |
+| `proposed_by` | `offer_turn` enum | NN | `buyer` or `seller` |
+| `buyer_cash_top_up_cents` | int | NN, default 0 | |
+| `seller_cash_requested_cents` | int | NN, default 0 | |
+| `note` | text | | |
+| `status` | `offer_round_status` enum | NN, default `pending` | |
+| `created_at` / `updated_at` | timestamp | NN, default now | |
+
+#### `offer_round_items` — listings in a round, by side
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK | |
+| `offer_round_id` | uuid | NN, FK→`offer_rounds.id` (cascade) | |
+| `listing_id` | uuid | NN, FK→`listings.id` | |
+| `side` | `offer_round_item_side` enum | NN | `buyer` or `seller` |
+| `position` | int | NN, default 0 | |
+
+#### `counter_offers` — seller's counter to an offer (legacy path)
 | Column | Type | Constraints |
 |--------|------|-------------|
 | `id` | uuid | PK |
@@ -388,22 +500,30 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `id` | uuid | PK | |
 | `offer_id` | uuid | NN, **UK**, FK→`offers.id` | 1:1 with the offer |
 | `counter_offer_id` | uuid | FK→`counter_offers.id` | set if settled via counter |
+| `accepted_round_id` | uuid | FK→`offer_rounds.id` | round that closed the deal |
 | `status` | `trade_status` enum | NN, default `pending_meetup` | |
-| `meetup_scheduled_at` | timestamp | | **added for Chats tab** (meetup chip) |
-| `meetup_location` | text | | **added for Chats tab** |
+| `meetup_scheduled_at` | timestamp | | Chats tab meetup chip |
+| `meetup_location` | text | | |
 | `completed_at` | timestamp | | |
+| `review_window_closes_at` | timestamp | | `completed_at + 7 days` |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
 
+See [MEETUP_SUGGESTIONS.md](./MEETUP_SUGGESTIONS.md), [REVIEW_FEATURE.md](./REVIEW_FEATURE.md).
+
 #### `trade_reviews`
-| Column | Type | Constraints |
-|--------|------|-------------|
-| `id` | uuid | PK |
-| `trade_id` | uuid | NN, FK→`trades.id` (cascade) |
-| `reviewer_id` | uuid | NN, FK→`users.id` |
-| `reviewee_id` | uuid | NN, FK→`users.id` |
-| `rating` | int | NN |
-| `comment` | text | |
-| `created_at` | timestamp | NN, default now |
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK | |
+| `trade_id` | uuid | NN, FK→`trades.id` (cascade) | |
+| `reviewer_id` | uuid | NN, FK→`users.id` | |
+| `reviewee_id` | uuid | NN, FK→`users.id` | |
+| `rating` | int | NN | |
+| `comment` | text | | |
+| `tags` | text[] | NN, default `{}` | e.g. "Fast reply", "Great condition" |
+| `created_at` | timestamp | NN, default now | |
+
+Index: `(reviewee_id, created_at)`. Both parties submitting reviews can trigger
+`reviews_revealed` notifications.
 
 ### 3.6 Conversations & messages
 
@@ -432,7 +552,7 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 |--------|------|-------------|-------|
 | `id` | uuid | PK | |
 | `user_id` | uuid | NN, FK→`users.id` (cascade) | recipient |
-| `type` | `notification_type` enum | NN | |
+| `type` | `notification_type` enum | NN | includes `reviews_revealed` |
 | `title` / `body` | text | NN | |
 | `related_offer_id` | uuid | | logical reference |
 | `related_trade_id` | uuid | | logical reference |
@@ -484,6 +604,8 @@ Built from a `users` row joined to its `user_profiles` row via
 | `sellerId` | `offers.seller_id` |
 | `listingId` | `offers.listing_id` |
 | `cashTopUpCents` | `offers.cash_top_up_cents` |
+| `currentTurn` | `offers.current_turn` |
+| `roundCount` | `offers.round_count` |
 | `createdAt` | `offers.created_at` |
 | `listing` | `offers.listing` relation → listing summary |
 | `buyer` | `offers.buyer` relation → user summary |
@@ -548,6 +670,18 @@ npm run db:generate   # drizzle-kit generate → drizzle/<name>.sql + snapshot
 npm run db:migrate    # apply pending migrations to the local DB
 ```
 
-The meetup fields (`trades.meetup_scheduled_at`, `trades.meetup_location`) were
-added in `drizzle/0002_dizzy_wendigo.sql`. Use `db:migrate` (not `db:push`) so
-only the reviewed SQL runs. See [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
+Notable recent migrations:
+
+| Tag | What it added |
+|-----|----------------|
+| `0006_denormalize_right_swipe_count` | `listings.right_swipe_count` |
+| `0007_add_sponsored_ads` | `sponsored_ads` |
+| `0010` / `0011` | offer rounds + `trades.review_window_closes_at` + review `tags` |
+| `0012_listing_sold_meta` | `sold_method`, `traded_with_user_id` |
+| `0013_search_trgm_indexes` | trigram indexes for search |
+| `0014_password_reset_attempts` | reset attempt counter |
+| `0015` / `0016` | category seeds |
+| `0017_pending_registrations` | email OTP signup staging table |
+
+Use `db:migrate` (not `db:push`) in shared/prod so only reviewed SQL runs. See
+[LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
