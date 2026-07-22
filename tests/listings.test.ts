@@ -3,7 +3,7 @@ import request from "supertest";
 import { eq } from "drizzle-orm";
 import { categoryIdBySlug } from "../src/lib/categories.js";
 import { app } from "./helpers/app.js";
-import { registerUser, createListing, uid } from "./helpers/fixtures.js";
+import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { categoriesTable, listingsTable } from "../src/db/schema/index.js";
 
@@ -238,6 +238,24 @@ describe("GET /api/listings/:id", () => {
     expect(res.status).toBe(200);
     expect(res.body.listing.view_count).toBe(0);
     expect(res.body.listing.right_swipe_count).toBe(1);
+  });
+
+  it("returns offer_count for open (pending/countered) offers", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing = await createListing(buyer.accessToken);
+
+    const before = await request(app).get(`/api/listings/${sellerListing.id}`);
+    expect(before.status).toBe(200);
+    expect(before.body.listing.offer_count).toBe(0);
+
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const after = await request(app).get(`/api/listings/${sellerListing.id}`);
+    expect(after.status).toBe(200);
+    expect(after.body.listing.offer_count).toBe(1);
+    expect(after.body.offer_count).toBe(1);
   });
 });
 

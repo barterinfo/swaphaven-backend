@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, ilike, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, eq, ilike, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
@@ -339,12 +339,24 @@ router.get("/:listingId", async (req, res) => {
 
   const ownerName = sellerProfile?.displayName ?? "";
   const payload = serializeListingBarter(listing, { ownerName, images, seller });
+
+  // Open negotiations on this listing (My Listing Detail "Offers" tile).
+  const [offerCountRow] = await db
+    .select({ value: count() })
+    .from(offersTable)
+    .where(and(
+      eq(offersTable.listingId, listingId),
+      inArray(offersTable.status, ["pending", "countered"]),
+    ));
+  const offerCount = Number(offerCountRow?.value ?? 0);
+
   return res.json({
-    listing: payload,
+    listing: { ...payload, offer_count: offerCount },
     id: listing.id,
     title: listing.title,
     status: listing.status,
     images,
+    offer_count: offerCount,
   });
 });
 

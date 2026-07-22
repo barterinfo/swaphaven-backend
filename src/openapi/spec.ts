@@ -180,6 +180,7 @@ export const openApiSpec = {
           owner_name:        { type: "string" },
           right_swipe_count: { type: "integer", description: "Denormalized right-swipe count." },
           view_count:        { type: "integer", description: "Approximate page-view count." },
+          offer_count:       { type: "integer", description: "Open offers on this listing (pending + countered). Present on GET /api/listings/:id." },
           seller:            { allOf: [{ $ref: "#/components/schemas/SellerSnapshot" }], nullable: true, description: "Embedded seller card. Present on GET /api/listings/:id; null on feed/closet responses." },
         },
       },
