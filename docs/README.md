@@ -8,6 +8,7 @@
 | [SEED_LISTINGS.md](./SEED_LISTINGS.md) | Bulk-create sample listings via CLI script |
 | [TESTING.md](./TESTING.md) | Unit/integration tests, CI commands |
 | [API_GUIDE.md](./API_GUIDE.md) | Every endpoint with examples |
+| [FEATURE_LOG.md](./FEATURE_LOG.md) | Features ↔ Cursor chat transcripts (recover implementation context) |
 | [SWAGGER.md](./SWAGGER.md) | OpenAPI / Swagger UI |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Railway deploy, env vars, troubleshooting |
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
