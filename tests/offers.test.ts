@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer, createCounter } from "./helpers/fixtures.js";
+import { testDb } from "./helpers/db.js";
+import { listingsTable } from "../src/db/schema/index.js";
 import { MAX_OFFER_ROUNDS } from "../src/lib/max-rounds.js";
 
 // ─── POST /api/offers ─────────────────────────────────────────────────────────
@@ -160,6 +163,33 @@ describe("GET /api/offers/:offerId", () => {
     expect(res.status).toBe(200);
     expect(res.body.id).toBe(offer.id);
     expect(Array.isArray(res.body.offeredItems)).toBe(true);
+    expect(res.body.listing?.status).toBe("active");
+    expect(res.body.offeredItems[0]?.listing?.status).toBe("active");
+    expect(res.body.latestRound?.buyerItems?.[0]?.status).toBe("active");
+    expect(res.body.latestRound?.sellerItems?.[0]?.status).toBe("active");
+  });
+
+  it("includes traded status when a round item is marked sold", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    await testDb
+      .update(listingsTable)
+      .set({ status: "traded" })
+      .where(eq(listingsTable.id, buyerListing.id));
+
+    const res = await request(app)
+      .get(`/api/offers/${offer.id}`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const soldItem = res.body.latestRound?.buyerItems?.find(
+      (i: { id: string }) => i.id === buyerListing.id,
+    );
+    expect(soldItem?.status).toBe("traded");
   });
 
   it("third party receives 403", async () => {
@@ -228,6 +258,46 @@ describe("POST /api/offers/:offerId/accept", () => {
       .set("Authorization", `Bearer ${seller.accessToken}`);
 
     expect(res.status).toBe(409);
+  });
+
+  it("returns 409 when a pending-round item has been sold", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    await testDb
+      .update(listingsTable)
+      .set({ status: "traded" })
+      .where(eq(listingsTable.id, buyerListing.id));
+
+    const res = await request(app)
+      .post(`/api/offers/${offer.id}/accept`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/no longer active/i);
+  });
+
+  it("returns 409 when a pending-round item has been deleted", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    await testDb
+      .update(listingsTable)
+      .set({ status: "deleted" })
+      .where(eq(listingsTable.id, buyerListing.id));
+
+    const res = await request(app)
+      .post(`/api/offers/${offer.id}/accept`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/no longer active/i);
   });
 });
 
@@ -325,6 +395,30 @@ describe("Counter-offer lifecycle", () => {
     expect(acceptRes.status).toBe(200);
     expect(acceptRes.body.id).toBeTruthy();
     expect(acceptRes.body.conversationId).toBeTruthy();
+  });
+
+  it("returns 409 when counter includes a sold listing", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    await testDb
+      .update(listingsTable)
+      .set({ status: "traded" })
+      .where(eq(listingsTable.id, buyerListing.id));
+
+    const res = await request(app)
+      .post(`/api/offers/${offer.id}/counter`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({
+        buyerListingIds: [buyerListing.id],
+        sellerListingIds: [sellerListing.id],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/no longer active/i);
   });
 
   it("buyer can deny a seller counter via /counter/deny", async () => {

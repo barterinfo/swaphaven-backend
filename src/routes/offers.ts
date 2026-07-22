@@ -18,10 +18,19 @@ import { sendPushToUser } from "../lib/push.js";
 
 const router = Router();
 
+/** Listing columns shared by offer list / round item payloads. */
+const listingSummaryColumns = {
+  id: true,
+  title: true,
+  estimatedValue: true,
+  estimatedValueCents: true,
+  status: true,
+} as const;
+
 /** Relations needed to render an offer row in the mobile inbox. */
 const offerListWith = {
   listing: {
-    columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true },
+    columns: listingSummaryColumns,
     with: {
       images: true,
       user: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
@@ -29,7 +38,7 @@ const offerListWith = {
   },
   buyer: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
   seller: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
-  items: { with: { listing: { columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true }, with: { images: true } } } },
+  items: { with: { listing: { columns: listingSummaryColumns, with: { images: true } } } },
 } as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -43,7 +52,7 @@ async function getLatestRound(offerId: string) {
       items: {
         with: {
           listing: {
-            columns: { id: true, title: true, estimatedValue: true, estimatedValueCents: true },
+            columns: listingSummaryColumns,
             with: { images: true },
           },
         },
@@ -222,12 +231,29 @@ async function handleAccept(offerId: string, userId: string, res: Response) {
     return res.status(409).json({ error: "conflict", message: `Offer is already ${offer.status}` });
   }
 
-  await db.update(offersTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
-
   const latestRound = await db.query.offerRoundsTable.findFirst({
     where: and(eq(offerRoundsTable.offerId, offerId), eq(offerRoundsTable.status, "pending")),
     orderBy: [desc(offerRoundsTable.roundNumber)],
+    with: {
+      items: {
+        with: { listing: { columns: { id: true, status: true } } },
+      },
+    },
   });
+
+  // Block accept when any item in the pending round is sold or deleted.
+  const inactive = (latestRound?.items ?? []).find(
+    (item) => item.listing && item.listing.status !== "active",
+  );
+  if (inactive?.listing) {
+    return res.status(409).json({
+      error: "conflict",
+      message: `Listing ${inactive.listing.id} is no longer active`,
+    });
+  }
+
+  await db.update(offersTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(offersTable.id, offer.id));
+
   if (latestRound) {
     await db.update(offerRoundsTable).set({ status: "accepted", updatedAt: new Date() }).where(eq(offerRoundsTable.id, latestRound.id));
   }

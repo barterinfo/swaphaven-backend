@@ -14,6 +14,12 @@
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
 | [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, streaks, mobile UI, make-offer |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Listing search — architecture, sequences, API, DB, mobile flows |
+| [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md) | Profile closet owner actions — overview |
+| [LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md) | Listing status diagram, transition paths, backend sequences |
+| [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md) | Mark as Sold — API, offer cancel, open-offer SOLD UX |
+| [DELETE_LISTING_FLOW.md](./DELETE_LISTING_FLOW.md) | Soft-delete listing — API, offer cancel, open-offer DELETED UX |
+| [EDIT_LISTING_FLOW.md](./EDIT_LISTING_FLOW.md) | Edit listing fields & photos — PATCH contract |
+| [deeplink-push-notifications.md](./deeplink-push-notifications.md) | FCM push + deep links; in-app vs push matrix (incl. sold/delete) |
 | [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md) | Google / Apple OAuth setup |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review |
 | [MEETUP_SUGGESTIONS.md](./MEETUP_SUGGESTIONS.md) | Meet Halfway — transit stop suggestions between buyer and seller |

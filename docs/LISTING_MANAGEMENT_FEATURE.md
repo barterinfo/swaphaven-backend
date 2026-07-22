@@ -2,6 +2,13 @@
 
 Technical reference for the **profile closet → listing detail → edit / mark sold / delete** flow across **swaphaven-api** (implemented) and **barter-stack mobile** (UI screens). A seller opens their own listing from the closet and can update listing fields, close it out as sold, or soft-delete it.
 
+**Dedicated flow docs (preferred for deep dives):**
+
+- [LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md) — **status diagram, transition paths, all sequence diagrams**
+- [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md)
+- [DELETE_LISTING_FLOW.md](./DELETE_LISTING_FLOW.md)
+- [EDIT_LISTING_FLOW.md](./EDIT_LISTING_FLOW.md)
+
 **Companion:** interactive diagrams in [`listing-management-feature.html`](./listing-management-feature.html) (SVG sequence, flow, ER, and API maps).
 
 ---
@@ -47,7 +54,8 @@ Technical reference for the **profile closet → listing detail → edit / mark 
 | Changing listing `status` via PATCH | Use `POST /sold` or `DELETE` |
 | Editing location on update | Location fields set at **create** time only |
 | `acceptCashTopUps`, `isSwipeOnly` on edit screen | Not in PATCH contract |
-| “Who did you trade with?” in Mark Sold UI | API accepts optional `tradedWithUserId`; mobile sends only `soldMethod` + `shareWin` |
+| “Who did you trade with?” in Mark Sold UI | **Implemented** — mobile loads trade-partners and may send `tradedWithUserId` |
+| Mobile `shareWin` toggle | API accepts/echoes `shareWin`; **current mobile does not send it** |
 | Hard delete / purge rows | Soft-delete only (`status = deleted`) |
 | Paused listing toggle | Enum exists; not part of owner-actions UI |
 
@@ -158,14 +166,14 @@ flowchart TD
 
 ### 3.3 Mark as sold flow
 
-1. Owner taps **Mark Sold** → bottom sheet.
+1. Owner taps **Mark Sold** → Mark as Sold screen.
 2. User selects one of:
    - **Traded on Barter** → `soldMethod: traded_on_barter`
    - **Sold for cash** → `soldMethod: sold_for_cash`
    - **Given away** → `soldMethod: given_away`
-3. Optional **Share win** toggle → `shareWin: boolean` (echoed in response; feed integration is client/future).
-4. Confirm → `POST /api/listings/:id/sold` with `{ soldMethod, shareWin }` only (no trade-partner field).
-5. Listing `status` becomes `traded`; removed from active closet and swipe deck.
+3. Optional partner picker (`GET …/trade-partners`) → may send `tradedWithUserId`.
+4. Confirm → `POST /api/listings/:id/sold` with `{ soldMethod, tradedWithUserId? }` (mobile does **not** currently send `shareWin`; API defaults it to `false`).
+5. Listing `status` becomes `traded`; removed from active search/swipe; may still appear in closet until filtered client-side.
 
 ### 3.4 Delete flow
 
@@ -180,17 +188,19 @@ flowchart TD
 
 Enum `listing_status`: `active` | `traded` | `paused` | `deleted`.
 
+> **Canonical diagrams and transition matrix:** see [LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md) (status boxes + labeled Path_Create / Path_Edit / Path_MarkSold / Path_Delete edges, plus sequences).
+
 ```mermaid
 stateDiagram-v2
-  [*] --> active: create listing
-  active --> traded: POST /sold
-  active --> deleted: DELETE
-  traded --> traded: POST /sold again → 409
-  deleted --> deleted: DELETE again → 409
-  deleted --> [*]: row retained in DB
-  traded --> [*]: row retained in DB
+  [*] --> active: Path_Create POST /listings
+  active --> active: Path_Edit PATCH / images
+  active --> traded: Path_MarkSold POST /sold
+  active --> deleted: Path_Delete DELETE
+  traded --> traded: POST /sold again 409
+  deleted --> deleted: DELETE again 409
 ```
 
+`paused` exists in the enum only — **no public API** sets it today.
 ### Visibility rules
 
 | Status | Closet query | `GET /listings/:id` | Swipe / search feeds |
@@ -270,7 +280,7 @@ sequenceDiagram
   App->>API: PATCH /api/listings/:id<br/>{ title, description, condition, categoryId,<br/>  estimatedValue, wantedCategoryIds, wantedCategories }
   Note over API: UPDATE listings SET …<br/>syncListingWants() if wants changed
   API-->>App: 200 { listing, id, title, status }
-  Note over App: status/location in body are ignored
+  Note over App: status/location not in updateListingSchema
 ```
 
 ### 5.4 Mark as sold
@@ -280,9 +290,12 @@ sequenceDiagram
   participant App as Mobile App
   participant API as SwapHaven API
 
-  Note over App: User picks soldMethod + optional shareWin<br/>No trade-partner field
+  Note over App: User picks soldMethod + optional partner<br/>Mobile body: { soldMethod, tradedWithUserId? }
 
-  App->>API: POST /api/listings/:id/sold<br/>{ soldMethod, shareWin }
+  App->>API: GET /api/listings/:id/trade-partners
+  API-->>App: { partners }
+
+  App->>API: POST /api/listings/:id/sold<br/>{ soldMethod, tradedWithUserId? }
   Note over API: 403 if not owner<br/>409 if already traded/deleted
   Note over API: UPDATE listings SET status=traded, sold_method=…
   Note over API: cancelPendingOffersAndNotify(listing_sold)
@@ -290,7 +303,7 @@ sequenceDiagram
     Note over API: user_profiles.total_trades += 1
   end
   API-->>App: 200 { listing, status: traded, soldMethod, shareWin }
-  Note over App: Pop detail; listing gone from active closet
+  Note over App: shareWin defaults false when omitted
 ```
 
 ### 5.5 Delete listing
@@ -303,7 +316,7 @@ sequenceDiagram
   Note over App: User confirms in modal
 
   App->>API: DELETE /api/listings/:id
-  Note over API: UPDATE listings SET status=deleted
+  Note over API: UPDATE listings SET status=deleted<br/>(also allowed from traded)
   Note over API: cancelPendingOffersAndNotify(listing_deleted)
   API-->>App: 204 No Content
   Note over App: Navigate to closet<br/>GET /listings/:id → 404 thereafter

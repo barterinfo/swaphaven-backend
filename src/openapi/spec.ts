@@ -274,6 +274,17 @@ export const openApiSpec = {
           createdAt:      { type: "string", format: "date-time" },
         },
       },
+      ListingSummary: {
+        type: "object",
+        description: "Compact listing nested in offer / round payloads.",
+        properties: {
+          id:                  { type: "string", format: "uuid" },
+          title:               { type: "string" },
+          estimatedValueCents: { type: "integer" },
+          status:              { type: "string", enum: ["active","traded","paused","deleted"], description: "Lifecycle status — mobile strikes traded/deleted items in Trade Offer and Counter." },
+          images:              { type: "array", items: { type: "object", properties: { url: { type: "string" } } } },
+        },
+      },
       OfferListItem: {
         type: "object",
         description: "Enriched offer row for the mobile inbox (Offers tab).",
@@ -285,7 +296,7 @@ export const openApiSpec = {
           listingId:      { type: "string", format: "uuid" },
           cashTopUpCents: { type: "integer" },
           createdAt:      { type: "string", format: "date-time" },
-          listing:        { type: "object", nullable: true },
+          listing:        { oneOf: [{ $ref: "#/components/schemas/ListingSummary" }, { type: "null" }] },
           buyer:          { type: "object", nullable: true },
           seller:         { type: "object", nullable: true },
           offeredItems:   { type: "array", items: { type: "object" } },
@@ -1119,7 +1130,15 @@ export const openApiSpec = {
       get: { tags: ["Offers"], summary: "Offer detail", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Offer with counter-offer and conversation ID" }, "403": { description: "Forbidden" } } },
     },
     "/api/offers/{offerId}/accept": {
-      post: { tags: ["Offers"], summary: "Accept offer → creates Trade", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade and conversation created" } } },
+      post: {
+        tags: ["Offers"], summary: "Accept offer → creates Trade",
+        description: "Accepts the current pending round. Returns 409 if any listing in that round is not active (sold/deleted).",
+        parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Trade and conversation created" },
+          "409": { description: "Not your turn, offer already closed, or a round item is no longer active." },
+        },
+      },
     },
     "/api/offers/{offerId}/deny": {
       post: { tags: ["Offers"], summary: "Deny offer", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Denied" } } },

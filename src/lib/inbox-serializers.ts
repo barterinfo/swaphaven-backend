@@ -36,6 +36,8 @@ interface ListingSummaryInput {
   title: string;
   estimatedValue?: number | null;
   estimatedValueCents?: number | null;
+  /** Listing lifecycle status — used by mobile to strike sold/deleted items. */
+  status?: string | null;
   images?: ListingImageInput[];
   user?: UserSummaryInput | null;
 }
@@ -52,6 +54,7 @@ function serializeListingSummary(listing: ListingSummaryInput | null | undefined
     id: listing.id,
     title: listing.title,
     estimatedValueCents: resolveValueCents(listing),
+    status: listing.status ?? "active",
     images: (listing.images ?? []).map((img) => ({ url: img.url })),
     ...(listing.user ? { user: serializeUserSummary(listing.user) } : {}),
   };
