@@ -18,6 +18,19 @@ export const usersTable = pgTable("users", {
   updatedAt:              timestamp("updated_at").notNull().defaultNow(),
 });
 
+// ─── pending_registrations ────────────────────────────────────────────────────
+/** Email/password signup awaiting OTP verification — no `users` row until verified. */
+export const pendingRegistrationsTable = pgTable("pending_registrations", {
+  email:        text("email").primaryKey(),
+  passwordHash: text("password_hash").notNull(),
+  name:         text("name").notNull(),
+  otpHash:      text("otp_hash").notNull(),
+  otpExpires:   timestamp("otp_expires").notNull(),
+  otpAttempts:  integer("otp_attempts").notNull().default(0),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+});
+
 // ─── user_profiles ────────────────────────────────────────────────────────────
 export const userProfilesTable = pgTable("user_profiles", {
   id:           uuid("id").primaryKey().references(() => usersTable.id, { onDelete: "cascade" }),
@@ -61,6 +74,7 @@ export const swipeStreaksTable = pgTable("swipe_streaks", {
 });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-export type User        = typeof usersTable.$inferSelect;
-export type UserProfile = typeof userProfilesTable.$inferSelect;
-export type SwipeStreak = typeof swipeStreaksTable.$inferSelect;
+export type User                 = typeof usersTable.$inferSelect;
+export type UserProfile          = typeof userProfilesTable.$inferSelect;
+export type SwipeStreak          = typeof swipeStreaksTable.$inferSelect;
+export type PendingRegistration  = typeof pendingRegistrationsTable.$inferSelect;

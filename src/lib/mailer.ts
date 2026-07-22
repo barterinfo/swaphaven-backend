@@ -15,26 +15,24 @@ function getClient(): Resend {
   return new Resend(env.RESEND_API_KEY);
 }
 
-/**
- * Sends a password-reset OTP email via Resend.
- * Throws {@link MailerError} when env is missing or Resend rejects the send.
- */
-export async function sendPasswordResetOtp(params: {
+async function sendOtpEmail(params: {
   to: string;
   otp: string;
   expiresMinutes: number;
+  subject: string;
+  purposeLabel: string;
+  failLabel: string;
 }): Promise<void> {
   if (!env.EMAIL_FROM) {
     throw new MailerError("EMAIL_FROM is not configured");
   }
 
-  const { to, otp, expiresMinutes } = params;
-  const subject = "Your Barter reset code";
+  const { to, otp, expiresMinutes, subject, purposeLabel, failLabel } = params;
   const text =
-    `Your password reset code is ${otp}.\n\n` +
+    `Your ${purposeLabel} code is ${otp}.\n\n` +
     `It expires in ${expiresMinutes} minutes. If you did not request this, you can ignore this email.`;
   const html =
-    `<p>Your password reset code is <strong>${otp}</strong>.</p>` +
+    `<p>Your ${purposeLabel} code is <strong>${otp}</strong>.</p>` +
     `<p>It expires in ${expiresMinutes} minutes. If you did not request this, you can ignore this email.</p>`;
 
   try {
@@ -52,8 +50,42 @@ export async function sendPasswordResetOtp(params: {
   } catch (err) {
     if (err instanceof MailerError) throw err;
     throw new MailerError(
-      err instanceof Error ? err.message : "Failed to send reset email",
+      err instanceof Error ? err.message : `Failed to send ${failLabel} email`,
       err,
     );
   }
+}
+
+/**
+ * Sends a password-reset OTP email via Resend.
+ * Throws {@link MailerError} when env is missing or Resend rejects the send.
+ */
+export async function sendPasswordResetOtp(params: {
+  to: string;
+  otp: string;
+  expiresMinutes: number;
+}): Promise<void> {
+  await sendOtpEmail({
+    ...params,
+    subject: "Your Barter reset code",
+    purposeLabel: "password reset",
+    failLabel: "reset",
+  });
+}
+
+/**
+ * Sends a registration verification OTP email via Resend.
+ * Throws {@link MailerError} when env is missing or Resend rejects the send.
+ */
+export async function sendRegistrationOtp(params: {
+  to: string;
+  otp: string;
+  expiresMinutes: number;
+}): Promise<void> {
+  await sendOtpEmail({
+    ...params,
+    subject: "Your Barter verification code",
+    purposeLabel: "verification",
+    failLabel: "verification",
+  });
 }

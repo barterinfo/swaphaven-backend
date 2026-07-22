@@ -5,23 +5,28 @@ import { DatabaseError } from "pg";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { usersTable, userProfilesTable, deviceTokensTable } from "../db/schema/index.js";
+import {
+  usersTable,
+  userProfilesTable,
+  deviceTokensTable,
+  pendingRegistrationsTable,
+} from "../db/schema/index.js";
 import { requireAuth, signTokens, verifyRefreshToken } from "../middleware/auth.js";
 import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
-import { sendPasswordResetOtp } from "../lib/mailer.js";
+import { sendPasswordResetOtp, sendRegistrationOtp } from "../lib/mailer.js";
 import { env } from "../config/env.js";
 
 const router = Router();
 
-const PASSWORD_RESET_OTP_TTL_MS = 10 * 60 * 1000;
-const PASSWORD_RESET_OTP_EXPIRES_MINUTES = 10;
-const PASSWORD_RESET_MAX_ATTEMPTS = 5;
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_EXPIRES_MINUTES = 10;
+const OTP_MAX_ATTEMPTS = 5;
 
 function sha256Hex(value: string): string {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function generatePasswordResetOtp(): string {
+function generateOtp(): string {
   return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
@@ -35,11 +40,18 @@ async function clearPasswordReset(userId: string): Promise<void> {
     .where(eq(usersTable.id, userId));
 }
 
+async function clearPendingRegistration(email: string): Promise<void> {
+  await db.delete(pendingRegistrationsTable)
+    .where(eq(pendingRegistrationsTable.email, email));
+}
+
 function userPublic(u: { id: string; email: string; name: string }) {
   return { id: u.id, email: u.email, name: u.name };
 }
 
 // ─── POST /api/auth/register ──────────────────────────────────────────────────
+// Starts signup: stores pending credentials + emails a 6-digit OTP.
+// Account is created only after POST /register/verify.
 const registerSchema = z.object({
   email:       z.string().email(),
   password:    z.string().min(8, "Password must be at least 8 characters"),
@@ -59,8 +71,124 @@ router.post("/register", async (req, res) => {
   if (existing) return res.status(409).json({ error: "conflict", message: "Email already registered" });
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name }).returning();
-  await db.insert(userProfilesTable).values({ id: user.id, displayName: name });
+  const otp = generateOtp();
+  const otpHash = sha256Hex(otp);
+  const otpExpires = new Date(Date.now() + OTP_TTL_MS);
+  const now = new Date();
+
+  await db.insert(pendingRegistrationsTable)
+    .values({
+      email: normalized,
+      passwordHash,
+      name,
+      otpHash,
+      otpExpires,
+      otpAttempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: pendingRegistrationsTable.email,
+      set: {
+        passwordHash,
+        name,
+        otpHash,
+        otpExpires,
+        otpAttempts: 0,
+        updatedAt: now,
+      },
+    });
+
+  try {
+    await sendRegistrationOtp({
+      to: normalized,
+      otp,
+      expiresMinutes: OTP_EXPIRES_MINUTES,
+    });
+  } catch (err) {
+    console.error(`[auth] Failed to send registration OTP to ${normalized}:`, err);
+    await clearPendingRegistration(normalized);
+    return res.status(503).json({
+      error: "service_unavailable",
+      message: "Unable to send verification email. Please try again.",
+    });
+  }
+
+  if (env.NODE_ENV !== "production") {
+    console.info(`[auth] Registration OTP for ${normalized} (dev only): ${otp}`);
+  }
+
+  return res.status(200).json({
+    message: "We sent a verification code to your email.",
+  });
+});
+
+// ─── POST /api/auth/register/verify ───────────────────────────────────────────
+const registerVerifySchema = z.object({
+  email: z.string().email(),
+  /** 6-digit OTP from the verification email (field name matches reset-password). */
+  token: z.string().min(1),
+});
+
+router.post("/register/verify", async (req, res) => {
+  const parsed = registerVerifySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const { email, token } = parsed.data;
+  const normalized = email.toLowerCase();
+
+  const pending = await db.query.pendingRegistrationsTable.findFirst({
+    where: eq(pendingRegistrationsTable.email, normalized),
+  });
+
+  const invalid = !pending
+    || pending.otpExpires < new Date()
+    || pending.otpAttempts >= OTP_MAX_ATTEMPTS;
+
+  if (invalid) {
+    return res.status(400).json({ error: "bad_request", message: "Invalid or expired verification code" });
+  }
+
+  const submitted = Buffer.from(sha256Hex(token.trim()), "hex");
+  const stored = Buffer.from(pending.otpHash, "hex");
+  if (submitted.length !== stored.length || !crypto.timingSafeEqual(submitted, stored)) {
+    const attempts = pending.otpAttempts + 1;
+    if (attempts >= OTP_MAX_ATTEMPTS) {
+      await clearPendingRegistration(normalized);
+    } else {
+      await db.update(pendingRegistrationsTable)
+        .set({ otpAttempts: attempts, updatedAt: new Date() })
+        .where(eq(pendingRegistrationsTable.email, normalized));
+    }
+    return res.status(400).json({ error: "bad_request", message: "Invalid or expired verification code" });
+  }
+
+  // Race: account may have been created via social while OTP was pending.
+  const already = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+  if (already) {
+    await clearPendingRegistration(normalized);
+    return res.status(409).json({ error: "conflict", message: "Email already registered" });
+  }
+
+  let user;
+  try {
+    [user] = await db.insert(usersTable).values({
+      email: normalized,
+      passwordHash: pending.passwordHash,
+      name: pending.name,
+    }).returning();
+    await db.insert(userProfilesTable).values({ id: user.id, displayName: pending.name });
+  } catch (err) {
+    if (err instanceof DatabaseError && err.code === "23505") {
+      await clearPendingRegistration(normalized);
+      return res.status(409).json({ error: "conflict", message: "Email already registered" });
+    }
+    throw err;
+  }
+
+  await clearPendingRegistration(normalized);
 
   const tokens = signTokens(user.id, user.email);
   return res.status(201).json({ ...tokens, user: userPublic(user) });
@@ -131,6 +259,8 @@ router.post("/social", async (req, res) => {
     try {
       [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name }).returning();
       await db.insert(userProfilesTable).values({ id: user.id, displayName: name });
+      // Drop any unfinished email/password signup for this address.
+      await clearPendingRegistration(normalized);
     } catch (err) {
       // Concurrent sign-up (mobile clients often double-submit): the loser of the race hits the
       // unique-email constraint — recover by reading the row the winning request just created.
@@ -205,9 +335,9 @@ router.post("/forgot-password", async (req, res) => {
   });
   if (!user) return res.json(generic);
 
-  const otp = generatePasswordResetOtp();
+  const otp = generateOtp();
   const tokenHash = sha256Hex(otp);
-  const expires = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MS);
+  const expires = new Date(Date.now() + OTP_TTL_MS);
 
   await db.update(usersTable)
     .set({
@@ -221,7 +351,7 @@ router.post("/forgot-password", async (req, res) => {
     await sendPasswordResetOtp({
       to: user.email,
       otp,
-      expiresMinutes: PASSWORD_RESET_OTP_EXPIRES_MINUTES,
+      expiresMinutes: OTP_EXPIRES_MINUTES,
     });
   } catch (err) {
     console.error(`[auth] Failed to send password reset OTP to ${user.email}:`, err);
@@ -261,7 +391,7 @@ router.post("/reset-password", async (req, res) => {
 
   const invalid = !user || !user.passwordResetTokenHash || !user.passwordResetExpires
     || user.passwordResetExpires < new Date()
-    || user.passwordResetAttempts >= PASSWORD_RESET_MAX_ATTEMPTS;
+    || user.passwordResetAttempts >= OTP_MAX_ATTEMPTS;
 
   if (invalid) {
     return res.status(400).json({ error: "bad_request", message: "Invalid or expired reset code" });
@@ -271,7 +401,7 @@ router.post("/reset-password", async (req, res) => {
   const stored    = Buffer.from(user.passwordResetTokenHash!, "hex");
   if (submitted.length !== stored.length || !crypto.timingSafeEqual(submitted, stored)) {
     const attempts = user.passwordResetAttempts + 1;
-    if (attempts >= PASSWORD_RESET_MAX_ATTEMPTS) {
+    if (attempts >= OTP_MAX_ATTEMPTS) {
       await clearPasswordReset(user.id);
     } else {
       await db.update(usersTable)

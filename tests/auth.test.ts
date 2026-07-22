@@ -7,9 +7,9 @@ import { app } from "./helpers/app.js";
 import { registerUser, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { db } from "../src/db/client.js";
-import { usersTable, deviceTokensTable } from "../src/db/schema/index.js";
+import { usersTable, deviceTokensTable, pendingRegistrationsTable } from "../src/db/schema/index.js";
 import { SocialAuthError, verifySocialToken } from "../src/lib/social-auth.js";
-import { sendPasswordResetOtp } from "../src/lib/mailer.js";
+import { sendPasswordResetOtp, sendRegistrationOtp } from "../src/lib/mailer.js";
 
 // Mock the provider verification so tests never hit Google / Facebook.
 vi.mock("../src/lib/social-auth.js", async () => {
@@ -21,6 +21,7 @@ vi.mock("../src/lib/social-auth.js", async () => {
 
 vi.mock("../src/lib/mailer.js", () => ({
   sendPasswordResetOtp: vi.fn().mockResolvedValue(undefined),
+  sendRegistrationOtp: vi.fn().mockResolvedValue(undefined),
   MailerError: class MailerError extends Error {
     constructor(message: string) {
       super(message);
@@ -31,20 +32,29 @@ vi.mock("../src/lib/mailer.js", () => ({
 
 const mockVerify = vi.mocked(verifySocialToken);
 const mockSendOtp = vi.mocked(sendPasswordResetOtp);
+const mockSendRegistrationOtp = vi.mocked(sendRegistrationOtp);
 
 // ─── POST /api/auth/register ──────────────────────────────────────────────────
 describe("POST /api/auth/register", () => {
-  it("creates a user and returns tokens", async () => {
+  beforeEach(() => {
+    mockSendRegistrationOtp.mockReset();
+    mockSendRegistrationOtp.mockResolvedValue(undefined);
+  });
+
+  it("stores pending signup and emails OTP without creating a user", async () => {
     const email = `reg-${uid()}@test.com`;
     const res = await request(app)
       .post("/api/auth/register")
       .send({ email, password: "SecurePass1!", name: "Alice" });
 
-    expect(res.status).toBe(201);
-    expect(res.body.accessToken).toBeTruthy();
-    expect(res.body.refreshToken).toBeTruthy();
-    expect(res.body.user.email).toBe(email);
-    expect(res.body.user.id).toBeTruthy();
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/verification code/i);
+    expect(res.body.accessToken).toBeUndefined();
+    expect(mockSendRegistrationOtp).toHaveBeenCalledOnce();
+    expect(mockSendRegistrationOtp.mock.calls[0]![0].to).toBe(email);
+
+    const user = await testDb.query.usersTable.findFirst({ where: eq(usersTable.email, email) });
+    expect(user).toBeUndefined();
   });
 
   it("normalises email to lowercase", async () => {
@@ -52,8 +62,8 @@ describe("POST /api/auth/register", () => {
       .post("/api/auth/register")
       .send({ email: `UPPER-${uid()}@Test.COM`, password: "SecurePass1!", name: "Alice" });
 
-    expect(res.status).toBe(201);
-    expect(res.body.user.email).toMatch(/^upper-/);
+    expect(res.status).toBe(200);
+    expect(mockSendRegistrationOtp.mock.calls[0]![0].to).toMatch(/^upper-/);
   });
 
   it("rejects duplicate email with 409", async () => {
@@ -80,6 +90,80 @@ describe("POST /api/auth/register", () => {
       .post("/api/auth/register")
       .send({ email: `short-${uid()}@test.com`, password: "abc", name: "Bob" });
 
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 503 and clears pending when mailer fails", async () => {
+    mockSendRegistrationOtp.mockRejectedValueOnce(new Error("resend down"));
+    const email = `fail-${uid()}@test.com`;
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ email, password: "SecurePass1!", name: "Alice" });
+
+    expect(res.status).toBe(503);
+    const pending = await testDb.query.pendingRegistrationsTable.findFirst({
+      where: eq(pendingRegistrationsTable.email, email),
+    });
+    expect(pending).toBeUndefined();
+  });
+});
+
+// ─── POST /api/auth/register/verify ───────────────────────────────────────────
+describe("POST /api/auth/register/verify", () => {
+  beforeEach(() => {
+    mockSendRegistrationOtp.mockReset();
+    mockSendRegistrationOtp.mockResolvedValue(undefined);
+  });
+
+  it("creates user and returns tokens with a valid OTP", async () => {
+    const email = `verify-${uid()}@test.com`;
+    await request(app)
+      .post("/api/auth/register")
+      .send({ email, password: "SecurePass1!", name: "Alice" });
+
+    const otp = mockSendRegistrationOtp.mock.calls[0]![0].otp as string;
+    const res = await request(app)
+      .post("/api/auth/register/verify")
+      .send({ email, token: otp });
+
+    expect(res.status).toBe(201);
+    expect(res.body.accessToken).toBeTruthy();
+    expect(res.body.refreshToken).toBeTruthy();
+    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.name).toBe("Alice");
+  });
+
+  it("rejects invalid OTP", async () => {
+    const email = `badotp-${uid()}@test.com`;
+    await request(app)
+      .post("/api/auth/register")
+      .send({ email, password: "SecurePass1!", name: "Alice" });
+
+    const res = await request(app)
+      .post("/api/auth/register/verify")
+      .send({ email, token: "000000" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("bad_request");
+  });
+
+  it("locks out after max failed attempts", async () => {
+    const email = `lock-${uid()}@test.com`;
+    await request(app)
+      .post("/api/auth/register")
+      .send({ email, password: "SecurePass1!", name: "Alice" });
+
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app)
+        .post("/api/auth/register/verify")
+        .send({ email, token: "000000" });
+      expect(res.status).toBe(400);
+    }
+
+    const otp = mockSendRegistrationOtp.mock.calls[0]![0].otp as string;
+    const res = await request(app)
+      .post("/api/auth/register/verify")
+      .send({ email, token: otp });
     expect(res.status).toBe(400);
   });
 });
