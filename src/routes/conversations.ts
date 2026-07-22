@@ -204,14 +204,18 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     const senderName = senderProfile?.displayName ?? "Someone";
     const listingTitle = convDetail?.offer.listing?.title;
     const tradeTitle = listingTitle ? `${listingTitle} Trade` : undefined;
+    const body =
+      messageBody.length > 100 ? `${messageBody.slice(0, 100)}…` : messageBody;
 
     await sendPushToUser(otherUserId, {
       title: senderName,
-      body: messageBody.length > 100 ? `${messageBody.slice(0, 100)}…` : messageBody,
+      body,
       data: {
         type: "new_message",
         conversationId: convId,
         senderName,
+        body,
+        timestampLabel: "now",
         ...(tradeTitle ? { tradeTitle } : {}),
         ...(senderProfile?.avatarUrl ? { senderAvatarUrl: senderProfile.avatarUrl } : {}),
       },
