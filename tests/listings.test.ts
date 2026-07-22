@@ -353,6 +353,56 @@ describe("PATCH /api/listings/:id", () => {
   });
 });
 
+// ─── GET /api/listings/:id/trade-partners ─────────────────────────────────────
+describe("GET /api/listings/:id/trade-partners", () => {
+  it("returns empty partners when no offers exist", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+
+    const res = await request(app)
+      .get(`/api/listings/${listing.id}/trade-partners`)
+      .set("Authorization", `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.partners).toEqual([]);
+  });
+
+  it("returns distinct offer buyers for the owner", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ displayName: "Buyer One" });
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing = await createListing(buyer.accessToken);
+    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const res = await request(app)
+      .get(`/api/listings/${sellerListing.id}/trade-partners`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.partners).toHaveLength(1);
+    expect(res.body.partners[0]).toMatchObject({
+      id: buyer.user.id,
+      displayName: "Buyer One",
+    });
+  });
+
+  it("forbids non-owners", async () => {
+    const owner = await registerUser();
+    const other = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    const res = await request(app)
+      .get(`/api/listings/${listing.id}/trade-partners`)
+      .set("Authorization", `Bearer ${other.accessToken}`);
+
+    expect(res.status).toBe(403);
+  });
+});
+
 // ─── DELETE /api/listings/:id ─────────────────────────────────────────────────
 describe("DELETE /api/listings/:id", () => {
   it("owner can soft-delete listing", async () => {

@@ -486,6 +486,44 @@ router.delete("/:listingId", requireAuth, async (req, res) => {
   return res.status(204).send();
 });
 
+// ─── GET /api/listings/:listingId/trade-partners ──────────────────────────────
+// Mark-as-sold partner picker — distinct buyers who ever offered on this listing.
+router.get("/:listingId/trade-partners", requireAuth, async (req, res) => {
+  const listingId = p(req.params["listingId"]);
+  const listing = await db.query.listingsTable.findFirst({
+    where: eq(listingsTable.id, listingId),
+    columns: { id: true, userId: true },
+  });
+  if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
+  if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
+
+  const offers = await db.query.offersTable.findMany({
+    where: eq(offersTable.listingId, listingId),
+    columns: { buyerId: true, createdAt: true },
+    with: {
+      buyer: {
+        columns: { id: true, name: true },
+        with: { profile: { columns: { displayName: true, avatarUrl: true } } },
+      },
+    },
+    orderBy: (t, { desc }) => [desc(t.createdAt)],
+  });
+
+  const seen = new Set<string>();
+  const partners: { id: string; displayName: string; avatarUrl: string | null }[] = [];
+  for (const offer of offers) {
+    if (seen.has(offer.buyerId)) continue;
+    seen.add(offer.buyerId);
+    partners.push({
+      id: offer.buyerId,
+      displayName: offer.buyer?.profile?.displayName ?? offer.buyer?.name ?? "",
+      avatarUrl: offer.buyer?.profile?.avatarUrl ?? null,
+    });
+  }
+
+  return res.json({ partners });
+});
+
 // ─── POST /api/listings/:listingId/sold ───────────────────────────────────────
 const markSoldSchema = z.object({
   soldMethod:        z.enum(["traded_on_barter", "sold_for_cash", "given_away"]),

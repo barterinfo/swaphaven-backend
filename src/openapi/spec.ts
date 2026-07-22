@@ -971,10 +971,47 @@ export const openApiSpec = {
               },
             },
           },
-          "400": { description: "Validation error." },
           "403": { description: "Forbidden — caller does not own the listing." },
           "404": { description: "Listing not found." },
-          "409": { description: "Listing is already sold or deleted." },
+          "409": { description: "Listing already sold or deleted." },
+        },
+      },
+    },
+    "/api/listings/{listingId}/trade-partners": {
+      get: {
+        tags: ["Listings"],
+        summary: "List trade partner candidates for Mark as Sold",
+        description: "Owner-only. Returns distinct buyers who have ever made an offer on this listing (any status), for the Mark as Sold partner picker.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Distinct offer buyers for this listing.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    partners: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          id:          { type: "string", format: "uuid" },
+                          displayName: { type: "string" },
+                          avatarUrl:   { type: "string", nullable: true },
+                        },
+                        required: ["id", "displayName"],
+                      },
+                    },
+                  },
+                  required: ["partners"],
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
         },
       },
     },
