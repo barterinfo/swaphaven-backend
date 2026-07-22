@@ -11,8 +11,18 @@ After finishing a feature or fix in a chat, append one row to the table below:
 |------|---------|---------------|------|
 | YYYY-MM-DD | Short 4–8 word name | key paths or areas | `[Short title](<transcript-uuid>)` |
 
-**Finding the transcript uuid:** chats are stored at
-`~/.cursor/projects/Users-apple-projects-barter-stack/agent-transcripts/<uuid>/<uuid>.jsonl`.
+**Finding the transcript uuid:** agent chats are stored **per Mac user + workspace folder**, not per Cursor login account:
+`~/.cursor/projects/<workspace-slug>/agent-transcripts/<uuid>/<uuid>.jsonl`.
+
+Primary workspace for this product:
+`~/.cursor/projects/Users-apple-projects-barter-stack/agent-transcripts/`.
+
+Older Barter chats on this same Mac also live under:
+- `.../Users-apple-projects/agent-transcripts/` (pre-barter-stack workspace)
+- `.../Users-apple-projects-barter-app/agent-transcripts/` (initial scaffold)
+
+A **second Cursor account on a different Mac or OS user** keeps its own `~/.cursor/projects/...` tree — copy those `agent-transcripts` folders here (or open that machine) to index them. Same Mac + same OS user usually shares one `~/.cursor` regardless of which Cursor account is signed in.
+
 Cite prior chats as `[title](uuid)`.
 
 **Recoverability:** every chat is already persisted as JSONL on disk. This log is a
@@ -26,6 +36,10 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-05-03 | Initial Barter workspace setup | early barter-app Node + Flutter scaffold | [Initial Barter workspace setup](30d3959d-818c-4272-99a2-ffade0df7e7f) |
+| 2026-05-03 | Login signup with pbkdf2 | auth login/signup, password hashing | [Login signup with pbkdf2](0ed9d13d-6657-46c8-8f25-d26a5a95e9ee) |
+| 2026-05-19 | Freezed models as project rule | freezed models, cursor rule | [Freezed models as project rule](f098f4df-c95b-43fa-bd09-cdbcbd255edc) |
+| 2026-05-24 | Add Freezed model libraries | freezed, json_serializable deps | [Add Freezed model libraries](9fc2b58e-f98c-4c8d-a09b-fe4ca0386aa5) |
 | 2026-05-24 | Dynamic OpenAPI server URL | src/openapi/serverUrl.ts, src/openapi/spec.ts, src/app.ts, tests/openapiServerUrl.test.ts | [Dynamic OpenAPI server URL](38b71ff3-407b-4def-8aef-a47c23a0d601) |
 | 2026-05-27 | Add listing seed catalog scripts | seed-listings, listing-fixtures, package.json, seed docs | [Add listing seed catalog scripts](124a2f8c-cae4-4f3d-8c81-26229e7bddaf) |
 | 2026-05-30 | Unified inbox offers and chats | mobile inbox feature, inbox/offers/conversations routes, trades schema | [Unified inbox offers and chats](aa0587d6-b800-408e-b9b6-d05f4568596e) |
@@ -68,6 +82,41 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 ## Summaries
 
+### Initial Barter workspace setup
+
+- **Date:** 2026-05-03
+- **Chat:** [Initial Barter workspace setup](30d3959d-818c-4272-99a2-ffade0df7e7f)
+- **Transcript folder:** `Users-apple-projects-barter-app`
+- **Areas:** early barter-app Node + Flutter scaffold
+- **Summary:** Bootstrapped Barter with Node backend and Flutter mobile (older workspace).
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Login signup with pbkdf2
+
+- **Date:** 2026-05-03
+- **Chat:** [Login signup with pbkdf2](0ed9d13d-6657-46c8-8f25-d26a5a95e9ee)
+- **Transcript folder:** `Users-apple-projects`
+- **Areas:** auth login/signup, password hashing
+- **Summary:** Added login/signup backend with pbkdf2 password hashing.
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Freezed models as project rule
+
+- **Date:** 2026-05-19
+- **Chat:** [Freezed models as project rule](f098f4df-c95b-43fa-bd09-cdbcbd255edc)
+- **Transcript folder:** `Users-apple-projects`
+- **Areas:** freezed models, cursor rule
+- **Summary:** Adopted Freezed for Flutter models and made it a project rule.
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Add Freezed model libraries
+
+- **Date:** 2026-05-24
+- **Chat:** [Add Freezed model libraries](9fc2b58e-f98c-4c8d-a09b-fe4ca0386aa5)
+- **Transcript folder:** `Users-apple-projects`
+- **Areas:** freezed, json_serializable deps
+- **Summary:** Added Freezed and related codegen libraries for mobile models.
+- **Also tracked in:** barter-stack FEATURE_LOG
 ### Dynamic OpenAPI server URL
 
 - **Date:** 2026-05-24
