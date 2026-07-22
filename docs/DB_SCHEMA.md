@@ -14,6 +14,7 @@ mobile app (Unified Inbox: Offers + Chats tabs).
 
 ```mermaid
 erDiagram
+    pending_registrations }o..o| users : "promoted on OTP verify"
     users ||--o| user_profiles : "has profile"
     users ||--o{ device_tokens : "registers"
     users ||--o| swipe_streaks : "tracks"
@@ -58,6 +59,14 @@ erDiagram
         text password_hash
         text name
         timestamp created_at
+    }
+    pending_registrations {
+        text email PK
+        text password_hash
+        text name
+        text otp_hash
+        timestamp otp_expires
+        int otp_attempts
     }
     user_profiles {
         uuid id PK,FK
@@ -219,6 +228,19 @@ Legend: **PK** primary key · **FK** foreign key · **UK** unique · `NN` not-nu
 | `password_reset_expires` | timestamp | | reset OTP TTL (10 minutes) |
 | `password_reset_attempts` | integer | not null, default 0 | failed OTP redeem attempts (max 5) |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
+
+#### `pending_registrations` — email OTP signup awaiting verify
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `email` | text | PK | lowercased; not yet a `users` row |
+| `password_hash` | text | NN | bcrypt — promoted to `users` on verify |
+| `name` | text | NN | copied to `users.name` / profile display name |
+| `otp_hash` | text | NN | SHA-256 of 6-digit OTP |
+| `otp_expires` | timestamp | NN | 10 minute TTL |
+| `otp_attempts` | integer | NN, default 0 | max 5 failed verifies |
+| `created_at` / `updated_at` | timestamp | NN, default now | |
+
+See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_pending_registrations.sql`.
 
 #### `user_profiles` — public-facing profile (1:1 with `users`)
 | Column | Type | Constraints | Notes |

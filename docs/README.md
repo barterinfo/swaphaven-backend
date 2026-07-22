@@ -20,7 +20,8 @@
 | [DELETE_LISTING_FLOW.md](./DELETE_LISTING_FLOW.md) | Soft-delete listing — API, offer cancel, open-offer DELETED UX |
 | [EDIT_LISTING_FLOW.md](./EDIT_LISTING_FLOW.md) | Edit listing fields & photos — PATCH contract |
 | [deeplink-push-notifications.md](./deeplink-push-notifications.md) | FCM push + deep links; in-app vs push matrix (incl. sold/delete) |
-| [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md) | Google / Apple OAuth setup |
+| [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md) | Google / Facebook OAuth setup |
+| [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md) | Email OTP signup — sequences, DFD, DB, API, mobile bind |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review |
 | [MEETUP_SUGGESTIONS.md](./MEETUP_SUGGESTIONS.md) | Meet Halfway — transit stop suggestions between buyer and seller |
 
