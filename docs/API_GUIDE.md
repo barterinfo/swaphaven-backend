@@ -37,6 +37,7 @@ curl -s http://localhost:3001/api/healthz
 | Method | Path | Auth |
 |--------|------|------|
 | POST | `/api/auth/register` | — |
+| POST | `/api/auth/register/verify` | — |
 | POST | `/api/auth/login` | — |
 | POST | `/api/auth/refresh` | — |
 | POST | `/api/auth/logout` | ✓ |
@@ -46,9 +47,13 @@ curl -s http://localhost:3001/api/healthz
 | POST | `/api/auth/social` | — |
 | POST | `/api/auth/device-token` | ✓ |
 
-### Register
+### Register (email OTP — two steps)
+
+Signup stores a **pending** registration and emails a 6-digit OTP. Tokens are issued only after verify.
+Full sequences, DFD, and schema: [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md).
 
 ```bash
+# 1) Start — 200 message only (no tokens)
 curl -s -X POST http://localhost:3001/api/auth/register \
   -H 'Content-Type: application/json' \
   -d '{
@@ -56,9 +61,14 @@ curl -s -X POST http://localhost:3001/api/auth/register \
     "password": "password123",
     "name": "Alice"
   }'
+
+# 2) Verify — 201 accessToken, refreshToken, user
+curl -s -X POST http://localhost:3001/api/auth/register/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"alice@example.com","token":"123456"}'
 ```
 
-Response includes `accessToken`, `refreshToken`, `user`.
+Requires `RESEND_API_KEY` + `EMAIL_FROM`. In non-production the OTP is also logged on the server.
 
 ### Login
 

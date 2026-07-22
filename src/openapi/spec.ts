@@ -537,7 +537,12 @@ export const openApiSpec = {
     // ── Auth ────────────────────────────────────────────────────────────────────
     "/api/auth/register": {
       post: {
-        tags: ["Auth"], summary: "Register a new account", security: [],
+        tags: ["Auth"],
+        summary: "Start email/password registration",
+        description:
+          "Stores pending credentials and emails a 6-digit OTP (10 minute TTL). " +
+          "Call POST /api/auth/register/verify to create the account. Re-submitting the same email refreshes the OTP.",
+        security: [],
         requestBody: {
           required: true,
           content: {
@@ -554,8 +559,37 @@ export const openApiSpec = {
           },
         },
         responses: {
-          "201": { description: "Account created", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
+          "200": { description: "Verification email sent" },
           "400": { description: "Validation error" },
+          "409": { description: "Email already registered" },
+          "503": { description: "Unable to send verification email" },
+        },
+      },
+    },
+    "/api/auth/register/verify": {
+      post: {
+        tags: ["Auth"],
+        summary: "Complete registration with email OTP",
+        description: "Redeems the 6-digit OTP from the signup email. Max 5 attempts. Field name `token` is the OTP.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "token"],
+                properties: {
+                  email: { type: "string", format: "email" },
+                  token: { type: "string", description: "6-digit OTP from email", minLength: 1 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Account created", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
+          "400": { description: "Invalid or expired verification code" },
           "409": { description: "Email already registered" },
         },
       },
