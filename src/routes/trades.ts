@@ -128,6 +128,39 @@ router.post("/:tradeId/complete", requireAuth, async (req, res) => {
   return res.json(updated);
 });
 
+// ─── POST /api/trades/:tradeId/cancel ─────────────────────────────────────────
+router.post("/:tradeId/cancel", requireAuth, async (req, res) => {
+  const tradeId = p(req.params["tradeId"]);
+  const trade = await db.query.tradesTable.findFirst({
+    where: eq(tradesTable.id, tradeId),
+    with: { offer: true },
+  });
+  if (!trade) return res.status(404).json({ error: "not_found" });
+
+  const userId = req.user!.sub;
+  if (trade.offer.buyerId !== userId && trade.offer.sellerId !== userId) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+  if (trade.status !== "pending_meetup") {
+    return res.status(409).json({ error: "conflict", message: `Trade is already ${trade.status}` });
+  }
+
+  const [updated] = await db
+    .update(tradesTable)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(eq(tradesTable.id, tradeId))
+    .returning();
+
+  const otherUserId = userId === trade.offer.buyerId ? trade.offer.sellerId : trade.offer.buyerId;
+  await db.insert(notificationsTable).values({
+    userId: otherUserId, type: "trade_cancelled",
+    title: "Trade cancelled",
+    body: "Your trade partner cancelled the trade.",
+    relatedTradeId: trade.id,
+  });
+  return res.json(updated);
+});
+
 // ─── GET /api/trades/:tradeId/review-status ───────────────────────────────────
 // Returns window metadata and each party's submission status.
 // Reviews are sealed until both parties submit OR the 7-day window closes.
