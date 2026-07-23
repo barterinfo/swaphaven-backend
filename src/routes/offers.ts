@@ -15,6 +15,12 @@ import { serializeOfferListItem, serializeOfferRound } from "../lib/inbox-serial
 import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
 import { MAX_OFFER_ROUNDS } from "../lib/max-rounds.js";
 import { sendPushToUser } from "../lib/push.js";
+import {
+  buildCounterOfferPush,
+  buildOfferAcceptedPush,
+  buildOfferPush,
+  loadRoundSidesForPush,
+} from "../lib/push-card-context.js";
 
 const router = Router();
 
@@ -133,11 +139,16 @@ router.post("/", requireAuth, async (req, res) => {
     body: "Someone wants to trade for your item.",
     relatedOfferId: offer.id,
   });
-  sendPushToUser(listing.userId, {
-    title: "New swap offer! 🔄",
-    body: "Someone wants to trade for your item.",
-    data: { type: "offer", offerId: offer.id },
-  }).catch(console.error);
+  // Rich FCM card for the seller (recipient): their = buyer items, your = target listing.
+  void (async () => {
+    const payload = await buildOfferPush({
+      offerId: offer.id,
+      senderUserId: req.user!.sub,
+      theirListingIds: offeredListingIds,
+      yourListingIds: [offerData.listingId],
+    });
+    await sendPushToUser(listing.userId, payload);
+  })().catch(console.error);
   return res.status(201).json(offer);
 });
 
@@ -271,11 +282,22 @@ async function handleAccept(offerId: string, userId: string, res: Response) {
     title: "Offer accepted! 🎉", body: "Your trade offer was accepted. Start chatting now.",
     relatedOfferId: offer.id, relatedTradeId: trade.id, relatedConversationId: conv.id,
   });
-  sendPushToUser(notifyUserId, {
-    title: "Offer accepted! 🎉",
-    body: "Your trade offer was accepted. Start chatting now.",
-    data: { type: "offer_accepted", conversationId: conv.id },
-  }).catch(console.error);
+  // Recipient = notifyUserId; their* = accepter's side, your* = recipient's side.
+  void (async () => {
+    const sides = await loadRoundSidesForPush(offer.id);
+    const buyerIds = sides?.buyerListingIds ?? [];
+    const sellerIds = sides?.sellerListingIds ?? [offer.listingId];
+    const yourListingIds = notifyUserId === offer.buyerId ? buyerIds : sellerIds;
+    const theirListingIds = notifyUserId === offer.buyerId ? sellerIds : buyerIds;
+    const payload = await buildOfferAcceptedPush({
+      offerId: offer.id,
+      conversationId: conv.id,
+      senderUserId: userId,
+      yourListingIds,
+      theirListingIds,
+    });
+    await sendPushToUser(notifyUserId, payload);
+  })().catch(console.error);
   return res.json({ ...trade, conversationId: conv.id });
 }
 
@@ -448,11 +470,16 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
     title: "Counter-offer received", body: "New terms proposed. Review and respond.",
     relatedOfferId: offer.id,
   });
-  sendPushToUser(notifyUserId, {
-    title: "Counter-offer received 🔁",
-    body: "New terms proposed. Review and respond.",
-    data: { type: "counter_offer", offerId: offer.id },
-  }).catch(console.error);
+  // Counter card focuses on the sender's side ("What changed").
+  const theirListingIds = isBuyer ? buyerListingIds : sellerListingIds;
+  void (async () => {
+    const payload = await buildCounterOfferPush({
+      offerId: offer.id,
+      senderUserId: userId,
+      theirListingIds,
+    });
+    await sendPushToUser(notifyUserId, payload);
+  })().catch(console.error);
   return res.status(201).json(serializeOfferRound({ ...newRound, items: [] }));
 });
 
