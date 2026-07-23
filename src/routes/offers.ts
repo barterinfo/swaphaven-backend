@@ -222,6 +222,24 @@ router.get("/:offerId", requireAuth, async (req, res) => {
   });
 });
 
+// ─── POST /api/offers/:offerId/conversation ───────────────────────────────────
+// Get-or-create the conversation for this offer. Available regardless of
+// offer status so either party can start chatting before accept.
+router.post("/:offerId/conversation", requireAuth, async (req, res) => {
+  const offerId = p(req.params["offerId"]);
+  const offer = await db.query.offersTable.findFirst({ where: eq(offersTable.id, offerId) });
+  if (!offer) return res.status(404).json({ error: "not_found" });
+  if (offer.buyerId !== req.user!.sub && offer.sellerId !== req.user!.sub) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  const existing = await db.query.conversationsTable.findFirst({
+    where: eq(conversationsTable.offerId, offer.id),
+  });
+  const conv = existing ?? (await db.insert(conversationsTable).values({ offerId: offer.id }).returning())[0]!;
+  return res.status(existing ? 200 : 201).json({ conversationId: conv.id });
+});
+
 // ─── Shared accept / deny implementation ──────────────────────────────────────
 
 async function handleAccept(offerId: string, userId: string, res: Response) {

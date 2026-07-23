@@ -208,6 +208,46 @@ describe("GET /api/offers/:offerId", () => {
   });
 });
 
+// ─── POST /api/offers/:offerId/conversation ───────────────────────────────────
+describe("POST /api/offers/:offerId/conversation", () => {
+  it("creates a conversation for a pending offer (201), then returns the same id (200)", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const created = await request(app)
+      .post(`/api/offers/${offer.id}/conversation`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+
+    expect(created.status).toBe(201);
+    expect(created.body.conversationId).toBeTruthy();
+
+    const again = await request(app)
+      .post(`/api/offers/${offer.id}/conversation`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(again.status).toBe(200);
+    expect(again.body.conversationId).toBe(created.body.conversationId);
+  });
+
+  it("non-participant receives 403", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const third  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+
+    const res = await request(app)
+      .post(`/api/offers/${offer.id}/conversation`)
+      .set("Authorization", `Bearer ${third.accessToken}`);
+
+    expect(res.status).toBe(403);
+  });
+});
+
 // ─── POST /api/offers/:offerId/accept ─────────────────────────────────────────
 describe("POST /api/offers/:offerId/accept", () => {
   it("seller accepts offer — trade and conversation are created", async () => {

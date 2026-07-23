@@ -1199,6 +1199,42 @@ export const openApiSpec = {
     "/api/offers/{offerId}": {
       get: { tags: ["Offers"], summary: "Offer detail", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Offer with counter-offer and conversation ID" }, "403": { description: "Forbidden" } } },
     },
+    "/api/offers/{offerId}/conversation": {
+      post: {
+        tags: ["Offers"],
+        summary: "Get-or-create conversation for an offer",
+        description: "Returns the existing conversation for this offer, or creates one. Available for any offer status so either party can chat before accept.",
+        parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Existing conversation",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["conversationId"],
+                  properties: { conversationId: { type: "string", format: "uuid" } },
+                },
+              },
+            },
+          },
+          "201": {
+            description: "Conversation created",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["conversationId"],
+                  properties: { conversationId: { type: "string", format: "uuid" } },
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — caller is not a party to this offer" },
+          "404": { description: "Offer not found" },
+        },
+      },
+    },
     "/api/offers/{offerId}/accept": {
       post: {
         tags: ["Offers"], summary: "Accept offer → creates Trade",
