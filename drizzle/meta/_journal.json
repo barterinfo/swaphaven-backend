@@ -134,6 +134,13 @@
       "when": 1785000000000,
       "tag": "0017_pending_registrations",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785100000000,
+      "tag": "0018_trade_cancelled_notification",
+      "breakpoints": true
     }
   ]
 }

@@ -159,6 +159,60 @@ describe("POST /api/trades/:tradeId/complete", () => {
   });
 });
 
+// ─── POST /api/trades/:tradeId/cancel ─────────────────────────────────────────
+describe("POST /api/trades/:tradeId/cancel", () => {
+  it("participant can cancel a pending trade", async () => {
+    const { seller, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .post(`/api/trades/${trade.id}/cancel`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("cancelled");
+    expect(res.body.completedAt).toBeNull();
+  });
+
+  it("cannot cancel an already-completed trade", async () => {
+    const { seller, trade } = await fullTradeSetup();
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/complete`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const res = await request(app)
+      .post(`/api/trades/${trade.id}/cancel`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(409);
+  });
+
+  it("cannot cancel an already-cancelled trade", async () => {
+    const { seller, trade } = await fullTradeSetup();
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/cancel`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const res = await request(app)
+      .post(`/api/trades/${trade.id}/cancel`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(409);
+  });
+
+  it("third party cannot cancel the trade", async () => {
+    const { trade } = await fullTradeSetup();
+    const third = await registerUser();
+
+    const res = await request(app)
+      .post(`/api/trades/${trade.id}/cancel`)
+      .set("Authorization", `Bearer ${third.accessToken}`);
+
+    expect(res.status).toBe(403);
+  });
+});
+
 // ─── POST /api/trades/:tradeId/reviews ────────────────────────────────────────
 describe("POST /api/trades/:tradeId/reviews", () => {
   it("participant can leave a review after completion", async () => {

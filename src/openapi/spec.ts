@@ -1316,6 +1316,23 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/trades/{tradeId}/cancel": {
+      post: {
+        tags: ["Trades"], summary: "Cancel trade",
+        description: "Marks a `pending_meetup` trade as `cancelled`. Either party can call this. Listings involved become eligible for discovery again. The other party receives a `trade_cancelled` notification.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Trade cancelled",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } },
+          },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Trade is not in `pending_meetup` status" },
+        },
+      },
+    },
     "/api/trades/{tradeId}/review-status": {
       get: {
         tags: ["Trades"], summary: "Review window status",

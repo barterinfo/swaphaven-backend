@@ -13,6 +13,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "counter_denied",
   "trade_confirmed",
   "trade_completed",
+  "trade_cancelled",
   "message",
   "review_received",
   "reviews_revealed",
