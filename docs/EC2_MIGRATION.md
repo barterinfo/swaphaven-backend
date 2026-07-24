@@ -424,16 +424,17 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### 10.1 What you recently did for Railway
 
-For Railway custom domain `www.bartersg.com`, Railway typically asked for:
+**Source of truth for the current Railway + GoDaddy share-link setup:** [SHARE_DEEP_LINKS_DNS.md](./SHARE_DEEP_LINKS_DNS.md).
+
+Canonical host is **`www.bartersg.com`** (GoDaddy cannot CNAME the apex to Railway). Summary:
 
 | Type | Name (GoDaddy) | Value (example) | Purpose |
 |------|----------------|-----------------|--------|
 | CNAME | `www` | `oya2f7mh.up.railway.app` | Point www → Railway |
 | TXT | `_railway-verify.www` | `railway-verify=…` | Ownership verify |
+| Forwarding | `@` / bare domain | → `https://www.bartersg.com` | Typed apex URLs |
 
 Railway’s UI often shows CNAME **Name `@`** for hostname `www.bartersg.com` — on GoDaddy that maps to Name **`www`**.
-
-Bare `bartersg.com` may have been an **A** record or separate Railway custom domain.
 
 ### 10.2 What to change for EC2
 
@@ -481,20 +482,20 @@ You should **not** see Railway’s old host in redirects, and you should **not**
 
 ## 11. Mobile / client cutover
 
-After HTTPS on `bartersg.com` is healthy:
+After HTTPS on `bartersg.com` / `www.bartersg.com` is healthy:
 
-1. Set Flutter env:
+1. Set Flutter env (keep **www** as share host unless you intentionally migrate the app + AASA + entitlements together — see [SHARE_DEEP_LINKS_DNS.md](./SHARE_DEEP_LINKS_DNS.md)):
 
 ```env
-API_BASE=https://bartersg.com
-SHARE_BASE_URL=https://bartersg.com
+API_BASE=https://www.bartersg.com
+SHARE_BASE_URL=https://www.bartersg.com
 ```
 
 (`mobile/lib/config/env/production.env` and any CI `--dart-define`.)
 
 2. Ship an app build that already includes:
-   - iOS Associated Domains `applinks:bartersg.com`
-   - Android App Links intent-filter for `https://bartersg.com/listings`
+   - iOS Associated Domains `applinks:www.bartersg.com`
+   - Android App Links intent-filter for `https://www.bartersg.com/listings` and `/users`
 3. Re-verify App Links after DNS + TLS stabilize (Android may cache failed verification).
 
 WebSockets:

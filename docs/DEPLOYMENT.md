@@ -214,7 +214,9 @@ See `.env.example`.
 
 ## 7. Optional: custom domain
 
-Railway → API service → **Settings** → **Networking** → add custom domain (e.g. `api.swaphaven.io` or `bartersg.com`) and follow DNS instructions.
+Railway → API service → **Settings** → **Networking** → add custom domain and follow DNS instructions.
+
+**Share / Universal Links / App Links (canonical `www.bartersg.com` + GoDaddy):** see **[SHARE_DEEP_LINKS_DNS.md](./SHARE_DEEP_LINKS_DNS.md)** — Railway domain, GoDaddy CNAME/TXT/forwarding, env vars, verification, and App Store / Play Store release steps.
 
 For moving off Railway onto AWS EC2 (Nginx, TLS, GoDaddy DNS cutover, full env checklist), see **[EC2_MIGRATION.md](./EC2_MIGRATION.md)**.
 
