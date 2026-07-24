@@ -11,6 +11,7 @@
 | [FEATURE_LOG.md](./FEATURE_LOG.md) | Features ↔ Cursor chat transcripts (recover implementation context) |
 | [SWAGGER.md](./SWAGGER.md) | OpenAPI / Swagger UI |
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Railway deploy, env vars, troubleshooting |
+| [EC2_MIGRATION.md](./EC2_MIGRATION.md) | Railway → EC2 migration (DNS, env, Nginx, TLS, cutover) |
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
 | [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, streaks, mobile UI, make-offer |

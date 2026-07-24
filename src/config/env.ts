@@ -72,6 +72,19 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   /** Verified Resend From address, e.g. `SwapHaven <noreply@mail.example.com>`. */
   EMAIL_FROM: z.string().optional(),
+  // ─── Universal Links / App Links (share product) ───────────────────────────
+  /** Apple Developer Team ID for apple-app-site-association `appID`. */
+  APPLE_TEAM_ID: z.string().optional(),
+  /** iOS bundle identifier (default matches barter-stack mobile). */
+  IOS_BUNDLE_ID: z.string().default("com.barter.app.barterMobile"),
+  /** Android applicationId (default matches barter-stack mobile). */
+  ANDROID_PACKAGE_ID: z.string().default("com.barter.app.barter_mobile"),
+  /** SHA-256 fingerprint of the Android signing cert (for assetlinks.json). */
+  ANDROID_SHA256_CERT_FINGERPRINT: z.string().optional(),
+  /** App Store listing URL used when the app is not installed (iOS). */
+  IOS_APP_STORE_URL: z.string().url().optional(),
+  /** Play Store listing URL used when the app is not installed (Android). */
+  ANDROID_PLAY_STORE_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));
