@@ -22,6 +22,7 @@ import adsRouter from "./routes/ads.js";
 import searchRouter from "./routes/search.js";
 import wellKnownRouter from "./routes/wellKnown.js";
 import listingPreviewRouter from "./routes/listingPreview.js";
+import profilePreviewRouter from "./routes/profilePreview.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -153,6 +154,7 @@ export function createApp(): express.Express {
   // ─── Public share / deep-link hosts (outside /api — no rate limit / auth) ─────
   app.use("/.well-known", wellKnownRouter);
   app.use("/listings", listingPreviewRouter);
+  app.use("/users", profilePreviewRouter);
 
   // ─── Routes ───────────────────────────────────────────────────────────────────
   app.get("/api/categories", listCategories as express.RequestHandler);

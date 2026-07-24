@@ -15,7 +15,7 @@ describe("GET /.well-known/apple-app-site-association", () => {
         apps: [],
         details: [
           {
-            paths: ["/listings/*"],
+            paths: ["/listings/*", "/users/*"],
           },
         ],
       },
@@ -76,5 +76,33 @@ describe("GET /listings/:listingId", () => {
 
     expect(res.status).toBe(404);
     expect(res.text).toContain("Listing not found");
+  });
+});
+
+describe("GET /users/:userId", () => {
+  it("returns HTML preview containing the display name", async () => {
+    const { accessToken, user } = await registerUser({ name: "Share Profile User" });
+    // Ensure profile exists via /me
+    await request(app)
+      .get("/api/users/me")
+      .set("Authorization", `Bearer ${accessToken}`);
+
+    const res = await request(app)
+      .get(`/users/${user.id}`)
+      .set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15");
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/html/);
+    expect(res.text).toContain("Share Profile User");
+    expect(res.text).toContain('property="og:title"');
+  });
+
+  it("returns 404 HTML for an unknown user id", async () => {
+    const res = await request(app).get(
+      "/users/00000000-0000-4000-8000-000000000000",
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.text).toContain("Profile not found");
   });
 });
