@@ -214,7 +214,9 @@ See `.env.example`.
 
 ## 7. Optional: custom domain
 
-Railway → API service → **Settings** → **Networking** → add custom domain (e.g. `api.swaphaven.io`) and follow DNS instructions.
+Railway → API service → **Settings** → **Networking** → add custom domain (e.g. `api.swaphaven.io` or `bartersg.com`) and follow DNS instructions.
+
+For moving off Railway onto AWS EC2 (Nginx, TLS, GoDaddy DNS cutover, full env checklist), see **[EC2_MIGRATION.md](./EC2_MIGRATION.md)**.
 
 ---
 
