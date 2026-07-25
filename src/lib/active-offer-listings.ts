@@ -1,18 +1,28 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
   offersTable,
   offerItemsTable,
-  counterOffersTable,
-  counterOfferItemsTable,
+  offerRoundsTable,
+  offerRoundItemsTable,
+  tradesTable,
 } from "../db/schema/index.js";
 
 /** Offer statuses where negotiation is still in progress (deck hide + swipe guard). */
 export const ACTIVE_OFFER_STATUSES = ["pending", "countered"] as const;
 
-/** Listing IDs tied to active offers for this user (buyer target + seller's included offer items). */
+/** Trade statuses that still lock discovery of involved listings. */
+export const OPEN_TRADE_STATUSES = ["pending_meetup", "disputed"] as const;
+
+/**
+ * Listing IDs the user should not see in discovery (swipe / search / nearby):
+ * - Target listing of any pending/countered offer they are buyer or seller on
+ * - Items in pending rounds of those offers
+ * - Target listing of any open trade (pending meetup / disputed) they are in
+ */
 export async function getActiveNegotiationListingIds(userId: string): Promise<string[]> {
-  const offeredByUser = await db
+  // Target listing when user is the buyer on an active offer.
+  const asBuyer = await db
     .select({ listingId: offersTable.listingId })
     .from(offersTable)
     .where(
@@ -22,40 +32,75 @@ export async function getActiveNegotiationListingIds(userId: string): Promise<st
       ),
     );
 
-  const offeredToUserPending = await db
+  // Target listing when user is the seller on an active offer.
+  const asSeller = await db
+    .select({ listingId: offersTable.listingId })
+    .from(offersTable)
+    .where(
+      and(
+        eq(offersTable.sellerId, userId),
+        inArray(offersTable.status, [...ACTIVE_OFFER_STATUSES]),
+      ),
+    );
+
+  // All items (both sides) in pending rounds of active offers the user is in.
+  const roundItemsAsBuyer = await db
+    .select({ listingId: offerRoundItemsTable.listingId })
+    .from(offerRoundItemsTable)
+    .innerJoin(offerRoundsTable, eq(offerRoundItemsTable.offerRoundId, offerRoundsTable.id))
+    .innerJoin(offersTable, eq(offerRoundsTable.offerId, offersTable.id))
+    .where(
+      and(
+        eq(offersTable.buyerId, userId),
+        inArray(offersTable.status, [...ACTIVE_OFFER_STATUSES]),
+        eq(offerRoundsTable.status, "pending"),
+      ),
+    );
+
+  const roundItemsAsSeller = await db
+    .select({ listingId: offerRoundItemsTable.listingId })
+    .from(offerRoundItemsTable)
+    .innerJoin(offerRoundsTable, eq(offerRoundItemsTable.offerRoundId, offerRoundsTable.id))
+    .innerJoin(offersTable, eq(offerRoundsTable.offerId, offersTable.id))
+    .where(
+      and(
+        eq(offersTable.sellerId, userId),
+        inArray(offersTable.status, [...ACTIVE_OFFER_STATUSES]),
+        eq(offerRoundsTable.status, "pending"),
+      ),
+    );
+
+  // Legacy: offer_items for offers without rounds (pre-migration rows).
+  const legacyItems = await db
     .select({ listingId: offerItemsTable.listingId })
     .from(offerItemsTable)
     .innerJoin(offersTable, eq(offerItemsTable.offerId, offersTable.id))
     .where(
       and(
-        eq(offersTable.sellerId, userId),
-        eq(offersTable.status, "pending"),
+        inArray(offersTable.status, [...ACTIVE_OFFER_STATUSES]),
+        or(eq(offersTable.buyerId, userId), eq(offersTable.sellerId, userId)),
       ),
     );
 
-  const offeredToUserCountered = await db
-    .select({ listingId: offerItemsTable.listingId })
-    .from(offerItemsTable)
-    .innerJoin(offersTable, eq(offerItemsTable.offerId, offersTable.id))
-    .innerJoin(counterOffersTable, eq(counterOffersTable.offerId, offersTable.id))
-    .innerJoin(
-      counterOfferItemsTable,
-      and(
-        eq(counterOfferItemsTable.counterOfferId, counterOffersTable.id),
-        eq(counterOfferItemsTable.offerItemId, offerItemsTable.id),
-      ),
-    )
+  // Open trades (accepted offers still being fulfilled).
+  const openTradeListings = await db
+    .select({ listingId: offersTable.listingId })
+    .from(tradesTable)
+    .innerJoin(offersTable, eq(tradesTable.offerId, offersTable.id))
     .where(
       and(
-        eq(offersTable.sellerId, userId),
-        eq(offersTable.status, "countered"),
-        eq(counterOfferItemsTable.isIncluded, true),
+        inArray(tradesTable.status, [...OPEN_TRADE_STATUSES]),
+        or(eq(offersTable.buyerId, userId), eq(offersTable.sellerId, userId)),
       ),
     );
 
-  return [
-    ...offeredByUser.map((o) => o.listingId),
-    ...offeredToUserPending.map((o) => o.listingId),
-    ...offeredToUserCountered.map((o) => o.listingId),
-  ];
+  const ids = new Set([
+    ...asBuyer.map((o) => o.listingId),
+    ...asSeller.map((o) => o.listingId),
+    ...roundItemsAsBuyer.map((o) => o.listingId),
+    ...roundItemsAsSeller.map((o) => o.listingId),
+    ...legacyItems.map((o) => o.listingId),
+    ...openTradeListings.map((o) => o.listingId),
+  ]);
+  return [...ids];
 }

@@ -9,7 +9,7 @@ import {
   registerUser,
   createListing,
   createOffer,
-  acceptOffer,
+  createCounter,
   fullTradeSetup,
 } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
@@ -67,7 +67,7 @@ describe("sendPushToUser", () => {
     expect(sendEachForMulticast).not.toHaveBeenCalled();
   });
 
-  it("converts data fields to strings and calls sendEachForMulticast", async () => {
+  it("sends data-only multicast with APNS category and mirrors title/body into data", async () => {
     const user = await registerUser();
     const { sendPushToUser } = await loadPushModule(VALID_SA);
 
@@ -84,16 +84,41 @@ describe("sendPushToUser", () => {
     await sendPushToUser(user.user.id, {
       title: "New offer",
       body: "Someone wants to trade",
-      data: { type: "offer", offerId: "offer-123" },
+      data: {
+        type: "offer",
+        offerId: "offer-123",
+        senderName: "Alex",
+        theirItemName: "Camera",
+      },
     });
 
     expect(sendEachForMulticast).toHaveBeenCalledWith({
       tokens: ["fcm-token-abc"],
-      notification: { title: "New offer", body: "Someone wants to trade" },
-      data: { type: "offer", offerId: "offer-123" },
-      apns: { payload: { aps: { sound: "default" } } },
+      data: {
+        title: "New offer",
+        body: "Someone wants to trade",
+        type: "offer",
+        offerId: "offer-123",
+        senderName: "Alex",
+        theirItemName: "Camera",
+      },
+      apns: {
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+        payload: {
+          aps: {
+            alert: { title: "New offer", body: "Someone wants to trade" },
+            sound: "default",
+            mutableContent: true,
+            category: "BARTER_OFFER",
+          },
+        },
+      },
       android: { priority: "high" },
     });
+    expect(sendEachForMulticast.mock.calls[0]![0]).not.toHaveProperty("notification");
   });
 
   it("deletes stale tokens rejected by FCM", async () => {
@@ -170,6 +195,12 @@ describe("route push integration", () => {
     });
   }
 
+  /** Drain async push from fixture setup so later assertions only see the action under test. */
+  async function drainSetupPush() {
+    await waitForPush();
+    vi.mocked(pushModule.sendPushToUser).mockClear();
+  }
+
   it("POST /api/offers sends offer push to seller", async () => {
     const seller = await registerUser();
     const buyer = await registerUser();
@@ -186,7 +217,16 @@ describe("route push integration", () => {
     expect(pushModule.sendPushToUser).toHaveBeenCalledWith(
       seller.user.id,
       expect.objectContaining({
-        data: { type: "offer", offerId: res.body.id },
+        title: expect.stringContaining("Trade Offer"),
+        body: expect.any(String),
+        data: expect.objectContaining({
+          type: "offer",
+          offerId: res.body.id,
+          senderName: expect.any(String),
+          theirItemName: buyerListing.title,
+          yourItemName: sellerListing.title,
+          timestampLabel: "now",
+        }),
       }),
     );
   });
@@ -197,6 +237,7 @@ describe("route push integration", () => {
     const sellerListing = await createListing(seller.accessToken);
     const buyerListing = await createListing(buyer.accessToken);
     const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+    await drainSetupPush();
 
     const res = await request(app)
       .post(`/api/offers/${offer.id}/accept`)
@@ -207,7 +248,15 @@ describe("route push integration", () => {
     expect(pushModule.sendPushToUser).toHaveBeenCalledWith(
       buyer.user.id,
       expect.objectContaining({
-        data: { type: "offer_accepted", conversationId: res.body.conversationId },
+        title: "Offer Accepted!",
+        data: expect.objectContaining({
+          type: "offer_accepted",
+          conversationId: res.body.conversationId,
+          offerId: offer.id,
+          senderName: expect.any(String),
+          yourItemName: buyerListing.title,
+          theirItemName: sellerListing.title,
+        }),
       }),
     );
   });
@@ -218,23 +267,25 @@ describe("route push integration", () => {
     const sellerListing = await createListing(seller.accessToken);
     const buyerListing = await createListing(buyer.accessToken);
     const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
-
-    const offerDetail = await request(app)
-      .get(`/api/offers/${offer.id}`)
-      .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.offeredItems[0].id;
+    await drainSetupPush();
 
     const res = await request(app)
       .post(`/api/offers/${offer.id}/counter`)
       .set("Authorization", `Bearer ${seller.accessToken}`)
-      .send({ includedOfferItemIds: [offerItemId] });
+      .send({ buyerListingIds: [buyerListing.id], sellerListingIds: [sellerListing.id] });
 
     expect(res.status).toBe(201);
     await waitForPush();
     expect(pushModule.sendPushToUser).toHaveBeenCalledWith(
       buyer.user.id,
       expect.objectContaining({
-        data: { type: "counter_offer", offerId: offer.id },
+        data: expect.objectContaining({
+          type: "counter_offer",
+          offerId: offer.id,
+          senderName: expect.any(String),
+          theirItemName: sellerListing.title,
+          valueLabel: expect.stringMatching(/^Estimated value: \$/),
+        }),
       }),
     );
   });
@@ -245,16 +296,10 @@ describe("route push integration", () => {
     const sellerListing = await createListing(seller.accessToken);
     const buyerListing = await createListing(buyer.accessToken);
     const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+    await drainSetupPush();
 
-    const offerDetail = await request(app)
-      .get(`/api/offers/${offer.id}`)
-      .set("Authorization", `Bearer ${seller.accessToken}`);
-    const offerItemId = offerDetail.body.offeredItems[0].id;
-
-    await request(app)
-      .post(`/api/offers/${offer.id}/counter`)
-      .set("Authorization", `Bearer ${seller.accessToken}`)
-      .send({ includedOfferItemIds: [offerItemId] });
+    await createCounter(seller.accessToken, offer.id, buyerListing.id, sellerListing.id);
+    await drainSetupPush();
 
     const res = await request(app)
       .post(`/api/offers/${offer.id}/counter/accept`)
@@ -265,7 +310,12 @@ describe("route push integration", () => {
     expect(pushModule.sendPushToUser).toHaveBeenCalledWith(
       seller.user.id,
       expect.objectContaining({
-        data: { type: "offer_accepted", conversationId: res.body.conversationId },
+        data: expect.objectContaining({
+          type: "offer_accepted",
+          conversationId: res.body.conversationId,
+          offerId: offer.id,
+          senderName: expect.any(String),
+        }),
       }),
     );
   });
@@ -292,6 +342,8 @@ describe("route push integration", () => {
             type: "new_message",
             conversationId: convId,
             senderName: expect.any(String),
+            body: "Hello there!",
+            timestampLabel: "now",
             tradeTitle: expect.stringMatching(/ Trade$/),
           }),
         }),

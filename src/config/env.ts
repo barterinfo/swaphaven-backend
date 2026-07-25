@@ -30,6 +30,15 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().default(20),
   API_RATE_LIMIT_MAX: z.coerce.number().default(300),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
+  /**
+   * Max swipes per user per local calendar day.
+   * Unset / empty = unlimited. Set a positive integer (e.g. `20`) to enforce a daily cap.
+   */
+  DAILY_SWIPE_LIMIT: z.preprocess((v) => {
+    if (v === undefined || v === null) return null;
+    if (typeof v === "string" && v.trim() === "") return null;
+    return v;
+  }, z.union([z.null(), z.coerce.number().int().positive()]).default(null)),
   /** Behind Railway / reverse proxy. Defaults to true when NODE_ENV=production. */
   TRUST_PROXY: z.enum(["true", "false"]).optional(),
   /** Swagger UI at /api-docs. Default off in production. */
@@ -59,6 +68,23 @@ const envSchema = z.object({
   /** Firebase Admin service-account JSON (stringified). When set, push
    *  notifications are delivered via FCM. Omit in dev/test to disable push. */
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** Resend API key — required to deliver password-reset OTP emails. */
+  RESEND_API_KEY: z.string().optional(),
+  /** Verified Resend From address, e.g. `SwapHaven <noreply@mail.example.com>`. */
+  EMAIL_FROM: z.string().optional(),
+  // ─── Universal Links / App Links (share product) ───────────────────────────
+  /** Apple Developer Team ID for apple-app-site-association `appID`. */
+  APPLE_TEAM_ID: z.string().optional(),
+  /** iOS bundle identifier (default matches barter-stack mobile). */
+  IOS_BUNDLE_ID: z.string().default("com.barter.app.barterMobile"),
+  /** Android applicationId (default matches barter-stack mobile). */
+  ANDROID_PACKAGE_ID: z.string().default("com.barter.app.barter_mobile"),
+  /** SHA-256 fingerprint of the Android signing cert (for assetlinks.json). */
+  ANDROID_SHA256_CERT_FINGERPRINT: z.string().optional(),
+  /** App Store listing URL used when the app is not installed (iOS). */
+  IOS_APP_STORE_URL: z.string().url().optional(),
+  /** Play Store listing URL used when the app is not installed (Android). */
+  ANDROID_PLAY_STORE_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));

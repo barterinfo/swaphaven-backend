@@ -42,16 +42,38 @@ async function getMessagingInstance() {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Payload that the mobile `InboxDeepLink.fromPayload()` parses. */
+export type PushDataType = "offer" | "counter_offer" | "offer_accepted" | "new_message";
+
+const APNS_CATEGORY: Record<PushDataType, string> = {
+  offer: "BARTER_OFFER",
+  counter_offer: "BARTER_COUNTER",
+  offer_accepted: "BARTER_ACCEPTED",
+  new_message: "BARTER_MESSAGE",
+};
+
+/**
+ * Payload for FCM data-only pushes (native custom cards + deep links).
+ * Title/body are mirrored into `data` as strings; do not send a top-level
+ * FCM `notification` block (that prevents native card rendering).
+ */
 export interface PushPayload {
   title: string;
   body: string;
-  /** FCM data dict — keys must be strings. */
+  /** FCM data dict — all values must be strings. */
   data: {
-    type: "offer" | "counter_offer" | "offer_accepted" | "new_message";
+    type: PushDataType;
     offerId?: string;
     conversationId?: string;
     senderName?: string;
+    title?: string;
+    body?: string;
+    theirItemName?: string;
+    yourItemName?: string;
+    fairTrade?: string;
+    theirImageUrl?: string;
+    yourImageUrl?: string;
+    valueLabel?: string;
+    timestampLabel?: string;
     tradeTitle?: string;
     senderAvatarUrl?: string;
   };
@@ -63,6 +85,8 @@ export interface PushPayload {
  * - Fire-and-forget: call with `.catch(console.error)` in route handlers.
  * - No-op when `FIREBASE_SERVICE_ACCOUNT_JSON` is not set.
  * - Automatically removes stale tokens that FCM rejects.
+ * - Data-only multicast: no top-level `notification` (Android custom cards).
+ * - iOS gets `apns.payload.aps.alert` + category + mutable-content.
  */
 export async function sendPushToUser(
   userId: string,
@@ -86,28 +110,32 @@ export async function sendPushToUser(
 
   console.log(`[push] sending type=${payload.data.type} to userId=${userId} (${rows.length} device(s))`);
 
-  const stringData: Record<string, string> = {};
+  // Always put title/body in data; callers may also set them explicitly.
+  const stringData: Record<string, string> = {
+    title: payload.title,
+    body: payload.body,
+  };
   for (const [k, v] of Object.entries(payload.data)) {
     if (v !== undefined) stringData[k] = v;
   }
 
   const response = await messaging.sendEachForMulticast({
     tokens: rows.map((r) => r.token),
-    notification: { title: payload.title, body: payload.body },
     data: stringData,
     apns: {
+      headers: {
+        "apns-priority": "10",
+        "apns-push-type": "alert",
+      },
       payload: {
         aps: {
+          alert: {
+            title: payload.title,
+            body: payload.body,
+          },
           sound: "default",
-          ...(payload.data.tradeTitle
-            ? {
-                alert: {
-                  title: payload.title,
-                  subtitle: payload.data.tradeTitle,
-                  body: payload.body,
-                },
-              }
-            : {}),
+          mutableContent: true,
+          category: APNS_CATEGORY[payload.data.type],
         },
       },
     },

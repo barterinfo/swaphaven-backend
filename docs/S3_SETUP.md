@@ -22,24 +22,29 @@ Flutter → PUT uploadUrl (bytes, Content-Type)
    For production later, use **CloudFront** + private bucket instead.
 5. Create bucket
 
-### Bucket policy (public read for listing photos)
+### Bucket policy (public read for listing + ad images)
 
-Replace `YOUR_BUCKET` and optional prefix:
+Replace `YOUR_BUCKET`:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "PublicReadListingImages",
+      "Sid": "PublicReadMedia",
       "Effect": "Allow",
       "Principal": "*",
       "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::swaphaven-media-prod/listings/*"
+      "Resource": [
+        "arn:aws:s3:::swaphaven-media-prod/listings/*",
+        "arn:aws:s3:::swaphaven-media-prod/ads/*"
+      ]
     }
   ]
 }
 ```
+
+Listing photos use `listings/*`. Sponsored ad backgrounds uploaded via `npm run ads` use `ads/*`.
 
 ### CORS (for future web uploads)
 
@@ -59,7 +64,10 @@ Use `deploy/s3-cors.json` in this repo (S3 → bucket → Permissions → CORS).
     {
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:GetObject"],
-      "Resource": "arn:aws:s3:::swaphaven-media-prod/listings/*"
+      "Resource": [
+        "arn:aws:s3:::swaphaven-media-prod/listings/*",
+        "arn:aws:s3:::swaphaven-media-prod/ads/*"
+      ]
     }
   ]
 }

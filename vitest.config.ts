@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 
 // Load test env vars before vitest workers are spawned so all processes inherit them
 dotenv.config({ path: ".env.test" });
+// Exercise the daily quota path in tests (production/dev default is unlimited).
+process.env.DAILY_SWIPE_LIMIT ??= "20";
 
 export default defineConfig({
   test: {

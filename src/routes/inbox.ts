@@ -14,12 +14,14 @@ const router = Router();
 router.get("/summary", requireAuth, async (req, res) => {
   const userId = req.user!.sub;
 
+  // Seller needs action when it's their turn (pending original offer, or buyer counter-backed).
+  // Buyer needs action when it's their turn (seller countered).
   const [actionNeededRow] = await db
     .select({ value: count() })
     .from(offersTable)
     .where(or(
-      and(eq(offersTable.sellerId, userId), eq(offersTable.status, "pending")),
-      and(eq(offersTable.buyerId, userId), eq(offersTable.status, "countered")),
+      and(eq(offersTable.sellerId, userId), eq(offersTable.currentTurn, "seller"), inArray(offersTable.status, ["pending", "countered"])),
+      and(eq(offersTable.buyerId, userId), eq(offersTable.currentTurn, "buyer"), eq(offersTable.status, "countered")),
     ));
 
   // Conversations the user participates in (as buyer or seller of the offer).

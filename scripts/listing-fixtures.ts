@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { categoryIdBySlug } from "../src/lib/categories.js";
 
 export type ListingFixture = {
   title: string;
@@ -45,23 +46,29 @@ const WANTED_SNIPPETS = [
   "Interested in bundles or sets",
 ];
 
-type CategoryRef = { id: string; label: string };
+type CategoryRef = { id: string; slug: string; label: string };
+
+function cat(slug: string, label: string): CategoryRef {
+  const id = categoryIdBySlug(slug);
+  if (!id) throw new Error(`Unknown category slug: ${slug}`);
+  return { id, slug, label };
+}
 
 const CATEGORIES: CategoryRef[] = [
-  { id: "cameras", label: "Cameras" },
-  { id: "electronics", label: "Electronics" },
-  { id: "home_kitchen", label: "Home & Kitchen" },
-  { id: "furniture", label: "Furniture" },
-  { id: "books", label: "Books" },
-  { id: "sneakers", label: "Sneakers" },
-  { id: "tools", label: "Tools" },
-  { id: "toys_games", label: "Gaming" },
-  { id: "clothing", label: "Clothing" },
-  { id: "instruments", label: "Instruments" },
-  { id: "sports_fitness", label: "Sports" },
-  { id: "garden_outdoor", label: "Garden" },
-  { id: "art_collectibles", label: "Art & Collectibles" },
-  { id: "board_games", label: "Board Games" },
+  cat("cameras", "Cameras"),
+  cat("electronics", "Electronics"),
+  cat("home_kitchen", "Home & Kitchen"),
+  cat("furniture", "Furniture"),
+  cat("books", "Books"),
+  cat("sneakers", "Sneakers"),
+  cat("tools", "Tools"),
+  cat("toys_games", "Gaming"),
+  cat("clothing", "Clothing"),
+  cat("instruments", "Instruments"),
+  cat("sports_fitness", "Sports"),
+  cat("garden_outdoor", "Garden"),
+  cat("art_collectibles", "Art & Collectibles"),
+  cat("board_games", "Board Games"),
 ];
 
 type City = {
@@ -84,7 +91,8 @@ const CITIES: City[] = [
 ];
 
 type ProductTemplate = {
-  categoryId: string;
+  /** Canonical category slug (resolved to UUID when building fixtures). */
+  categorySlug: string;
   brands: string[];
   models: string[];
   variants: string[];
@@ -94,7 +102,7 @@ type ProductTemplate = {
 
 const PRODUCT_TEMPLATES: ProductTemplate[] = [
   {
-    categoryId: "cameras",
+    categorySlug: "cameras",
     brands: ["Canon", "Sony", "Nikon", "Fujifilm", "Panasonic"],
     models: ["Mirrorless Body", "DSLR Kit", "Compact Travel Camera", "Action Cam Bundle"],
     variants: ["with 24-70mm lens", "low shutter count", "includes 2 batteries", "creator bundle"],
@@ -102,7 +110,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [350, 2200],
   },
   {
-    categoryId: "electronics",
+    categorySlug: "electronics",
     brands: ["Apple", "Samsung", "Google", "Sony", "Bose"],
     models: ["Tablet", "Noise-Canceling Headphones", "Smart Speaker", "Portable Monitor"],
     variants: ["128GB", "256GB", "Wi-Fi model", "with case"],
@@ -110,7 +118,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [80, 950],
   },
   {
-    categoryId: "home_kitchen",
+    categorySlug: "home_kitchen",
     brands: ["KitchenAid", "Breville", "Instant Pot", "Le Creuset", "Ninja"],
     models: ["Stand Mixer", "Espresso Machine", "Air Fryer", "Dutch Oven"],
     variants: ["5-quart", "stainless steel", "matte black", "barely used"],
@@ -118,7 +126,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [60, 420],
   },
   {
-    categoryId: "furniture",
+    categorySlug: "furniture",
     brands: ["West Elm", "Article", "IKEA", "CB2", "Vintage"],
     models: ["Accent Chair", "Coffee Table", "Bookshelf", "Desk"],
     variants: ["walnut finish", "mid-century style", "compact size", "pickup only"],
@@ -126,7 +134,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [90, 650],
   },
   {
-    categoryId: "books",
+    categorySlug: "books",
     brands: ["Penguin", "Scholastic", "O'Reilly", "Vintage Press", "Independent"],
     models: ["Hardcover Set", "Graphic Novel Collection", "Programming Books", "Cookbook Lot"],
     variants: ["complete series", "first editions mix", "like-new pages", "annotated lightly"],
@@ -134,7 +142,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [25, 180],
   },
   {
-    categoryId: "sneakers",
+    categorySlug: "sneakers",
     brands: ["Nike", "Adidas", "New Balance", "ASICS", "Converse"],
     models: ["Running Shoes", "Basketball High-Tops", "Daily Trainers", "Limited Colorway"],
     variants: ["size 9", "size 10", "size 11", "women's 8"],
@@ -142,7 +150,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [55, 280],
   },
   {
-    categoryId: "tools",
+    categorySlug: "tools",
     brands: ["DeWalt", "Milwaukee", "Makita", "Ryobi", "Craftsman"],
     models: ["Drill/Driver Kit", "Circular Saw", "Tool Box Set", "Impact Driver"],
     variants: ["20V platform", "with 2 batteries", "contractor grade", "home DIY kit"],
@@ -150,7 +158,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [45, 320],
   },
   {
-    categoryId: "toys_games",
+    categorySlug: "toys_games",
     brands: ["Nintendo", "Sony", "Microsoft", "Valve", "Retro"],
     models: ["Handheld Console", "Controller Bundle", "VR Headset", "Retro Console"],
     variants: ["with carrying case", "includes 3 games", "OLED model", "digital-ready"],
@@ -158,7 +166,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [120, 520],
   },
   {
-    categoryId: "clothing",
+    categorySlug: "clothing",
     brands: ["Patagonia", "Arc'teryx", "Carhartt", "Levi's", "Uniqlo"],
     models: ["Insulated Jacket", "Hiking Shell", "Denim Jacket", "Merino Sweater"],
     variants: ["men's M", "men's L", "women's S", "unisex fit"],
@@ -166,7 +174,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [35, 220],
   },
   {
-    categoryId: "instruments",
+    categorySlug: "instruments",
     brands: ["Fender", "Yamaha", "Gibson", "Roland", "Kala"],
     models: ["Electric Guitar", "Digital Piano", "Ukulele", "Audio Interface"],
     variants: ["with gig bag", "recently set up", "home studio ready", "beginner friendly"],
@@ -174,7 +182,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [90, 780],
   },
   {
-    categoryId: "sports_fitness",
+    categorySlug: "sports_fitness",
     brands: ["Peloton", "Bowflex", "Thule", "Specialized", "Garmin"],
     models: ["Bike Trainer", "Adjustable Dumbbells", "Roof Rack", "GPS Watch"],
     variants: ["compact footprint", "barely used", "includes mount", "latest generation"],
@@ -182,7 +190,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [70, 600],
   },
   {
-    categoryId: "garden_outdoor",
+    categorySlug: "garden_outdoor",
     brands: ["Weber", "Yeti", "Coleman", "Greenworks", "Traeger"],
     models: ["Gas Grill", "Cooler", "Camp Chair Set", "Electric Mower"],
     variants: ["3-burner", "with cover", "family size", "recently serviced"],
@@ -190,7 +198,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [80, 550],
   },
   {
-    categoryId: "art_collectibles",
+    categorySlug: "art_collectibles",
     brands: ["Local Artist", "Funko", "LEGO", "Gallery Print", "Handmade"],
     models: ["Screen Print", "Collectible Figure", "Display Set", "Signed Poster"],
     variants: ["limited run", "signed piece", "display-ready", "mint condition"],
@@ -198,7 +206,7 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
     valueRange: [30, 260],
   },
   {
-    categoryId: "board_games",
+    categorySlug: "board_games",
     brands: ["Hasbro", "Days of Wonder", "Fantasy Flight", "CMON", "Independent"],
     models: ["Strategy Game", "Party Game Bundle", "Co-op Adventure", "Family Game Night Set"],
     variants: ["complete components", "expansion included", "like-new box", "played twice"],
@@ -209,8 +217,8 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
 
 export const MAX_LISTING_FIXTURES = PRODUCT_TEMPLATES.length;
 
-function categoryById(id: string): CategoryRef {
-  return CATEGORIES.find((c) => c.id === id) ?? { id: "electronics", label: "Electronics" };
+function categoryBySlug(slug: string): CategoryRef {
+  return CATEGORIES.find((c) => c.slug === slug) ?? cat("electronics", "Electronics");
 }
 
 function pick<T>(items: readonly T[], rng: () => number): T {
@@ -239,10 +247,10 @@ function serialCode(rng: () => number): string {
 }
 
 function pickWantedCategories(
-  excludeId: string,
+  excludeSlug: string,
   rng: () => number,
 ): { ids: string[]; labels: string[] } {
-  const pool = CATEGORIES.filter((c) => c.id !== excludeId);
+  const pool = CATEGORIES.filter((c) => c.slug !== excludeSlug);
   const shuffled = shuffle(pool, rng);
   const picked = shuffled.slice(0, 2);
   return {
@@ -252,7 +260,7 @@ function pickWantedCategories(
 }
 
 function buildFixture(template: ProductTemplate, index: number, rng: () => number): ListingFixture {
-  const category = categoryById(template.categoryId);
+  const category = categoryBySlug(template.categorySlug);
   const brand = pick(template.brands, rng);
   const model = pick(template.models, rng);
   const variant = pick(template.variants, rng);
@@ -262,7 +270,7 @@ function buildFixture(template: ProductTemplate, index: number, rng: () => numbe
   const city = pick(CITIES, rng);
   const serial = serialCode(rng);
   const streetNo = randomInt(100, 9999, rng);
-  const wanted = pickWantedCategories(template.categoryId, rng);
+  const wanted = pickWantedCategories(template.categorySlug, rng);
   const estimatedValue = randomInt(template.valueRange[0], template.valueRange[1], rng);
   const acceptCashTopUps = rng() > 0.35;
   const isSwipeOnly = rng() > 0.4;
@@ -294,7 +302,7 @@ function buildFixture(template: ProductTemplate, index: number, rng: () => numbe
       country: "US",
       postalCode: city.postalCode,
     },
-    imageSeed: `seed-${runNonce}-${index}-${template.categoryId}`,
+    imageSeed: `seed-${runNonce}-${index}-${template.categorySlug}`,
   };
 }
 

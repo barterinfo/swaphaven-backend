@@ -18,6 +18,11 @@ import conversationsRouter from "./routes/conversations.js";
 import inboxRouter from "./routes/inbox.js";
 import notificationsRouter from "./routes/notifications.js";
 import mediaRouter from "./routes/media.js";
+import adsRouter from "./routes/ads.js";
+import searchRouter from "./routes/search.js";
+import wellKnownRouter from "./routes/wellKnown.js";
+import listingPreviewRouter from "./routes/listingPreview.js";
+import profilePreviewRouter from "./routes/profilePreview.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -102,11 +107,15 @@ export function createApp(): express.Express {
   });
 
   // ─── Rate limiting ────────────────────────────────────────────────────────────
+  // Skip entirely in development so rapid local polling doesn't get throttled.
+  const isDev = env.NODE_ENV === "development";
+
   const apiLimiter = rateLimit({
     windowMs: env.RATE_LIMIT_WINDOW_MS,
     max: env.API_RATE_LIMIT_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    skip: () => isDev,
     message: { error: "too_many_requests", message: "Too many requests. Please try again later." },
   });
 
@@ -115,6 +124,7 @@ export function createApp(): express.Express {
     max: env.AUTH_RATE_LIMIT_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    skip: () => isDev,
     message: { error: "too_many_requests", message: "Too many authentication attempts. Please try again later." },
   });
 
@@ -141,6 +151,11 @@ export function createApp(): express.Express {
     );
   }
 
+  // ─── Public share / deep-link hosts (outside /api — no rate limit / auth) ─────
+  app.use("/.well-known", wellKnownRouter);
+  app.use("/listings", listingPreviewRouter);
+  app.use("/users", profilePreviewRouter);
+
   // ─── Routes ───────────────────────────────────────────────────────────────────
   app.get("/api/categories", listCategories as express.RequestHandler);
 
@@ -154,6 +169,8 @@ export function createApp(): express.Express {
   app.use("/api/inbox",         inboxRouter);
   app.use("/api/notifications", notificationsRouter);
   app.use("/api/media", mediaRouter);
+  app.use("/api/ads",           adsRouter);
+  app.use("/api/search",        searchRouter);
 
   // ─── Error handling ───────────────────────────────────────────────────────────
   app.use(notFoundHandler);

@@ -25,8 +25,10 @@ const locationSchema = z
 export const createListingBodySchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(10000).optional().default(""),
+  /** Display label / slug (denormalized). Optional when [categoryId] is set. */
   category: z.string().optional(),
-  categoryId: z.string().optional(),
+  /** Required FK into `categories.id`. */
+  categoryId: z.string().uuid(),
   condition: z
     .enum(["new", "like_new", "great", "good", "fair"])
     .default("good"),
@@ -34,7 +36,7 @@ export const createListingBodySchema = z.object({
   estimatedValueCents: z.coerce.number().int().nonnegative().optional(),
   acceptCashTopUps: z.boolean().optional().default(false),
   isSwipeOnly: z.boolean().optional().default(false),
-  wantedCategoryIds: z.array(z.string()).optional().default([]),
+  wantedCategoryIds: z.array(z.string().uuid()).optional().default([]),
   wantedCategories: z.array(z.string()).optional().default([]),
   wantedFreeText: z.string().max(500).optional(),
   details: z
@@ -101,19 +103,8 @@ export function buildListingPayload(
   };
 }
 
-export function resolveCategorySlug(data: CreateListingBody): string {
-  if (data.category?.trim()) return data.category.trim();
-  if (data.categoryId?.trim() && !isUuid(data.categoryId)) {
-    return data.categoryId.trim();
-  }
-  return "general";
-}
-
-export function resolveCategoryUuid(data: CreateListingBody): string | null {
-  if (data.categoryId?.trim() && isUuid(data.categoryId)) {
-    return data.categoryId.trim();
-  }
-  return null;
+export function resolveCategoryUuid(data: CreateListingBody): string {
+  return data.categoryId.trim();
 }
 
 export function resolveEstimatedValue(data: CreateListingBody): number {
@@ -207,6 +198,7 @@ export function serializeListingBarter(
     title: listing.title,
     description: listing.description ?? "",
     category: listing.category,
+    category_id: listing.categoryId ?? null,
     condition: listing.condition,
     estimated_value: listing.estimatedValue ?? 0,
     accept_cash_top_ups: listing.acceptCashTopUps,

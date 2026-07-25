@@ -59,7 +59,7 @@ npm test
 
 | Path | Purpose |
 |------|---------|
-| `tests/auth.test.ts` | Register, login, social login, refresh, password flows |
+| `tests/auth.test.ts` | Register (OTP start + verify), login, social login, refresh, password flows |
 | `tests/social-auth.test.ts` | Unit tests for `src/lib/social-auth.ts` (Google + Facebook verification) |
 | `tests/listings.test.ts` | Listings CRUD, barter-shaped create body |
 | `tests/offers.test.ts` | Offer lifecycle |
@@ -79,17 +79,22 @@ Helpers: `tests/helpers/fixtures.ts` (`registerUser`, `createListing`, `fullTrad
 # health
 curl -s http://localhost:3001/api/healthz | jq
 
-# register
+# register start (emails OTP; check non-prod server logs for the code)
 curl -s -X POST http://localhost:3001/api/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"email":"dev@example.com","password":"password123","name":"Dev User"}' | jq
 
-# use accessToken from response:
+# register verify
+curl -s -X POST http://localhost:3001/api/auth/register/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"dev@example.com","token":"<otp-from-email-or-logs>"}' | jq
+
+# use accessToken from verify response:
 export TOKEN="<accessToken>"
 curl -s http://localhost:3001/api/auth/me -H "Authorization: Bearer $TOKEN" | jq
 ```
 
-See [API_GUIDE.md](./API_GUIDE.md) for all endpoints.
+See [API_GUIDE.md](./API_GUIDE.md) and [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md).
 
 ---
 

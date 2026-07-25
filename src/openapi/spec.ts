@@ -69,6 +69,7 @@ export const openApiSpec = {
           hasLocation:        { type: "boolean", description: "True when lat/lng are on file; exact coords are private." },
           totalTrades:        { type: "integer" },
           rating:             { type: "number", nullable: true, description: "Computed from ratingSum / ratingCount, rounded to 1 decimal. Null when no reviews yet." },
+          ratingCount:        { type: "integer", description: "Number of revealed reviews received (matches aggregate on profile)." },
           isVerified:         { type: "boolean" },
           isPhoneVerified:    { type: "boolean", description: "Reserved; not populated yet (defaults to false)." },
           completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Reserved; not populated yet (null until trade stats flow lands)." },
@@ -129,9 +130,12 @@ export const openApiSpec = {
           estimatedValueCents: { type: "integer", nullable: true },
           isSwipeOnly:         { type: "boolean" },
           status:              { type: "string", enum: ["active","traded","paused","deleted"] },
+          soldMethod:          { type: "string", enum: ["traded_on_barter","sold_for_cash","given_away"], nullable: true, description: "How the item left the seller. Set by POST /sold; null while the listing is active." },
+          tradedWithUserId:    { type: "string", format: "uuid", nullable: true, description: "UUID of the SwapHaven user the seller traded with (traded_on_barter only)." },
           locationCity:        { type: "string", nullable: true },
           viewCount:           { type: "integer", description: "Approximate page-view count. Incremented by POST /api/listings/:id/view." },
           rightSwipeCount:     { type: "integer", description: "Denormalized right-swipe count. Incremented atomically on each new right swipe." },
+          ownerName:           { type: "string", description: "Seller display name. Present on swipe-deck listing payloads." },
           createdAt:           { type: "string", format: "date-time" },
           updatedAt:           { type: "string", format: "date-time" },
           images:              { type: "array", items: { $ref: "#/components/schemas/ListingImage" } },
@@ -176,7 +180,50 @@ export const openApiSpec = {
           owner_name:        { type: "string" },
           right_swipe_count: { type: "integer", description: "Denormalized right-swipe count." },
           view_count:        { type: "integer", description: "Approximate page-view count." },
+          offer_count:       { type: "integer", description: "Open offers on this listing (pending + countered). Present on GET /api/listings/:id." },
           seller:            { allOf: [{ $ref: "#/components/schemas/SellerSnapshot" }], nullable: true, description: "Embedded seller card. Present on GET /api/listings/:id; null on feed/closet responses." },
+        },
+      },
+      SearchListingsResponse: {
+        type: "object",
+        properties: {
+          listings: {
+            type: "array",
+            items: {
+              allOf: [
+                { $ref: "#/components/schemas/BarterListing" },
+                {
+                  type: "object",
+                  properties: {
+                    distance_miles: { type: "number", nullable: true },
+                  },
+                },
+              ],
+            },
+          },
+          total: { type: "integer" },
+          nextOffset: { type: "integer", nullable: true },
+        },
+      },
+      TrendingSearchListingsResponse: {
+        type: "object",
+        description: "Trending active listings for the search idle screen (not search keywords).",
+        properties: {
+          listings: {
+            type: "array",
+            items: {
+              allOf: [
+                { $ref: "#/components/schemas/BarterListing" },
+                {
+                  type: "object",
+                  properties: {
+                    distance_miles: { type: "number", nullable: true },
+                  },
+                },
+              ],
+            },
+          },
+          total: { type: "integer" },
         },
       },
       ListingFeedResponse: {
@@ -227,6 +274,17 @@ export const openApiSpec = {
           createdAt:      { type: "string", format: "date-time" },
         },
       },
+      ListingSummary: {
+        type: "object",
+        description: "Compact listing nested in offer / round payloads.",
+        properties: {
+          id:                  { type: "string", format: "uuid" },
+          title:               { type: "string" },
+          estimatedValueCents: { type: "integer" },
+          status:              { type: "string", enum: ["active","traded","paused","deleted"], description: "Lifecycle status — mobile strikes traded/deleted items in Trade Offer and Counter." },
+          images:              { type: "array", items: { type: "object", properties: { url: { type: "string" } } } },
+        },
+      },
       OfferListItem: {
         type: "object",
         description: "Enriched offer row for the mobile inbox (Offers tab).",
@@ -238,7 +296,7 @@ export const openApiSpec = {
           listingId:      { type: "string", format: "uuid" },
           cashTopUpCents: { type: "integer" },
           createdAt:      { type: "string", format: "date-time" },
-          listing:        { type: "object", nullable: true },
+          listing:        { oneOf: [{ $ref: "#/components/schemas/ListingSummary" }, { type: "null" }] },
           buyer:          { type: "object", nullable: true },
           seller:         { type: "object", nullable: true },
           offeredItems:   { type: "array", items: { type: "object" } },
@@ -262,10 +320,11 @@ export const openApiSpec = {
           id:                { type: "string", format: "uuid" },
           offerId:           { type: "string", format: "uuid" },
           status:            { type: "string", enum: ["pending_meetup","completed","disputed","cancelled"] },
-          meetupScheduledAt: { type: "string", format: "date-time", nullable: true },
-          meetupLocation:    { type: "string", nullable: true },
-          completedAt:       { type: "string", format: "date-time", nullable: true },
-          createdAt:         { type: "string", format: "date-time" },
+          meetupScheduledAt:    { type: "string", format: "date-time", nullable: true },
+          meetupLocation:       { type: "string", nullable: true },
+          completedAt:          { type: "string", format: "date-time", nullable: true },
+          reviewWindowClosesAt: { type: "string", format: "date-time", nullable: true, description: "When the 7-day review window closes. Set on completion." },
+          createdAt:            { type: "string", format: "date-time" },
         },
       },
       TradeReview: {
@@ -277,7 +336,50 @@ export const openApiSpec = {
           revieweeId: { type: "string", format: "uuid" },
           rating:     { type: "integer", minimum: 1, maximum: 5 },
           comment:    { type: "string", nullable: true },
+          tags:       { type: "array", items: { type: "string" }, description: "Quick-select tags chosen by the reviewer." },
           createdAt:  { type: "string", format: "date-time" },
+        },
+      },
+      PublicTradeReview: {
+        type: "object",
+        description: "Revealed review shown on a user profile. Includes reviewer display info.",
+        properties: {
+          id:                  { type: "string", format: "uuid" },
+          tradeId:             { type: "string", format: "uuid" },
+          reviewerId:          { type: "string", format: "uuid" },
+          revieweeId:          { type: "string", format: "uuid" },
+          rating:              { type: "integer", minimum: 1, maximum: 5 },
+          comment:             { type: "string", nullable: true },
+          tags:                { type: "array", items: { type: "string" } },
+          createdAt:           { type: "string", format: "date-time" },
+          reviewerDisplayName: { type: "string", nullable: true },
+          reviewerAvatarUrl:   { type: "string", nullable: true },
+          tradeListingTitle:   { type: "string", nullable: true, description: "Title of the offer's target listing for trade context in review cards." },
+          listingThumbnailUrl: { type: "string", nullable: true, description: "First listing image URL (by position) for the trade's target listing." },
+        },
+      },
+      ReviewStatus: {
+        type: "object",
+        description: "Sealed review window status for a completed trade.",
+        properties: {
+          tradeId:        { type: "string", format: "uuid" },
+          windowClosesAt: { type: "string", format: "date-time", nullable: true, description: "ISO timestamp when the 7-day review window closes." },
+          windowOpen:     { type: "boolean", description: "True while the window is still open and reviews can be submitted." },
+          revealed:       { type: "boolean", description: "True when both parties submitted or the window has closed." },
+          myReview: {
+            type: "object",
+            properties: {
+              submitted:   { type: "boolean" },
+              submittedAt: { type: "string", format: "date-time", nullable: true },
+            },
+          },
+          theirReview: {
+            type: "object",
+            description: "Only 'submitted' is exposed before reviews are revealed.",
+            properties: {
+              submitted: { type: "boolean" },
+            },
+          },
         },
       },
       Conversation: {
@@ -391,6 +493,26 @@ export const openApiSpec = {
           bonusSwipesRemaining: { type: "integer" },
         },
       },
+      SponsoredAd: {
+        type: "object",
+        description: "Curated sponsored/house-ad card interleaved into the swipe deck.",
+        properties: {
+          id:                 { type: "string", format: "uuid" },
+          sponsorName:        { type: "string" },
+          tagline:            { type: "string" },
+          ctaLabel:           { type: "string" },
+          ctaColor:           { type: "string", description: "Hex color for the CTA button (e.g. \"#F59E0B\")." },
+          ctaUrl:             { type: "string", nullable: true, description: "http(s) or app deep link opened when the CTA is tapped." },
+          backgroundImageUrl: { type: "string", description: "Card background image; empty string renders a dark gradient." },
+          weight:             { type: "integer", description: "Rotation weight; higher shows more often." },
+        },
+      },
+      SponsoredAdsResponse: {
+        type: "object",
+        properties: {
+          ads: { type: "array", items: { $ref: "#/components/schemas/SponsoredAd" } },
+        },
+      },
     },
     parameters: {
       limit: {
@@ -415,7 +537,12 @@ export const openApiSpec = {
     // ── Auth ────────────────────────────────────────────────────────────────────
     "/api/auth/register": {
       post: {
-        tags: ["Auth"], summary: "Register a new account", security: [],
+        tags: ["Auth"],
+        summary: "Start email/password registration",
+        description:
+          "Stores pending credentials and emails a 6-digit OTP (10 minute TTL). " +
+          "Call POST /api/auth/register/verify to create the account. Re-submitting the same email refreshes the OTP.",
+        security: [],
         requestBody: {
           required: true,
           content: {
@@ -432,8 +559,37 @@ export const openApiSpec = {
           },
         },
         responses: {
-          "201": { description: "Account created", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
+          "200": { description: "Verification email sent" },
           "400": { description: "Validation error" },
+          "409": { description: "Email already registered" },
+          "503": { description: "Unable to send verification email" },
+        },
+      },
+    },
+    "/api/auth/register/verify": {
+      post: {
+        tags: ["Auth"],
+        summary: "Complete registration with email OTP",
+        description: "Redeems the 6-digit OTP from the signup email. Max 5 attempts. Field name `token` is the OTP.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "token"],
+                properties: {
+                  email: { type: "string", format: "email" },
+                  token: { type: "string", description: "6-digit OTP from email", minLength: 1 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Account created", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },
+          "400": { description: "Invalid or expired verification code" },
           "409": { description: "Email already registered" },
         },
       },
@@ -492,16 +648,45 @@ export const openApiSpec = {
     },
     "/api/auth/forgot-password": {
       post: {
-        tags: ["Auth"], summary: "Request password reset email", security: [],
+        tags: ["Auth"],
+        summary: "Request password reset OTP email",
+        description:
+          "If an account exists, emails a 6-digit OTP (10 minute TTL) via Resend. " +
+          "Always returns 200 for valid email format (anti-enumeration), except 503 when email delivery fails for an existing account.",
+        security: [],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["email"], properties: { email: { type: "string", format: "email" } } } } } },
-        responses: { "200": { description: "Always succeeds (prevents enumeration)" } },
+        responses: {
+          "200": { description: "Generic success (prevents enumeration)" },
+          "503": { description: "Unable to send reset email (account exists but mailer failed)" },
+        },
       },
     },
     "/api/auth/reset-password": {
       post: {
-        tags: ["Auth"], summary: "Reset password with token", security: [],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["email","token","newPassword"], properties: { email: { type: "string", format: "email" }, token: { type: "string" }, newPassword: { type: "string", minLength: 8 } } } } } },
-        responses: { "200": { description: "Password reset" }, "400": { description: "Invalid or expired token" } },
+        tags: ["Auth"],
+        summary: "Reset password with email OTP",
+        description: "Redeems the 6-digit OTP from the reset email. Max 5 attempts. Field name `token` is the OTP.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "token", "newPassword"],
+                properties: {
+                  email: { type: "string", format: "email" },
+                  token: { type: "string", description: "6-digit OTP from email", minLength: 1 },
+                  newPassword: { type: "string", minLength: 8 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Password reset" },
+          "400": { description: "Invalid or expired reset code" },
+        },
       },
     },
     "/api/auth/device-token": {
@@ -564,7 +749,32 @@ export const openApiSpec = {
       },
     },
     "/api/users/{userId}/reviews": {
-      get: { tags: ["Users"], summary: "List a user's trade reviews", security: [], parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated reviews" } } },
+      get: {
+        tags: ["Users"], summary: "List a user's revealed reviews",
+        description: "Returns only revealed reviews — those where both parties submitted or the 7-day window closed. Includes reviewer display name and avatar.",
+        security: [],
+        parameters: [
+          { name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated revealed reviews",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items:      { type: "array", items: { $ref: "#/components/schemas/PublicTradeReview" } },
+                    nextCursor: { type: "string", nullable: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     // ── Media (S3 presign) ───────────────────────────────────────────────────────
     "/api/media/status": {
@@ -643,18 +853,18 @@ export const openApiSpec = {
           content: {
             "application/json": {
               schema: {
-                type: "object", required: ["title","condition"],
+                type: "object", required: ["title","condition","categoryId"],
                 properties: {
                   title: { type: "string", maxLength: 200 },
                   description: { type: "string", maxLength: 10000 },
-                  category: { type: "string", description: "Category label or slug (barter-stack)" },
-                  categoryId: { type: "string", description: "Category slug (e.g. cameras) or UUID" },
+                  category: { type: "string", description: "Optional display label; defaults to category name" },
+                  categoryId: { type: "string", format: "uuid", description: "Required categories.id UUID" },
                   condition: { type: "string", enum: ["new","like_new","great","good","fair"] },
                   estimatedValue: { type: "integer", description: "Dollar estimate (barter-stack / Flutter)" },
                   estimatedValueCents: { type: "integer" },
                   acceptCashTopUps: { type: "boolean" },
                   isSwipeOnly: { type: "boolean" },
-                  wantedCategoryIds: { type: "array", items: { type: "string" } },
+                  wantedCategoryIds: { type: "array", items: { type: "string", format: "uuid" } },
                   wantedCategories: { type: "array", items: { type: "string" } },
                   wantedFreeText: { type: "string" },
                   details: {
@@ -677,6 +887,42 @@ export const openApiSpec = {
           },
         },
         responses: { "201": { description: "Listing created", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } } },
+      },
+    },
+    "/api/listings/trending": {
+      get: {
+        tags: ["Listings"],
+        summary: "Trending listings plus recent others",
+        description:
+          "Returns up to 20 active listings ordered by right_swipe_count desc (trending), " +
+          "plus additional recent active listings excluding those already in trending. " +
+          "Auth is optional (same optionalAuth as the main feed).",
+        security: [],
+        responses: {
+          "200": {
+            description: "Trending and recent listings",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["trending", "others"],
+                  properties: {
+                    trending: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/BarterListing" },
+                      description: "Highest right-swipe counts first",
+                    },
+                    others: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/BarterListing" },
+                      description: "Recent active listings not already in trending",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     },
     "/api/listings/{listingId}": {
@@ -706,7 +952,9 @@ export const openApiSpec = {
         },
       },
       patch: {
-        tags: ["Listings"], summary: "Update listing",
+        tags: ["Listings"], summary: "Update listing (Edit Listing screen)",
+        description: "Partial update for the Edit Listing form — all fields optional. Caller must own the listing. Close a listing via POST /sold or DELETE, not this route. Photos via POST/DELETE /api/listings/{listingId}/images.",
+        security: [{ bearerAuth: [] }],
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: {
           required: true,
@@ -715,34 +963,138 @@ export const openApiSpec = {
               schema: {
                 type: "object",
                 properties: {
-                  title:           { type: "string", maxLength: 200 },
-                  description:     { type: "string", maxLength: 10000 },
-                  condition:       { type: "string", enum: ["new","like_new","great","good","fair"] },
-                  estimatedValue:  { type: "integer" },
-                  acceptCashTopUps: { type: "boolean" },
-                  isSwipeOnly:     { type: "boolean" },
-                  status:          { type: "string", enum: ["active","traded","paused","deleted"] },
-                  locationCity:    { type: "string", maxLength: 100 },
-                  location: {
-                    type: "object",
-                    properties: {
-                      lat: { type: "number" }, lng: { type: "number" },
-                      address: { type: "string" }, city: { type: "string" },
-                      state: { type: "string" }, country: { type: "string" },
-                      postalCode: { type: "string" },
-                    },
-                  },
+                  title:               { type: "string", maxLength: 200 },
+                  description:         { type: "string", maxLength: 10000 },
+                  category:            { type: "string", description: "Display label (optional when categoryId is set)." },
+                  categoryId:          { type: "string", format: "uuid", description: "categories.id UUID when changing category." },
+                  condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
+                  estimatedValue:      { type: "integer", description: "Dollar estimate (Est. Value field)." },
+                  estimatedValueCents: { type: "integer", description: "Value in cents — alternative to estimatedValue." },
+                  wantedCategoryIds:   { type: "array", items: { type: "string", format: "uuid" }, description: "Open to trade for — category UUIDs." },
+                  wantedCategories:    { type: "array", items: { type: "string" }, description: "Open to trade for — display labels (e.g. 'Vintage Clothing', 'Sneakers')." },
                 },
               },
             },
           },
         },
         responses: {
-          "200": { description: "Updated listing", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } },
-          "403": { description: "Forbidden" },
+          "200": {
+            description: "Updated listing.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listing: { $ref: "#/components/schemas/BarterListing" },
+                    id:      { type: "string", format: "uuid", description: "Legacy flat field — prefer listing.id." },
+                    title:   { type: "string",                 description: "Legacy flat field — prefer listing.title." },
+                    status:  { type: "string",                 description: "Legacy flat field — prefer listing.status." },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Validation error." },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
         },
       },
-      delete: { tags: ["Listings"], summary: "Delete listing (soft)", parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Deleted" }, "403": { description: "Forbidden" } } },
+      delete: {
+        tags: ["Listings"], summary: "Delete listing (soft)",
+        description: "Soft-deletes the listing (status → deleted). All pending offers are automatically denied and each buyer is notified.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Listing deleted and pending offers declined." },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
+          "409": { description: "Listing is already deleted." },
+        },
+      },
+    },
+    "/api/listings/{listingId}/sold": {
+      post: {
+        tags: ["Listings"], summary: "Mark listing as sold / traded",
+        description: "Closes the listing (status → traded). All remaining pending offers are automatically denied with a notification to each buyer. When soldMethod is `traded_on_barter` the seller's `totalTrades` count is incremented. The `shareWin` flag is echoed back for the mobile client to decide whether to show a trade-story composer.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["soldMethod"],
+                properties: {
+                  soldMethod:       { type: "string", enum: ["traded_on_barter", "sold_for_cash", "given_away"], description: "How the item left the seller's hands." },
+                  tradedWithUserId: { type: "string", format: "uuid", description: "UUID of the user traded with (traded_on_barter only). Optional — links the closed deal to a known SwapHaven user." },
+                  shareWin:         { type: "boolean", default: false, description: "When true the mobile client should show a trade-story composer after this call." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Listing marked as sold.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listing:    { $ref: "#/components/schemas/BarterListing" },
+                    id:         { type: "string", format: "uuid" },
+                    status:     { type: "string", enum: ["traded"] },
+                    soldMethod: { type: "string", enum: ["traded_on_barter", "sold_for_cash", "given_away"] },
+                    shareWin:   { type: "boolean" },
+                  },
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
+          "409": { description: "Listing already sold or deleted." },
+        },
+      },
+    },
+    "/api/listings/{listingId}/trade-partners": {
+      get: {
+        tags: ["Listings"],
+        summary: "List trade partner candidates for Mark as Sold",
+        description: "Owner-only. Returns distinct buyers who have ever made an offer on this listing (any status), for the Mark as Sold partner picker.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Distinct offer buyers for this listing.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    partners: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          id:          { type: "string", format: "uuid" },
+                          displayName: { type: "string" },
+                          avatarUrl:   { type: "string", nullable: true },
+                        },
+                        required: ["id", "displayName"],
+                      },
+                    },
+                  },
+                  required: ["partners"],
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
+        },
+      },
     },
     "/api/listings/{listingId}/view": {
       post: {
@@ -763,13 +1115,50 @@ export const openApiSpec = {
     },
     // ── Swipe ────────────────────────────────────────────────────────────────────
     "/api/swipe/deck": {
-      get: { tags: ["Swipe"], summary: "Get today's curated swipe deck", responses: { "200": { description: "Swipe cards", content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeDeckResponse" } } } } } },
+      get: {
+        tags: ["Swipe"],
+        summary: "Get a page of swipe deck cards",
+        parameters: [
+          {
+            name: "excludeIds",
+            in: "query",
+            required: false,
+            style: "form",
+            explode: true,
+            schema: {
+              oneOf: [
+                { type: "string", description: "Comma-separated listing UUIDs already in the client deck" },
+                { type: "array", items: { type: "string", format: "uuid" } },
+              ],
+            },
+            description: "Listing IDs already held in the client deck (for prefetch pages).",
+          },
+          {
+            name: "category",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description:
+              "Browse category slug (e.g. electronics). Omit or pass `all` for an unfiltered deck.",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Swipe cards",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeDeckResponse" } } },
+          },
+          "400": { description: "Invalid excludeIds" },
+        },
+      },
     },
     "/api/swipe": {
       post: {
         tags: ["Swipe"], summary: "Record a swipe",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["listingId","direction"], properties: { listingId: { type: "string", format: "uuid" }, direction: { type: "string", enum: ["left","right"] } } } } } },
-        responses: { "201": { description: "Swipe recorded" } },
+        responses: {
+          "201": { description: "Swipe recorded" },
+          "429": { description: "Daily swipe limit reached" },
+        },
       },
     },
     "/api/swipe/streak": {
@@ -810,8 +1199,52 @@ export const openApiSpec = {
     "/api/offers/{offerId}": {
       get: { tags: ["Offers"], summary: "Offer detail", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Offer with counter-offer and conversation ID" }, "403": { description: "Forbidden" } } },
     },
+    "/api/offers/{offerId}/conversation": {
+      post: {
+        tags: ["Offers"],
+        summary: "Get-or-create conversation for an offer",
+        description: "Returns the existing conversation for this offer, or creates one. Available for any offer status so either party can chat before accept.",
+        parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Existing conversation",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["conversationId"],
+                  properties: { conversationId: { type: "string", format: "uuid" } },
+                },
+              },
+            },
+          },
+          "201": {
+            description: "Conversation created",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["conversationId"],
+                  properties: { conversationId: { type: "string", format: "uuid" } },
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — caller is not a party to this offer" },
+          "404": { description: "Offer not found" },
+        },
+      },
+    },
     "/api/offers/{offerId}/accept": {
-      post: { tags: ["Offers"], summary: "Accept offer → creates Trade", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade and conversation created" } } },
+      post: {
+        tags: ["Offers"], summary: "Accept offer → creates Trade",
+        description: "Accepts the current pending round. Returns 409 if any listing in that round is not active (sold/deleted).",
+        parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Trade and conversation created" },
+          "409": { description: "Not your turn, offer already closed, or a round item is no longer active." },
+        },
+      },
     },
     "/api/offers/{offerId}/deny": {
       post: { tags: ["Offers"], summary: "Deny offer", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Denied" } } },
@@ -836,28 +1269,161 @@ export const openApiSpec = {
     },
     // ── Trades ───────────────────────────────────────────────────────────────────
     "/api/trades": {
-      get: { tags: ["Trades"], summary: "All user's trades", parameters: [{ $ref: "#/components/parameters/limit" }], responses: { "200": { description: "Paginated trades" } } },
+      get: {
+        tags: ["Trades"], summary: "List the caller's trades",
+        description: "Returns all trades where the caller is either the buyer or seller, ordered newest first.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: "#/components/parameters/limit" }],
+        responses: {
+          "200": {
+            description: "Paginated trade list",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items:      { type: "array", items: { $ref: "#/components/schemas/Trade" } },
+                    nextCursor: { type: "string", nullable: true },
+                  },
+                },
+              },
+            },
+          },
+          "401": { description: "Unauthorized" },
+        },
+      },
     },
     "/api/trades/{tradeId}": {
-      get: { tags: ["Trades"], summary: "Trade detail", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } }, "403": { description: "Forbidden" } } },
+      get: {
+        tags: ["Trades"], summary: "Trade detail",
+        description: "Returns the full trade including offer items and any submitted reviews. Caller must be a party to the trade.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+        },
+      },
     },
     "/api/trades/{tradeId}/meetup": {
       patch: {
         tags: ["Trades"], summary: "Set meetup time and location",
+        description: "Either party can set or update the meetup details while the trade is in `pending_meetup` status.",
+        security: [{ bearerAuth: [] }],
         parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["meetupScheduledAt","meetupLocation"], properties: { meetupScheduledAt: { type: "string", format: "date-time" }, meetupLocation: { type: "string", maxLength: 500 } } } } } },
-        responses: { "200": { description: "Trade updated", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } }, "403": { description: "Forbidden" } },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["meetupScheduledAt", "meetupLocation"],
+                properties: {
+                  meetupScheduledAt: { type: "string", format: "date-time" },
+                  meetupLocation:    { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated trade", content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } } },
+          "400": { description: "Validation error" },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+        },
       },
     },
     "/api/trades/{tradeId}/complete": {
-      post: { tags: ["Trades"], summary: "Mark trade completed", parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "200": { description: "Trade marked complete" } } },
+      post: {
+        tags: ["Trades"], summary: "Mark trade completed",
+        description: "Marks the trade as `completed` and opens a 7-day sealed review window (`reviewWindowClosesAt = now + 7 days`). Either party can call this. The other party receives a `trade_completed` push notification.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Trade marked complete. Use `reviewWindowClosesAt` to drive the countdown UI.",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } },
+          },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Trade is not in `pending_meetup` status" },
+        },
+      },
+    },
+    "/api/trades/{tradeId}/cancel": {
+      post: {
+        tags: ["Trades"], summary: "Cancel trade",
+        description: "Marks a `pending_meetup` trade as `cancelled`. Either party can call this. Listings involved become eligible for discovery again. The other party receives a `trade_cancelled` notification.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Trade cancelled",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Trade" } } },
+          },
+          "403": { description: "Forbidden — caller is not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Trade is not in `pending_meetup` status" },
+        },
+      },
+    },
+    "/api/trades/{tradeId}/review-status": {
+      get: {
+        tags: ["Trades"], summary: "Review window status",
+        description: "Returns the sealed-review window state for a completed trade: whether the window is open, whether both parties have submitted, and the close timestamp.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Review status", content: { "application/json": { schema: { $ref: "#/components/schemas/ReviewStatus" } } } },
+          "403": { description: "Forbidden — not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Trade is not yet completed" },
+        },
+      },
+    },
+    "/api/trades/{tradeId}/reviews/mine": {
+      get: {
+        tags: ["Trades"], summary: "My review for this trade",
+        description: "Returns the current user's own submitted review (always visible to the author, even while sealed).",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "The user's review", content: { "application/json": { schema: { $ref: "#/components/schemas/TradeReview" } } } },
+          "403": { description: "Forbidden" },
+          "404": { description: "Trade or review not found" },
+        },
+      },
     },
     "/api/trades/{tradeId}/reviews": {
       post: {
-        tags: ["Trades"], summary: "Leave a review",
+        tags: ["Trades"], summary: "Submit a review",
+        description: "Submit a sealed review within the 7-day window. Reviews reveal when both parties submit or the window closes.",
+        security: [{ bearerAuth: [] }],
         parameters: [{ name: "tradeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["rating"], properties: { rating: { type: "integer", minimum: 1, maximum: 5 }, comment: { type: "string", maxLength: 1000 } } } } } },
-        responses: { "201": { description: "Review created", content: { "application/json": { schema: { $ref: "#/components/schemas/TradeReview" } } } } },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["rating"],
+                properties: {
+                  rating:  { type: "integer", minimum: 1, maximum: 5 },
+                  comment: { type: "string", maxLength: 1000 },
+                  tags:    { type: "array", items: { type: "string", maxLength: 50 }, maxItems: 10, description: "Quick-select tags, e.g. 'Fast reply', 'Great condition'." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Review submitted (sealed until revealed)", content: { "application/json": { schema: { $ref: "#/components/schemas/TradeReview" } } } },
+          "403": { description: "Forbidden — not a party to this trade" },
+          "404": { description: "Trade not found" },
+          "409": { description: "Already reviewed, trade not completed, or review window closed" },
+        },
       },
     },
     // ── Conversations ────────────────────────────────────────────────────────────
@@ -925,16 +1491,117 @@ export const openApiSpec = {
     "/api/notifications/read-all": {
       post: { tags: ["Notifications"], summary: "Mark all notifications read", responses: { "204": { description: "All marked read" } } },
     },
+    // ── Search ───────────────────────────────────────────────────────────────────
+    "/api/search/listings": {
+      get: {
+        tags: ["Search"],
+        summary: "Search active listings (paginated)",
+        description:
+          "Dedicated search module. Only status=active listings. Multi-token AND on title/description, optional geo radius, offset pagination. Optional seed_ids reserved for Phase 2 affinity (ignored today).",
+        security: [],
+        parameters: [
+          { name: "q", in: "query", schema: { type: "string" }, description: "Search query (normalized; length < 2 ignored)" },
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number", minimum: 1, maximum: 25 }, description: "Max distance miles (hard filter)" },
+          { name: "condition", in: "query", schema: { type: "string" }, description: "CSV of like_new,great,good,fair,new" },
+          { name: "category", in: "query", schema: { type: "string" }, description: "Category slug" },
+          {
+            name: "sort",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["best_match", "nearest", "newest", "value_asc", "most_saved"],
+            },
+          },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+          { name: "seed_ids", in: "query", schema: { type: "string" }, description: "Phase 2: CSV of listing UUIDs (ignored in Phase 1)" },
+        ],
+        responses: {
+          "200": {
+            description: "Search results",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SearchListingsResponse" } } },
+          },
+          "400": { description: "Validation error" },
+        },
+      },
+    },
+    "/api/search/trending": {
+      get: {
+        tags: ["Search"],
+        summary: "Trending active listings",
+        description:
+          "Active listings ranked by engagement (right-swipe / save signal). Used by the search idle “Trending” product grid. Tap opens listing detail.",
+        security: [],
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 40, default: 8 } },
+        ],
+        responses: {
+          "200": {
+            description: "Trending listings",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TrendingSearchListingsResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    // ── Ads ──────────────────────────────────────────────────────────────────────
+    "/api/ads/active": {
+      get: {
+        tags: ["Ads"],
+        summary: "List active sponsored cards",
+        description: "Curated house/sponsor cards interleaved into the swipe deck. Public: no auth required. Filters rows to active = true AND within any configured starts_at/ends_at window. Ordered by weight DESC.",
+        security: [],
+        responses: {
+          "200": { description: "Active sponsored cards", content: { "application/json": { schema: { $ref: "#/components/schemas/SponsoredAdsResponse" } } } },
+        },
+      },
+    },
+    "/api/ads/{id}/click": {
+      post: {
+        tags: ["Ads"],
+        summary: "Record a sponsored-ad CTA click",
+        description: "Increments the ad's click_count when the user taps the CTA or right-swipes an ad card. Public: no auth required. Responds with 204 immediately; the DB write is fire-and-forget.",
+        security: [],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Click recorded (or ad id not found — still 204 after response is sent)" },
+          "400": { description: "Invalid ad id" },
+        },
+      },
+    },
+    "/api/ads/{id}/impression": {
+      post: {
+        tags: ["Ads"],
+        summary: "Record a sponsored-ad deck impression",
+        description: "Increments the ad's impression_count when the ad card becomes the top card in the swipe deck. Public: no auth required. Responds with 204 immediately; the DB write is fire-and-forget.",
+        security: [],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Impression recorded" },
+          "400": { description: "Invalid ad id" },
+        },
+      },
+    },
   },
   tags: [
     { name: "Meta",          description: "Health and metadata" },
     { name: "Auth",          description: "Authentication and session management" },
     { name: "Users",         description: "User profiles" },
-    { name: "Listings",      description: "Item listings and categories" },
+    { name: "Media",         description: "S3 presigned upload URLs for listing images" },
+    { name: "Listings",      description: "Item listings, categories, and owner actions (edit / mark sold / delete)" },
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Offers",        description: "Swap offers and counter-offers" },
-    { name: "Trades",        description: "Confirmed trades and reviews" },
+    { name: "Trades",        description: "Confirmed trades, meetup coordination, and sealed peer reviews (7-day reveal window)" },
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },
+    { name: "Ads",           description: "Sponsored / house-ad cards for the swipe deck" },
+    { name: "Search",        description: "Dedicated listing search (microservice-ready module)" },
   ],
 } as const;

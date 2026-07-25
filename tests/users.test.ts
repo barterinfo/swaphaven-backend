@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
-import { registerUser, createListing } from "./helpers/fixtures.js";
+import { registerUser, createListing, fullTradeSetup } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { userProfilesTable } from "../src/db/schema/index.js";
 
@@ -102,7 +102,7 @@ describe("GET /api/users/:userId", () => {
     expect(res.body.locationLng).toBeUndefined();
     expect(res.body.hasLocation).toBe(true);
     expect(res.body.ratingSum).toBeUndefined();
-    expect(res.body.ratingCount).toBeUndefined();
+    expect(res.body.ratingCount).toBe(0);
     expect(res.body.tradeScore).toBeUndefined();
     expect(res.body.updatedAt).toBeUndefined();
   });
@@ -117,6 +117,7 @@ describe("GET /api/users/:userId", () => {
     const res = await request(app).get(`/api/users/${user.id}`);
     expect(res.status).toBe(200);
     expect(res.body.rating).toBe(4.5);
+    expect(res.body.ratingCount).toBe(10);
   });
 
   it("returns 404 for unknown user", async () => {
@@ -193,5 +194,39 @@ describe("GET /api/users/:userId/reviews", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(0);
+  });
+
+  it("returns revealed reviews with trade listing title and thumbnail", async () => {
+    const { seller, buyer, sellerListing, trade } = await fullTradeSetup();
+    const thumbUrl = "https://cdn.example.com/listing-thumb.jpg";
+
+    await request(app)
+      .post(`/api/listings/${sellerListing.id}/images`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ url: thumbUrl, position: 0 });
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/complete`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/reviews`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ rating: 5, comment: "Great swap!" });
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/reviews`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ rating: 4 });
+
+    const res = await request(app).get(`/api/users/${seller.user.id}/reviews`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].rating).toBe(5);
+    expect(res.body.items[0].comment).toBe("Great swap!");
+    expect(res.body.items[0].reviewerId).toBe(buyer.user.id);
+    expect(res.body.items[0].tradeListingTitle).toBe(sellerListing.title);
+    expect(res.body.items[0].listingThumbnailUrl).toBe(thumbUrl);
   });
 });

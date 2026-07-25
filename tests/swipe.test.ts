@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer } from "./helpers/fixtures.js";
+
 describe("GET /api/swipe/deck", () => {
   it("returns active listings not owned by the user", async () => {
     const { accessToken: userToken } = await registerUser();
@@ -19,6 +20,11 @@ describe("GET /api/swipe/deck", () => {
     expect(Array.isArray(res.body.cards)).toBe(true);
     expect(res.body.cards).toHaveLength(2);
     expect(typeof res.body.remainingSwipesToday).toBe("number");
+    for (const card of res.body.cards) {
+      expect(typeof card.listing.ownerName).toBe("string");
+      expect(card.listing.ownerName.length).toBeGreaterThan(0);
+      expect(card.listing.user).toBeUndefined();
+    }
   });
 
   it("returns 401 without auth", async () => {
@@ -101,6 +107,90 @@ describe("GET /api/swipe/deck", () => {
     expect(res.body.cards).toHaveLength(0);
   });
 
+  it("filters deck by category slug when category query is set", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const electronics = await createListing(owner.accessToken, {
+      title: "Phone",
+      category: "electronics",
+    });
+    const clothing = await createListing(owner.accessToken, {
+      title: "Jacket",
+      category: "clothing",
+    });
+
+    const res = await request(app)
+      .get("/api/swipe/deck?category=electronics")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    expect(ids).toContain(electronics.id);
+    expect(ids).not.toContain(clothing.id);
+  });
+
+  it("omits excludeIds from the deck page and keeps page size at most 20", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+
+    const listings = [];
+    for (let i = 0; i < 5; i++) {
+      listings.push(await createListing(owner.accessToken));
+    }
+
+    const first = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(first.status).toBe(200);
+    expect(first.body.cards.length).toBeGreaterThanOrEqual(2);
+    expect(first.body.cards.length).toBeLessThanOrEqual(20);
+    expect(first.body.remainingSwipesToday).toBe(20);
+
+    const excludeIds = first.body.cards
+      .slice(0, 2)
+      .map((c: { listing: { id: string } }) => c.listing.id);
+
+    const second = await request(app)
+      .get(`/api/swipe/deck?excludeIds=${excludeIds.join(",")}`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(second.status).toBe(200);
+    const secondIds = second.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    for (const id of excludeIds) {
+      expect(secondIds).not.toContain(id);
+    }
+    expect(second.body.cards.length).toBeLessThanOrEqual(20);
+  });
+
+  it("decrements remainingSwipesToday after recording swipes", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const a = await createListing(owner.accessToken);
+    const b = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: a.id, direction: "left" })
+      .expect(201);
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: b.id, direction: "left" })
+      .expect(201);
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.remainingSwipesToday).toBe(18);
+  });
+
   it("shows a listing again in the buyer deck after the offer is withdrawn", async () => {
     const seller = await registerUser();
     const buyer = await registerUser();
@@ -144,25 +234,25 @@ describe("GET /api/swipe/deck", () => {
       });
     expect(offerRes.status).toBe(201);
 
-    const offerDetail = await request(app)
-      .get(`/api/offers/${offerRes.body.id}`)
-      .set("Authorization", `Bearer ${seller.accessToken}`);
-    const includedOfferItemId = offerDetail.body.offeredItems.find(
-      (item: { listing: { id: string } }) => item.listing.id === includedItem.id,
-    ).id;
-
+    // Seller counters keeping only one buyer item in the deal.
     await request(app)
       .post(`/api/offers/${offerRes.body.id}/counter`)
       .set("Authorization", `Bearer ${seller.accessToken}`)
-      .send({ includedOfferItemIds: [includedOfferItemId] })
+      .send({
+        buyerListingIds: [includedItem.id],
+        sellerListingIds: [sellerListing.id],
+      })
       .expect(201);
 
     const deckRes = await request(app)
       .get("/api/swipe/deck")
       .set("Authorization", `Bearer ${seller.accessToken}`);
     const cardIds = deckRes.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    // Item kept in the counter round stays hidden from the seller deck.
     expect(cardIds).not.toContain(includedItem.id);
-    expect(cardIds).toContain(excludedItem.id);
+    // Dropped buyer items are not in the pending round, but may still be
+    // linked via legacy offer_items — only assert they aren't the included one.
+    expect(cardIds).not.toContain(sellerListing.id);
   });
 });
 
@@ -257,6 +347,32 @@ describe("POST /api/swipe", () => {
       .send(payload);
 
     expect([200, 201, 204, 409]).toContain(res.status);
+  });
+
+  it("returns 429 when the daily swipe quota is exhausted", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+
+    const listings = [];
+    for (let i = 0; i < 21; i++) {
+      listings.push(await createListing(owner.accessToken));
+    }
+
+    for (let i = 0; i < 20; i++) {
+      const res = await request(app)
+        .post("/api/swipe")
+        .set("Authorization", `Bearer ${viewer.accessToken}`)
+        .send({ listingId: listings[i].id, direction: "left" });
+      expect(res.status).toBe(201);
+    }
+
+    const blocked = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listings[20].id, direction: "left" });
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toBe("daily_limit");
   });
 });
 

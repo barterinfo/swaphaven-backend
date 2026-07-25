@@ -29,10 +29,15 @@ type RegisterResponse = {
   message?: string | Record<string, string[]>;
 };
 
+type StartRegisterResponse = {
+  message?: string;
+  error?: string;
+};
+
 function printHelp(): void {
   console.log(`SwapHaven user signup script
 
-Registers a new account via POST /api/auth/register.
+Registers a new account via POST /api/auth/register + /register/verify (email OTP).
 
 Usage:
   npm run seed:user
@@ -41,7 +46,7 @@ Usage:
 
 Options:
   --base-url <url>   API origin (default: API_BASE env, then PUBLIC_API_URL, then ${DEFAULT_API_BASE})
-  --random           Create a random test user (no prompts)
+  --random           Create a random test user (no prompts for name/email)
   --help             Show this help
 
 Environment:
@@ -50,10 +55,12 @@ Environment:
   SEED_NAME          Skip prompts when set with SEED_EMAIL
   SEED_EMAIL         Account email (or username@example.com)
   SEED_PASSWORD      Override default password (${DEFAULT_PASSWORD})
+  SEED_OTP           Skip OTP prompt (use code from email / server logs)
 
 Examples:
   npm run seed:user
   npm run seed:user -- --random
+  SEED_OTP=123456 npm run seed:user -- --random
   npm run seed:user -- --base-url https://swaphaven-backend-production.up.railway.app
 `);
 }
@@ -141,7 +148,10 @@ async function promptSignupDetails(): Promise<{ name: string; email: string; pas
   return { name, email, password: resolvePassword() };
 }
 
-function formatErrorMessage(body: RegisterResponse, status: number): string {
+function formatErrorMessage(
+  body: RegisterResponse | StartRegisterResponse,
+  status: number,
+): string {
   if (typeof body.message === "string") return body.message;
   if (body.message && typeof body.message === "object") {
     const parts = Object.entries(body.message).flatMap(([field, errors]) =>
@@ -152,14 +162,31 @@ function formatErrorMessage(body: RegisterResponse, status: number): string {
   return body.error ?? `Registration failed (${status})`;
 }
 
-async function registerUser(
+async function startRegistration(
   apiBase: string,
   details: { name: string; email: string; password: string },
-): Promise<RegisterResponse> {
+): Promise<void> {
   const res = await fetch(`${apiBase}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(details),
+  });
+
+  const body = (await res.json()) as StartRegisterResponse;
+  if (!res.ok) {
+    throw new Error(formatErrorMessage(body, res.status));
+  }
+}
+
+async function verifyRegistration(
+  apiBase: string,
+  email: string,
+  token: string,
+): Promise<RegisterResponse> {
+  const res = await fetch(`${apiBase}/api/auth/register/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, token }),
   });
 
   const body = (await res.json()) as RegisterResponse;
@@ -168,6 +195,24 @@ async function registerUser(
   }
 
   return body;
+}
+
+async function resolveOtp(): Promise<string> {
+  const fromEnv = process.env.SEED_OTP?.trim();
+  if (fromEnv) return fromEnv;
+  const otp = await promptLine("Enter 6-digit OTP from email (or server logs): ");
+  if (!otp) throw new Error("OTP is required");
+  return otp;
+}
+
+async function registerUser(
+  apiBase: string,
+  details: { name: string; email: string; password: string },
+): Promise<RegisterResponse> {
+  await startRegistration(apiBase, details);
+  console.log("Verification code sent. Check email (or non-prod server logs).\n");
+  const otp = await resolveOtp();
+  return verifyRegistration(apiBase, details.email, otp);
 }
 
 async function main(): Promise<void> {
