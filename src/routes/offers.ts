@@ -15,6 +15,7 @@ import { serializeOfferListItem, serializeOfferRound } from "../lib/inbox-serial
 import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
 import { MAX_OFFER_ROUNDS } from "../lib/max-rounds.js";
 import { sendPushToUser } from "../lib/push.js";
+import { containsProfanity } from "../lib/moderation.js";
 import {
   buildCounterOfferPush,
   buildOfferAcceptedPush,
@@ -81,6 +82,13 @@ router.post("/", requireAuth, async (req, res) => {
   const parsed = createOfferSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  if (containsProfanity(parsed.data.buyerNote)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "buyerNote contains inappropriate language and cannot be used.",
+    });
   }
 
   const { offeredListingIds, ...offerData } = parsed.data;
@@ -423,6 +431,12 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
   const parsed = counterSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+  if (containsProfanity(parsed.data.note)) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "sellerNote contains inappropriate language and cannot be used.",
+    });
   }
 
   const { buyerListingIds, sellerListingIds, buyerCashTopUpCents, sellerCashRequestedCents, note } = parsed.data;

@@ -11,6 +11,8 @@ import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { filterListingImageUrls } from "../lib/media.js";
+import { findProfaneField } from "../lib/moderation.js";
+import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-moderation.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import {
   buildReviewSnapshot,
@@ -127,6 +129,31 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const data = parsed.data;
+  const profaneField = findProfaneField([
+    { field: "title", value: data.title },
+    { field: "description", value: data.description },
+    { field: "wantedFreeText", value: data.wantedFreeText },
+    { field: "brand", value: data.details?.brand },
+    { field: "ageRange", value: data.details?.ageRange },
+  ]);
+  if (profaneField) {
+    return res.status(400).json({
+      error: "moderation",
+      message: `${profaneField} contains inappropriate language and cannot be used.`,
+    });
+  }
+
+  const imageUrls = filterListingImageUrls(data.images ?? []);
+  if (imageUrls.length) {
+    const irrelevant = await findIrrelevantImage(imageUrls, data.title, data.description ?? "");
+    if (irrelevant) {
+      return res.status(400).json({
+        error: "moderation",
+        message: "One or more photos do not appear to match the listing title or description. Please upload a photo of the actual item.",
+      });
+    }
+  }
+
   const categoryUuid = resolveCategoryUuid(data);
   const catRow = await db.query.categoriesTable.findFirst({
     where: eq(categoriesTable.id, categoryUuid),
@@ -176,7 +203,6 @@ router.post("/", requireAuth, async (req, res) => {
     })
     .returning();
 
-  const imageUrls = filterListingImageUrls(data.images ?? []);
   if (imageUrls.length) {
     await db.insert(listingImagesTable).values(
       imageUrls.map((url, position) => ({
@@ -414,6 +440,17 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const patch = parsed.data;
+  const profaneField = findProfaneField([
+    { field: "title", value: patch.title },
+    { field: "description", value: patch.description },
+  ]);
+  if (profaneField) {
+    return res.status(400).json({
+      error: "moderation",
+      message: `${profaneField} contains inappropriate language and cannot be used.`,
+    });
+  }
+
   const wantsChanged =
     patch.wantedCategoryIds !== undefined || patch.wantedCategories !== undefined;
   const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
@@ -605,6 +642,14 @@ router.post("/:listingId/images", requireAuth, async (req, res) => {
     return res.status(400).json({
       error: "validation",
       message: "url must be a public https URL (upload via POST /api/media/presign first)",
+    });
+  }
+
+  const relevant = await isImageRelevantToListing(url, listing.title, listing.description);
+  if (!relevant) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "This photo does not appear to match the listing title or description. Please upload a photo of the actual item.",
     });
   }
 
