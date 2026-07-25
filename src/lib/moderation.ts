@@ -4,6 +4,7 @@ import {
   englishDataset,
   englishRecommendedTransformers,
 } from "obscenity";
+import { env } from "../config/env.js";
 
 // Innocent words that contain a blacklisted substring (the "Scunthorpe problem").
 // A whitelisted term suppresses any profanity match that falls within it, so a
@@ -52,6 +53,7 @@ const matcher = new RegExpMatcher({
 });
 
 export function containsProfanity(text: string | null | undefined): boolean {
+  if (!env.ENABLE_PROFANITY_FILTER) return false;
   if (!text) return false;
   return matcher.hasMatch(text);
 }

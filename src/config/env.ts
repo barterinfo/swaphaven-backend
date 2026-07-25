@@ -85,6 +85,11 @@ const envSchema = z.object({
   IOS_APP_STORE_URL: z.string().url().optional(),
   /** Play Store listing URL used when the app is not installed (Android). */
   ANDROID_PLAY_STORE_URL: z.string().url().optional(),
+  /** When false, profanity checks are skipped on all user-generated text fields. Defaults to true. */
+  ENABLE_PROFANITY_FILTER: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v !== "false"),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));
