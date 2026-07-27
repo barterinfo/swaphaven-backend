@@ -1161,6 +1161,43 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/swipe/{swipeId}": {
+      delete: {
+        tags: ["Swipe"],
+        summary: "Undo a left (pass) swipe",
+        description:
+          "Deletes the caller's left swipe so the listing can reappear in the deck. Restores daily/bonus quota. Right swipes cannot be undone.",
+        parameters: [
+          {
+            name: "swipeId",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Pass undone",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    swipeId: { type: "string", format: "uuid" },
+                    listingId: { type: "string", format: "uuid" },
+                    remainingSwipesToday: { type: "integer" },
+                    bonusSwipesAvailable: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Not a left swipe or invalid id" },
+          "403": { description: "Swipe belongs to another user" },
+          "404": { description: "Swipe not found" },
+        },
+      },
+    },
     "/api/swipe/streak": {
       get: { tags: ["Swipe"], summary: "Get swipe streak", responses: { "200": { description: "Streak info", content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeStreak" } } } } } },
     },
