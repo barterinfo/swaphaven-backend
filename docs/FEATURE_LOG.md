@@ -36,6 +36,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-07-28 | Save-for-later listings feature | saved_listings, /api/saved, listing stats, mobile saved feature/Saved tab | [Save-for-later listings feature](5525bf4c-7c05-4039-92ac-d5d498906676) |
 | 2026-05-03 | Initial Barter workspace setup | early barter-app Node + Flutter scaffold | [Initial Barter workspace setup](30d3959d-818c-4272-99a2-ffade0df7e7f) |
 | 2026-05-03 | Login signup with pbkdf2 | auth login/signup, password hashing | [Login signup with pbkdf2](0ed9d13d-6657-46c8-8f25-d26a5a95e9ee) |
 | 2026-05-19 | Freezed models as project rule | freezed models, cursor rule | [Freezed models as project rule](f098f4df-c95b-43fa-bd09-cdbcbd255edc) |
@@ -414,5 +415,13 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 - **Chat:** [Strike sold items in trade offers](9fd321f2-3f95-4e46-8bc5-0e135349c28f)
 - **Areas:** offers inbox serializers, offer/counter screens, push payloads, listing-owner docs
 - **Summary:** Surfaced sold/deleted listing state in offers and counters with strike-through UI, adjusted totals, and excluded unavailable items from counter flows.
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Save-for-later listings feature
+
+- **Date:** 2026-07-28
+- **Chat:** [Save-for-later listings feature](5525bf4c-7c05-4039-92ac-d5d498906676)
+- **Areas:** saved_listings schema/migration, /api/saved, listing is_saved + /stats, mobile features/saved, Saved tab
+- **Summary:** Save-for-later independent of swipes; Me Saved tab; owner save_count via listing stats. See [SAVED_FEATURE.md](./SAVED_FEATURE.md).
 - **Also tracked in:** barter-stack FEATURE_LOG
 

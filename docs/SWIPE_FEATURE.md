@@ -631,6 +631,7 @@ sequenceDiagram
 | [API_GUIDE.md](./API_GUIDE.md) | Route table / curl samples |
 | [DB_SCHEMA.md](./DB_SCHEMA.md) | `swipes`, `swipe_streaks` |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Shared negotiation exclusion; `right_swipe_count` ranking |
+| [SAVED_FEATURE.md](./SAVED_FEATURE.md) | Save-for-later independent of pass/like |
 | [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md) | Sold/traded listings leave the deck |
 | [SEED_LISTINGS.md](./SEED_LISTINGS.md) | Seeding discovery inventory |
 | [TESTING.md](./TESTING.md) | How to run API tests |
