@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, gte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { db } from "../db/client.js";
@@ -8,6 +8,7 @@ import {
   swipeStreaksTable,
   listingsTable,
   categoriesTable,
+  savedListingsTable,
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
@@ -171,12 +172,28 @@ router.get("/deck", requireAuth, async (req, res) => {
     return { mutualFitScore: score, matchedWantedLabels: matched, matchReason: reason };
   }
 
-  const [streak, swipesToday] = await Promise.all([
+  const [streak, swipesToday, savedRows] = await Promise.all([
     db.query.swipeStreaksTable.findFirst({
       where: eq(swipeStreaksTable.userId, userId),
     }),
     countSwipesToday(userId),
+    cards.length
+      ? db
+          .select({ listingId: savedListingsTable.listingId })
+          .from(savedListingsTable)
+          .where(
+            and(
+              eq(savedListingsTable.userId, userId),
+              inArray(
+                savedListingsTable.listingId,
+                cards.map((c) => c.id),
+              ),
+            ),
+          )
+      : Promise.resolve([] as { listingId: string }[]),
   ]);
+
+  const savedIds = new Set(savedRows.map((r) => r.listingId));
 
   return res.json({
     cards: cards.map((c) => {
@@ -185,11 +202,12 @@ router.get("/deck", requireAuth, async (req, res) => {
       const { user, ...listing } = c;
       const ownerName = user?.profile?.displayName?.trim() || user?.name?.trim() || "";
       return {
-        listing: { ...listing, ownerName },
+        listing: { ...listing, ownerName, is_saved: savedIds.has(c.id) },
         matchReason,
         mutualFitScore,
         matchedWantedLabels,
         hotCount: c.rightSwipeCount,
+        is_saved: savedIds.has(c.id),
       };
     }),
     remainingSwipesToday: remainingDailySwipes(swipesToday),

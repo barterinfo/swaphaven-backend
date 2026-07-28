@@ -240,22 +240,47 @@ describe("GET /api/listings/:id", () => {
     expect(res.body.listing.right_swipe_count).toBe(1);
   });
 
-  it("returns offer_count for open (pending/countered) offers", async () => {
+  it("returns offer_count including pending and accepted on owner stats", async () => {
     const seller = await registerUser();
     const buyer = await registerUser();
     const sellerListing = await createListing(seller.accessToken);
     const buyerListing = await createListing(buyer.accessToken);
 
-    const before = await request(app).get(`/api/listings/${sellerListing.id}`);
+    const before = await request(app)
+      .get(`/api/listings/${sellerListing.id}/stats`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
     expect(before.status).toBe(200);
-    expect(before.body.listing.offer_count).toBe(0);
+    expect(before.body.offer_count).toBe(0);
+    expect(before.body.save_count).toBe(0);
 
-    await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
+    const offer = await createOffer(buyer.accessToken, sellerListing.id, buyerListing.id);
 
-    const after = await request(app).get(`/api/listings/${sellerListing.id}`);
-    expect(after.status).toBe(200);
-    expect(after.body.listing.offer_count).toBe(1);
-    expect(after.body.offer_count).toBe(1);
+    const pending = await request(app)
+      .get(`/api/listings/${sellerListing.id}/stats`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(pending.status).toBe(200);
+    expect(pending.body.offer_count).toBe(1);
+
+    await request(app)
+      .post(`/api/offers/${offer.id}/accept`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const accepted = await request(app)
+      .get(`/api/listings/${sellerListing.id}/stats`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.offer_count).toBe(1);
+  });
+
+  it("forbids non-owners from listing stats", async () => {
+    const owner = await registerUser();
+    const other = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    const res = await request(app)
+      .get(`/api/listings/${listing.id}/stats`)
+      .set("Authorization", `Bearer ${other.accessToken}`);
+    expect(res.status).toBe(403);
   });
 });
 

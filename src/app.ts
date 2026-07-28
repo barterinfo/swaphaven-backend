@@ -23,6 +23,7 @@ import searchRouter from "./routes/search.js";
 import wellKnownRouter from "./routes/wellKnown.js";
 import listingPreviewRouter from "./routes/listingPreview.js";
 import profilePreviewRouter from "./routes/profilePreview.js";
+import savedRouter from "./routes/saved.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -163,6 +164,7 @@ export function createApp(): express.Express {
   app.use("/api/users",         usersRouter);
   app.use("/api/listings",      listingsRouter);
   app.use("/api/swipe",         swipeRouter);
+  app.use("/api/saved",         savedRouter);
   app.use("/api/offers",        offersRouter);
   app.use("/api/trades",        tradesRouter);
   app.use("/api/conversations", conversationsRouter);

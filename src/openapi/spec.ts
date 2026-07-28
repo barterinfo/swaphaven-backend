@@ -180,7 +180,7 @@ export const openApiSpec = {
           owner_name:        { type: "string" },
           right_swipe_count: { type: "integer", description: "Denormalized right-swipe count." },
           view_count:        { type: "integer", description: "Approximate page-view count." },
-          offer_count:       { type: "integer", description: "Open offers on this listing (pending + countered). Present on GET /api/listings/:id." },
+          is_saved:          { type: "boolean", description: "True when the authenticated caller has saved this listing. False when unauthenticated or not saved." },
           seller:            { allOf: [{ $ref: "#/components/schemas/SellerSnapshot" }], nullable: true, description: "Embedded seller card. Present on GET /api/listings/:id; null on feed/closet responses." },
         },
       },
@@ -241,6 +241,7 @@ export const openApiSpec = {
           matchReason:    { type: "string", nullable: true },
           mutualFitScore: { type: "number" },
           hotCount:       { type: "integer", description: "Number of right swipes on this listing (mirrors listing.rightSwipeCount)." },
+          is_saved:       { type: "boolean", description: "True when the caller has saved this listing for later." },
         },
       },
       SwipeDeckResponse: {
@@ -250,6 +251,21 @@ export const openApiSpec = {
           remainingSwipesToday: { type: "integer" },
           bonusSwipesAvailable: { type: "integer" },
           refreshesAt:          { type: "string", format: "date-time" },
+        },
+      },
+      SavedListItem: {
+        type: "object",
+        properties: {
+          saved_id: { type: "string", format: "uuid" },
+          saved_at: { type: "string", format: "date-time" },
+          listing:  { $ref: "#/components/schemas/BarterListing" },
+        },
+      },
+      SavedListResponse: {
+        type: "object",
+        properties: {
+          items:      { type: "array", items: { $ref: "#/components/schemas/SavedListItem" } },
+          nextCursor: { type: "string", nullable: true },
         },
       },
       ListingImage: {
@@ -1058,6 +1074,36 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/listings/{listingId}/stats": {
+      get: {
+        tags: ["Listings"],
+        summary: "Owner listing analytics",
+        description:
+          "Owner-only. Returns view_count, save_count, and offer_count (pending + countered + accepted) for My Listing Detail. Not included on public GET /api/listings/{id}.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Owner analytics for the listing.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    view_count:  { type: "integer" },
+                    save_count:  { type: "integer", description: "Users who saved this listing." },
+                    offer_count: { type: "integer", description: "Offers in pending, countered, or accepted status." },
+                  },
+                  required: ["view_count", "save_count", "offer_count"],
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — caller does not own the listing." },
+          "404": { description: "Listing not found." },
+        },
+      },
+    },
     "/api/listings/{listingId}/trade-partners": {
       get: {
         tags: ["Listings"],
@@ -1163,6 +1209,42 @@ export const openApiSpec = {
     },
     "/api/swipe/streak": {
       get: { tags: ["Swipe"], summary: "Get swipe streak", responses: { "200": { description: "Streak info", content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeStreak" } } } } } },
+    },
+    // ── Saved ────────────────────────────────────────────────────────────────────
+    "/api/saved": {
+      get: {
+        tags: ["Saved"],
+        summary: "List saved listings",
+        description: "Returns the caller's saved-for-later listings (active only), newest first.",
+        parameters: [{ $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }],
+        responses: {
+          "200": {
+            description: "Paginated saved listings",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SavedListResponse" } } },
+          },
+        },
+      },
+    },
+    "/api/saved/{listingId}": {
+      post: {
+        tags: ["Saved"],
+        summary: "Save a listing for later",
+        description: "Idempotent. Cannot save own listings. Independent of swipe pass/like.",
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Already saved" },
+          "201": { description: "Saved" },
+          "400": { description: "Own listing or inactive" },
+          "404": { description: "Listing not found" },
+        },
+      },
+      delete: {
+        tags: ["Saved"],
+        summary: "Unsave a listing",
+        description: "Idempotent — always 204.",
+        parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { "204": { description: "Unsaved (or was not saved)" } },
+      },
     },
     // ── Offers ───────────────────────────────────────────────────────────────────
     "/api/offers": {
@@ -1597,6 +1679,7 @@ export const openApiSpec = {
     { name: "Media",         description: "S3 presigned upload URLs for listing images" },
     { name: "Listings",      description: "Item listings, categories, and owner actions (edit / mark sold / delete)" },
     { name: "Swipe",         description: "Swipe deck and streak" },
+    { name: "Saved",         description: "Save-for-later listings (independent of swipes)" },
     { name: "Offers",        description: "Swap offers and counter-offers" },
     { name: "Trades",        description: "Confirmed trades, meetup coordination, and sealed peer reviews (7-day reveal window)" },
     { name: "Chat",          description: "Real-time conversation and messages" },
