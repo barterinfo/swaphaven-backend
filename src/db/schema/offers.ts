@@ -27,6 +27,8 @@ export const offersTable = pgTable("offers", {
   buyerId:        uuid("buyer_id").notNull().references(() => usersTable.id),
   sellerId:       uuid("seller_id").notNull().references(() => usersTable.id),
   swipeId:        uuid("swipe_id").references(() => swipesTable.id),
+  /** True when the offer was created from a super-swipe (⭐). */
+  isSuperlike:    boolean("is_superlike").notNull().default(false),
   status:         offerStatusEnum("status").notNull().default("pending"),
   buyerNote:      text("buyer_note"),
   cashTopUpCents: integer("cash_top_up_cents").notNull().default(0),

@@ -696,3 +696,103 @@ describe("Counter round cap", () => {
     expect(res.body.message).toMatch(/maximum/i);
   });
 });
+
+// ─── Superlike flag on offers ─────────────────────────────────────────────────
+describe("is_superlike on offers", () => {
+  it("sets isSuperlike=true when the swipeId points to a super-swipe", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    // Record a super-swipe first
+    const swipeRes = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ listingId: sellerListing.id, direction: "super" });
+    expect(swipeRes.status).toBe(201);
+    const swipeId = swipeRes.body.swipeId;
+
+    // Create offer referencing the super-swipe
+    const offerRes = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ listingId: sellerListing.id, swipeId, offeredListingIds: [buyerListing.id] });
+    expect(offerRes.status).toBe(201);
+
+    // Seller inbox: offer should surface first and have isSuperlike=true
+    const inboxRes = await request(app)
+      .get("/api/offers/received")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(inboxRes.status).toBe(200);
+    const item = inboxRes.body.items.find((i: { id: string }) => i.id === offerRes.body.id);
+    expect(item).toBeTruthy();
+    expect(item.isSuperlike).toBe(true);
+  });
+
+  it("sets isSuperlike=false for a normal right-swipe offer", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    const swipeRes = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ listingId: sellerListing.id, direction: "right" });
+    expect(swipeRes.status).toBe(201);
+
+    const offerRes = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({
+        listingId: sellerListing.id,
+        swipeId: swipeRes.body.swipeId,
+        offeredListingIds: [buyerListing.id],
+      });
+    expect(offerRes.status).toBe(201);
+
+    const inboxRes = await request(app)
+      .get("/api/offers/received")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    const item = inboxRes.body.items.find((i: { id: string }) => i.id === offerRes.body.id);
+    expect(item).toBeTruthy();
+    expect(item.isSuperlike).toBe(false);
+  });
+
+  it("superliked offers sort before normal offers in received inbox", async () => {
+    const seller = await registerUser();
+    const buyer1 = await registerUser();
+    const buyer2 = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const item1 = await createListing(buyer1.accessToken);
+    const item2 = await createListing(buyer2.accessToken);
+
+    // buyer1 makes a normal offer first (older)
+    const normalOffer = await createOffer(buyer1.accessToken, sellerListing.id, item1.id);
+
+    // buyer2 makes a super-swipe then offers (newer, but should sort first)
+    const superSwipe = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${buyer2.accessToken}`)
+      .send({ listingId: sellerListing.id, direction: "super" });
+    expect(superSwipe.status).toBe(201);
+
+    const superOffer = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer2.accessToken}`)
+      .send({
+        listingId: sellerListing.id,
+        swipeId: superSwipe.body.swipeId,
+        offeredListingIds: [item2.id],
+      });
+    expect(superOffer.status).toBe(201);
+
+    const inboxRes = await request(app)
+      .get("/api/offers/received")
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+    expect(inboxRes.status).toBe(200);
+    const ids = inboxRes.body.items.map((i: { id: string }) => i.id);
+    expect(ids.indexOf(superOffer.body.id)).toBeLessThan(ids.indexOf(normalOffer.id));
+  });
+});

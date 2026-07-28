@@ -1,12 +1,12 @@
 import { Router, type Response } from "express";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
   offersTable, offerItemsTable, counterOffersTable,
   offerRoundsTable, offerRoundItemsTable,
-  tradesTable, conversationsTable, notificationsTable, listingsTable,
+  tradesTable, conversationsTable, notificationsTable, listingsTable, swipesTable,
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
@@ -103,9 +103,19 @@ router.post("/", requireAuth, async (req, res) => {
     return res.status(409).json({ error: "conflict", message: "Listing is no longer active" });
   }
 
+  // Check whether the triggering swipe was a super-swipe so the offer is flagged.
+  let isSuperlike = false;
+  if (offerData.swipeId) {
+    const swipe = await db.query.swipesTable.findFirst({
+      where: eq(swipesTable.id, offerData.swipeId),
+      columns: { direction: true },
+    });
+    isSuperlike = swipe?.direction === "super";
+  }
+
   const [offer] = await db
     .insert(offersTable)
-    .values({ ...offerData, buyerId: req.user!.sub, sellerId: listing.userId })
+    .values({ ...offerData, buyerId: req.user!.sub, sellerId: listing.userId, isSuperlike })
     .returning();
 
   // Original offer items (buyer side) — kept for legacy compatibility.
@@ -172,7 +182,8 @@ router.get("/received", requireAuth, async (req, res) => {
     where: and(...conditions),
     with: offerListWith,
     limit,
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
+    // Superliked offers surface first, then newest first.
+    orderBy: [sql`${offersTable.isSuperlike} DESC`, desc(offersTable.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
   return res.json({ items: items.map(serializeOfferListItem), nextCursor });
@@ -190,7 +201,8 @@ router.get("/sent", requireAuth, async (req, res) => {
     where: and(...conditions),
     with: offerListWith,
     limit,
-    orderBy: (t, { desc }) => [desc(t.createdAt)],
+    // Superliked offers surface first, then newest first.
+    orderBy: [sql`${offersTable.isSuperlike} DESC`, desc(offersTable.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
   return res.json({ items: items.map(serializeOfferListItem), nextCursor });

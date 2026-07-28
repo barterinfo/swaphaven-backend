@@ -376,6 +376,69 @@ describe("POST /api/swipe", () => {
   });
 });
 
+// ─── Superlike quota ──────────────────────────────────────────────────────────
+describe("POST /api/swipe — super direction", () => {
+  it("accepts direction=super, bumps right_swipe_count and returns superlikesRemaining", async () => {
+    const { accessToken } = await registerUser();
+    const { accessToken: otherToken } = await registerUser();
+    const listing = await createListing(otherToken);
+
+    const res = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ listingId: listing.id, direction: "super" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.direction).toBe("super");
+    expect(typeof res.body.superlikesRemaining).toBe("number");
+    expect(res.body.superlikesRemaining).toBe(1); // started at 2, now 1
+
+    // right_swipe_count must be incremented by super-swipes too
+    const detailRes = await request(app).get(`/api/listings/${listing.id}`);
+    expect(detailRes.body.listing.right_swipe_count).toBe(1);
+  });
+
+  it("returns superlikesRemaining in the deck response", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(typeof res.body.superlikesRemaining).toBe("number");
+  });
+
+  it("returns 429 superlike_limit after quota is exhausted", async () => {
+    const { accessToken } = await registerUser();
+    const { accessToken: otherToken } = await registerUser();
+    const l1 = await createListing(otherToken);
+    const l2 = await createListing(otherToken);
+    const l3 = await createListing(otherToken);
+
+    // Use both free superlikes
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ listingId: l1.id, direction: "super" })
+      .expect(201);
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ listingId: l2.id, direction: "super" })
+      .expect(201);
+
+    // Third super-swipe must be blocked
+    const blocked = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ listingId: l3.id, direction: "super" });
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toBe("superlike_limit");
+    expect(blocked.body.superlikesRemaining).toBe(0);
+  });
+});
+
 // ─── GET /api/swipe/streak ────────────────────────────────────────────────────
 describe("GET /api/swipe/streak", () => {
   it("returns streak data for authenticated user", async () => {

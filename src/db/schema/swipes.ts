@@ -4,7 +4,7 @@ import {
 import { usersTable } from "./users.js";
 import { listingsTable } from "./listings.js";
 
-export const swipeDirectionEnum = pgEnum("swipe_direction", ["left", "right"]);
+export const swipeDirectionEnum = pgEnum("swipe_direction", ["left", "right", "super"]);
 
 // ─── swipes ───────────────────────────────────────────────────────────────────
 export const swipesTable = pgTable(

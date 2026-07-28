@@ -51,6 +51,8 @@ export const userProfilesTable = pgTable("user_profiles", {
   completionRate:      integer("completion_rate"),
   // TODO(server-managed): populated from messaging response times (follow-up PR).
   avgResponseMinutes:  integer("avg_response_minutes"),
+  /** Free superlike quota. Decremented on each super-swipe; 0 means quota spent. */
+  superlikesRemaining: integer("superlikes_remaining").notNull().default(2),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
 });
