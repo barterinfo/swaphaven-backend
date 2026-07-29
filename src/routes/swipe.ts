@@ -173,32 +173,46 @@ router.get("/deck", requireAuth, async (req, res) => {
     return { mutualFitScore: score, matchedWantedLabels: matched, matchReason: reason };
   }
 
-  const [streak, swipesToday, savedRows, profile] = await Promise.all([
+  // Streak + daily count are required. Saved/superlike enrichment is best-effort so
+  // a missing migration (saved_listings / superlikes_remaining) cannot 500 the deck.
+  const [streak, swipesToday] = await Promise.all([
     db.query.swipeStreaksTable.findFirst({
       where: eq(swipeStreaksTable.userId, userId),
     }),
     countSwipesToday(userId),
-    cards.length
-      ? db
-          .select({ listingId: savedListingsTable.listingId })
-          .from(savedListingsTable)
-          .where(
-            and(
-              eq(savedListingsTable.userId, userId),
-              inArray(
-                savedListingsTable.listingId,
-                cards.map((c) => c.id),
-              ),
-            ),
-          )
-      : Promise.resolve([] as { listingId: string }[]),
-    db.query.userProfilesTable.findFirst({
-      where: eq(userProfilesTable.id, userId),
-      columns: { superlikesRemaining: true },
-    }),
   ]);
 
-  const savedIds = new Set(savedRows.map((r) => r.listingId));
+  let savedIds = new Set<string>();
+  try {
+    if (cards.length) {
+      const savedRows = await db
+        .select({ listingId: savedListingsTable.listingId })
+        .from(savedListingsTable)
+        .where(
+          and(
+            eq(savedListingsTable.userId, userId),
+            inArray(
+              savedListingsTable.listingId,
+              cards.map((c) => c.id),
+            ),
+          ),
+        );
+      savedIds = new Set(savedRows.map((r) => r.listingId));
+    }
+  } catch (err) {
+    console.error("[swipe/deck] saved_listings lookup failed:", err);
+  }
+
+  let superlikesRemaining = 2;
+  try {
+    const profile = await db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, userId),
+      columns: { superlikesRemaining: true },
+    });
+    superlikesRemaining = profile?.superlikesRemaining ?? 2;
+  } catch (err) {
+    console.error("[swipe/deck] superlikesRemaining lookup failed:", err);
+  }
 
   return res.json({
     cards: cards.map((c) => {
@@ -218,7 +232,7 @@ router.get("/deck", requireAuth, async (req, res) => {
     remainingSwipesToday: remainingDailySwipes(swipesToday),
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,
     /** Remaining lifetime free superlikes for this user. */
-    superlikesRemaining: profile?.superlikesRemaining ?? 2,
+    superlikesRemaining,
     refreshesAt: refreshesAtIso(),
   });
 });
