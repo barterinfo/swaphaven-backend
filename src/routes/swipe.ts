@@ -280,14 +280,10 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  const [swipesToday, streak, profile] = await Promise.all([
+  const [swipesToday, streak] = await Promise.all([
     countSwipesToday(userId),
     db.query.swipeStreaksTable.findFirst({
       where: eq(swipeStreaksTable.userId, userId),
-    }),
-    db.query.userProfilesTable.findFirst({
-      where: eq(userProfilesTable.id, userId),
-      columns: { superlikesRemaining: true },
     }),
   ]);
   const remainingSwipesToday = remainingDailySwipes(swipesToday);
@@ -295,9 +291,23 @@ router.post("/", requireAuth, async (req, res) => {
   const dailyLimited = env.DAILY_SWIPE_LIMIT != null;
 
   // Super-swipe is a separate quota from the daily swipe limit.
+  // Only load the column when needed so left/right still work if migration is pending.
+  let profileSuperlikes: number | null = null;
   if (direction === "super") {
-    const superRemaining = profile?.superlikesRemaining ?? 0;
-    if (superRemaining <= 0) {
+    try {
+      const profile = await db.query.userProfilesTable.findFirst({
+        where: eq(userProfilesTable.id, userId),
+        columns: { superlikesRemaining: true },
+      });
+      profileSuperlikes = profile?.superlikesRemaining ?? 0;
+    } catch (err) {
+      console.error("[swipe] superlikesRemaining lookup failed:", err);
+      return res.status(503).json({
+        error: "schema_pending",
+        message: "Super like is temporarily unavailable. Try again after deploy migrations.",
+      });
+    }
+    if (profileSuperlikes <= 0) {
       return res.status(429).json({
         error: "superlike_limit",
         message: "Super like is finished",
@@ -334,11 +344,15 @@ router.post("/", requireAuth, async (req, res) => {
   // Decrement superlike quota after a confirmed super-swipe insert.
   let superlikesRemaining: number | undefined;
   if (direction === "super" && swipe) {
-    const newRemaining = Math.max(0, (profile?.superlikesRemaining ?? 0) - 1);
-    await db.update(userProfilesTable)
-      .set({ superlikesRemaining: newRemaining })
-      .where(eq(userProfilesTable.id, userId));
-    superlikesRemaining = newRemaining;
+    const newRemaining = Math.max(0, (profileSuperlikes ?? 0) - 1);
+    try {
+      await db.update(userProfilesTable)
+        .set({ superlikesRemaining: newRemaining })
+        .where(eq(userProfilesTable.id, userId));
+      superlikesRemaining = newRemaining;
+    } catch (err) {
+      console.error("[swipe] superlikesRemaining decrement failed:", err);
+    }
   }
 
   // Streak + bonus: daily quota first; bonus is consumed only after the daily
