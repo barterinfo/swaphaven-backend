@@ -452,3 +452,143 @@ describe("GET /api/swipe/streak", () => {
     expect(typeof res.body).toBe("object");
   });
 });
+
+// ─── DELETE /api/swipe/:swipeId ───────────────────────────────────────────────
+describe("DELETE /api/swipe/:swipeId", () => {
+  it("undoes a left pass so the listing can reappear in the deck", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    const swipeRes = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listing.id, direction: "left" });
+    expect(swipeRes.status).toBe(201);
+    const swipeId = swipeRes.body.swipeId as string;
+    expect(swipeId).toBeTruthy();
+
+    const deckBefore = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(
+      deckBefore.body.cards.some(
+        (c: { listing: { id: string } }) => c.listing.id === listing.id,
+      ),
+    ).toBe(false);
+
+    const undoRes = await request(app)
+      .delete(`/api/swipe/${swipeId}`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(undoRes.status).toBe(200);
+    expect(undoRes.body.swipeId).toBe(swipeId);
+    expect(undoRes.body.listingId).toBe(listing.id);
+    expect(typeof undoRes.body.remainingSwipesToday).toBe("number");
+    expect(typeof undoRes.body.bonusSwipesAvailable).toBe("number");
+
+    const deckAfter = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(
+      deckAfter.body.cards.some(
+        (c: { listing: { id: string } }) => c.listing.id === listing.id,
+      ),
+    ).toBe(true);
+  });
+
+  it("returns 404 for an unknown swipe", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .delete("/api/swipe/00000000-0000-4000-8000-000000000001")
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when undoing another user's swipe", async () => {
+    const passer = await registerUser();
+    const other = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    const swipeRes = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${passer.accessToken}`)
+      .send({ listingId: listing.id, direction: "left" });
+    expect(swipeRes.status).toBe(201);
+
+    const res = await request(app)
+      .delete(`/api/swipe/${swipeRes.body.swipeId}`)
+      .set("Authorization", `Bearer ${other.accessToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 when undoing a right swipe", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    const swipeRes = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+    expect(swipeRes.status).toBe(201);
+
+    const res = await request(app)
+      .delete(`/api/swipe/${swipeRes.body.swipeId}`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/left/i);
+  });
+
+  it("restores bonus when undoing a pass that consumed bonus quota", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+
+    const listings = [];
+    for (let i = 0; i < 21; i++) {
+      listings.push(await createListing(owner.accessToken));
+    }
+
+    for (let i = 0; i < 20; i++) {
+      const res = await request(app)
+        .post("/api/swipe")
+        .set("Authorization", `Bearer ${viewer.accessToken}`)
+        .send({ listingId: listings[i].id, direction: "left" });
+      expect(res.status).toBe(201);
+    }
+
+    const { testDb } = await import("./helpers/db.js");
+    const { swipeStreaksTable } = await import("../src/db/schema/index.js");
+
+    await testDb
+      .insert(swipeStreaksTable)
+      .values({
+        userId: viewer.user.id,
+        currentStreak: 1,
+        longestStreak: 1,
+        lastSwipeDate: new Date().toISOString().slice(0, 10),
+        bonusSwipesRemaining: 2,
+      })
+      .onConflictDoUpdate({
+        target: swipeStreaksTable.userId,
+        set: { bonusSwipesRemaining: 2 },
+      });
+
+    const bonusSwipe = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listings[20].id, direction: "left" });
+    expect(bonusSwipe.status).toBe(201);
+
+    const streakAfterConsume = await request(app)
+      .get("/api/swipe/streak")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(streakAfterConsume.body.bonusSwipesRemaining).toBe(1);
+
+    const undoRes = await request(app)
+      .delete(`/api/swipe/${bonusSwipe.body.swipeId}`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(undoRes.status).toBe(200);
+    expect(undoRes.body.bonusSwipesAvailable).toBe(2);
+  });
+});

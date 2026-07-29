@@ -383,6 +383,71 @@ router.post("/", requireAuth, async (req, res) => {
   });
 });
 
+// ─── DELETE /api/swipe/:swipeId ───────────────────────────────────────────────
+// Undo a left (pass) swipe so the listing can reappear in the deck.
+const undoSwipeParamsSchema = z.object({
+  swipeId: z.string().uuid(),
+});
+
+router.delete("/:swipeId", requireAuth, async (req, res) => {
+  const parsed = undoSwipeParamsSchema.safeParse(req.params);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation",
+      message: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const { swipeId } = parsed.data;
+  const userId = req.user!.sub;
+
+  const swipe = await db.query.swipesTable.findFirst({
+    where: eq(swipesTable.id, swipeId),
+  });
+  if (!swipe) {
+    return res.status(404).json({ error: "not_found", message: "Swipe not found" });
+  }
+  if (swipe.swiperId !== userId) {
+    return res.status(403).json({ error: "forbidden", message: "Not your swipe" });
+  }
+  if (swipe.direction !== "left") {
+    return res.status(400).json({
+      error: "bad_request",
+      message: "Only left (pass) swipes can be undone",
+    });
+  }
+
+  const swipesTodayBefore = await countSwipesToday(userId);
+  const dailyLimit = env.DAILY_SWIPE_LIMIT;
+  const consumedBonus =
+    dailyLimit != null && swipesTodayBefore > dailyLimit;
+
+  await db.delete(swipesTable).where(eq(swipesTable.id, swipeId));
+
+  let bonusSwipesAvailable = 0;
+  const streak = await db.query.swipeStreaksTable.findFirst({
+    where: eq(swipeStreaksTable.userId, userId),
+  });
+  if (streak) {
+    bonusSwipesAvailable = streak.bonusSwipesRemaining;
+    if (consumedBonus) {
+      bonusSwipesAvailable = streak.bonusSwipesRemaining + 1;
+      await db
+        .update(swipeStreaksTable)
+        .set({ bonusSwipesRemaining: bonusSwipesAvailable })
+        .where(eq(swipeStreaksTable.userId, userId));
+    }
+  }
+
+  const swipesTodayAfter = await countSwipesToday(userId);
+  return res.json({
+    swipeId,
+    listingId: swipe.listingId,
+    remainingSwipesToday: remainingDailySwipes(swipesTodayAfter),
+    bonusSwipesAvailable,
+  });
+});
+
 // ─── GET /api/swipe/streak ────────────────────────────────────────────────────
 router.get("/streak", requireAuth, async (req, res) => {
   const streak = await db.query.swipeStreaksTable.findFirst({
