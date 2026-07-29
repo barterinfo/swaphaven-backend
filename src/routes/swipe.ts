@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, gte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { db } from "../db/client.js";
@@ -8,6 +8,8 @@ import {
   swipeStreaksTable,
   listingsTable,
   categoriesTable,
+  savedListingsTable,
+  userProfilesTable,
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
@@ -171,12 +173,32 @@ router.get("/deck", requireAuth, async (req, res) => {
     return { mutualFitScore: score, matchedWantedLabels: matched, matchReason: reason };
   }
 
-  const [streak, swipesToday] = await Promise.all([
+  const [streak, swipesToday, savedRows, profile] = await Promise.all([
     db.query.swipeStreaksTable.findFirst({
       where: eq(swipeStreaksTable.userId, userId),
     }),
     countSwipesToday(userId),
+    cards.length
+      ? db
+          .select({ listingId: savedListingsTable.listingId })
+          .from(savedListingsTable)
+          .where(
+            and(
+              eq(savedListingsTable.userId, userId),
+              inArray(
+                savedListingsTable.listingId,
+                cards.map((c) => c.id),
+              ),
+            ),
+          )
+      : Promise.resolve([] as { listingId: string }[]),
+    db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, userId),
+      columns: { superlikesRemaining: true },
+    }),
   ]);
+
+  const savedIds = new Set(savedRows.map((r) => r.listingId));
 
   return res.json({
     cards: cards.map((c) => {
@@ -185,15 +207,18 @@ router.get("/deck", requireAuth, async (req, res) => {
       const { user, ...listing } = c;
       const ownerName = user?.profile?.displayName?.trim() || user?.name?.trim() || "";
       return {
-        listing: { ...listing, ownerName },
+        listing: { ...listing, ownerName, is_saved: savedIds.has(c.id) },
         matchReason,
         mutualFitScore,
         matchedWantedLabels,
         hotCount: c.rightSwipeCount,
+        is_saved: savedIds.has(c.id),
       };
     }),
     remainingSwipesToday: remainingDailySwipes(swipesToday),
     bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,
+    /** Remaining lifetime free superlikes for this user. */
+    superlikesRemaining: profile?.superlikesRemaining ?? 2,
     refreshesAt: refreshesAtIso(),
   });
 });
@@ -201,7 +226,7 @@ router.get("/deck", requireAuth, async (req, res) => {
 // ─── POST /api/swipe ──────────────────────────────────────────────────────────
 const swipeSchema = z.object({
   listingId: z.string().uuid(),
-  direction: z.enum(["left", "right"]),
+  direction: z.enum(["left", "right", "super"]),
 });
 
 router.post("/", requireAuth, async (req, res) => {
@@ -241,15 +266,31 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  const [swipesToday, streak] = await Promise.all([
+  const [swipesToday, streak, profile] = await Promise.all([
     countSwipesToday(userId),
     db.query.swipeStreaksTable.findFirst({
       where: eq(swipeStreaksTable.userId, userId),
+    }),
+    db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, userId),
+      columns: { superlikesRemaining: true },
     }),
   ]);
   const remainingSwipesToday = remainingDailySwipes(swipesToday);
   const bonusSwipes = streak?.bonusSwipesRemaining ?? 0;
   const dailyLimited = env.DAILY_SWIPE_LIMIT != null;
+
+  // Super-swipe is a separate quota from the daily swipe limit.
+  if (direction === "super") {
+    const superRemaining = profile?.superlikesRemaining ?? 0;
+    if (superRemaining <= 0) {
+      return res.status(429).json({
+        error: "superlike_limit",
+        message: "Super like is finished",
+        superlikesRemaining: 0,
+      });
+    }
+  }
 
   if (dailyLimited && remainingSwipesToday <= 0 && bonusSwipes <= 0) {
     return res.status(429).json({
@@ -264,8 +305,8 @@ router.post("/", requireAuth, async (req, res) => {
     .values({ swiperId: userId, listingId, direction })
     .returning();
 
-  // Increment the denormalized counter only when a new right-swipe was recorded.
-  if (swipe && direction === "right") {
+  // Increment the denormalized counter for any right-leaning swipe (right or super).
+  if (swipe && (direction === "right" || direction === "super")) {
     try {
       await db.update(listingsTable)
         .set({ rightSwipeCount: sql`${listingsTable.rightSwipeCount} + 1` })
@@ -274,6 +315,16 @@ router.post("/", requireAuth, async (req, res) => {
       console.error("[swipe] right_swipe_count increment failed:", err);
       throw err;
     }
+  }
+
+  // Decrement superlike quota after a confirmed super-swipe insert.
+  let superlikesRemaining: number | undefined;
+  if (direction === "super" && swipe) {
+    const newRemaining = Math.max(0, (profile?.superlikesRemaining ?? 0) - 1);
+    await db.update(userProfilesTable)
+      .set({ superlikesRemaining: newRemaining })
+      .where(eq(userProfilesTable.id, userId));
+    superlikesRemaining = newRemaining;
   }
 
   // Streak + bonus: daily quota first; bonus is consumed only after the daily
@@ -328,6 +379,7 @@ router.post("/", requireAuth, async (req, res) => {
     direction,
     streakUpdated,
     newStreakCount,
+    ...(superlikesRemaining !== undefined ? { superlikesRemaining } : {}),
   });
 });
 

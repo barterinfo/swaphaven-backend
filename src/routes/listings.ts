@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import {
   listingsTable, listingImagesTable, listingWantsTable, categoriesTable,
-  userProfilesTable, offersTable, notificationsTable,
+  userProfilesTable, offersTable, notificationsTable, savedListingsTable,
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
@@ -322,7 +322,7 @@ router.get("/trending", optionalAuth, async (req, res) => {
 });
 
 // ─── GET /api/listings/:listingId ─────────────────────────────────────────────
-router.get("/:listingId", async (req, res) => {
+router.get("/:listingId", optionalAuth, async (req, res) => {
   console.log("GET /api/listings/:listingId", req.params["listingId"]);
   const listingId = p(req.params["listingId"]);
   // No `user` join — email must never be exposed on a public endpoint.
@@ -366,23 +366,26 @@ router.get("/:listingId", async (req, res) => {
   const ownerName = sellerProfile?.displayName ?? "";
   const payload = serializeListingBarter(listing, { ownerName, images, seller });
 
-  // Open negotiations on this listing (My Listing Detail "Offers" tile).
-  const [offerCountRow] = await db
-    .select({ value: count() })
-    .from(offersTable)
-    .where(and(
-      eq(offersTable.listingId, listingId),
-      inArray(offersTable.status, ["pending", "countered"]),
-    ));
-  const offerCount = Number(offerCountRow?.value ?? 0);
+  // Buyer is_saved flag only — owner analytics live on GET /:listingId/stats.
+  let isSaved = false;
+  if (req.user?.sub) {
+    const saved = await db.query.savedListingsTable.findFirst({
+      where: and(
+        eq(savedListingsTable.userId, req.user.sub),
+        eq(savedListingsTable.listingId, listingId),
+      ),
+      columns: { id: true },
+    });
+    isSaved = !!saved;
+  }
 
   return res.json({
-    listing: { ...payload, offer_count: offerCount },
+    listing: { ...payload, is_saved: isSaved },
     id: listing.id,
     title: listing.title,
     status: listing.status,
     images,
-    offer_count: offerCount,
+    is_saved: isSaved,
   });
 });
 
@@ -521,6 +524,42 @@ router.delete("/:listingId", requireAuth, async (req, res) => {
   await cancelPendingOffersAndNotify(listingId, listing.title, "listing_deleted");
 
   return res.status(204).send();
+});
+
+// ─── GET /api/listings/:listingId/stats ───────────────────────────────────────
+// Owner-only analytics for My Listing Detail (views / saves / offers).
+router.get("/:listingId/stats", requireAuth, async (req, res) => {
+  const listingId = p(req.params["listingId"]);
+  const listing = await db.query.listingsTable.findFirst({
+    where: and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")),
+    columns: { id: true, userId: true, viewCount: true },
+  });
+  if (!listing) {
+    return res.status(404).json({ error: "not_found", message: "Listing not found" });
+  }
+  if (listing.userId !== req.user!.sub) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  const [[offerCountRow], [saveCountRow]] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(offersTable)
+      .where(and(
+        eq(offersTable.listingId, listingId),
+        inArray(offersTable.status, ["pending", "countered", "accepted"]),
+      )),
+    db
+      .select({ value: count() })
+      .from(savedListingsTable)
+      .where(eq(savedListingsTable.listingId, listingId)),
+  ]);
+
+  return res.json({
+    view_count: listing.viewCount ?? 0,
+    save_count: Number(saveCountRow?.value ?? 0),
+    offer_count: Number(offerCountRow?.value ?? 0),
+  });
 });
 
 // ─── GET /api/listings/:listingId/trade-partners ──────────────────────────────

@@ -310,6 +310,35 @@ curl -s -X POST http://localhost:3001/api/swipe \
 
 ---
 
+## Saved (save-for-later)
+
+| Method | Path | Auth |
+|--------|------|------|
+| GET | `/api/saved` | ✓ |
+| POST | `/api/saved/:listingId` | ✓ |
+| DELETE | `/api/saved/:listingId` | ✓ |
+| GET | `/api/listings/:listingId/stats` | ✓ (owner) |
+
+Saves are independent of swipes. Listing detail exposes `is_saved`; owner `save_count` lives on `/stats` only.
+
+See [SAVED_FEATURE.md](./SAVED_FEATURE.md).
+
+### Save a listing
+
+```bash
+curl -s -X POST http://localhost:3001/api/saved/<listingId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### List saved
+
+```bash
+curl -s "http://localhost:3001/api/saved?limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
 ## Offers
 
 | Method | Path | Auth |

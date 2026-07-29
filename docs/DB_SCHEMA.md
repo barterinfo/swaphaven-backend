@@ -682,6 +682,18 @@ Notable recent migrations:
 | `0014_password_reset_attempts` | reset attempt counter |
 | `0015` / `0016` | category seeds |
 | `0017_pending_registrations` | email OTP signup staging table |
+| `0019_saved_listings` | `saved_listings` save-for-later table |
 
 Use `db:migrate` (not `db:push`) in shared/prod so only reviewed SQL runs. See
 [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
+
+### `saved_listings`
+
+Private save-for-later rows (independent of swipes). Unique `(user_id, listing_id)`. See [SAVED_FEATURE.md](./SAVED_FEATURE.md).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `user_id` | uuid FK → users | Cascade |
+| `listing_id` | uuid FK → listings | Cascade |
+| `created_at` | timestamp | Newest-first list order |

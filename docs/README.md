@@ -15,6 +15,7 @@
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
 | [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, streaks, mobile UI, make-offer |
+| [SAVED_FEATURE.md](./SAVED_FEATURE.md) | Save-for-later — schema, `/api/saved`, owner stats, mobile Saved tab |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Listing search — architecture, sequences, API, DB, mobile flows |
 | [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md) | Profile closet owner actions — overview |
 | [LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md) | Listing status diagram, transition paths, backend sequences |

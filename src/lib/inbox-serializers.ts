@@ -76,6 +76,7 @@ interface OfferListInput {
   sellerId: string;
   listingId: string;
   cashTopUpCents: number;
+  isSuperlike?: boolean | null;
   currentTurn?: string | null;
   roundCount?: number | null;
   createdAt: Date;
@@ -94,6 +95,8 @@ export function serializeOfferListItem(offer: OfferListInput) {
     sellerId: offer.sellerId,
     listingId: offer.listingId,
     cashTopUpCents: offer.cashTopUpCents,
+    /** True when the offer originated from a super-swipe (⭐). */
+    isSuperlike: offer.isSuperlike ?? false,
     currentTurn: offer.currentTurn ?? null,
     roundCount: offer.roundCount ?? 0,
     createdAt: offer.createdAt,

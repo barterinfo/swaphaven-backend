@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import { usersTable, userProfilesTable, deviceTokensTable, swipeStreaksTable } from "./users.js";
 import { categoriesTable, listingsTable, listingImagesTable, listingWantsTable } from "./listings.js";
 import { swipesTable } from "./swipes.js";
+import { savedListingsTable } from "./saved_listings.js";
 import {
   offersTable, offerItemsTable, counterOffersTable, counterOfferItemsTable,
   offerRoundsTable, offerRoundItemsTable,
@@ -17,6 +18,7 @@ export const usersRelations = relations(usersTable, ({ one, many }) => ({
   swipeStreak:   one(swipeStreaksTable, { fields: [usersTable.id], references: [swipeStreaksTable.userId] }),
   listings:      many(listingsTable),
   swipes:        many(swipesTable, { relationName: "swiper" }),
+  savedListings: many(savedListingsTable),
   sentOffers:    many(offersTable, { relationName: "buyer" }),
   receivedOffers:many(offersTable, { relationName: "seller" }),
   notifications: many(notificationsTable),
@@ -46,6 +48,7 @@ export const listingsRelations = relations(listingsTable, ({ one, many }) => ({
   images:    many(listingImagesTable),
   wants:     many(listingWantsTable),
   swipes:    many(swipesTable),
+  savedBy:   many(savedListingsTable),
   offerItems:many(offerItemsTable),
 }));
 
@@ -62,6 +65,12 @@ export const listingWantsRelations = relations(listingWantsTable, ({ one }) => (
 export const swipesRelations = relations(swipesTable, ({ one }) => ({
   swiper:  one(usersTable, { fields: [swipesTable.swiperId],  references: [usersTable.id], relationName: "swiper" }),
   listing: one(listingsTable, { fields: [swipesTable.listingId], references: [listingsTable.id] }),
+}));
+
+// ─── Saved listings ───────────────────────────────────────────────────────────
+export const savedListingsRelations = relations(savedListingsTable, ({ one }) => ({
+  user:    one(usersTable, { fields: [savedListingsTable.userId], references: [usersTable.id] }),
+  listing: one(listingsTable, { fields: [savedListingsTable.listingId], references: [listingsTable.id] }),
 }));
 
 // ─── Offers ───────────────────────────────────────────────────────────────────

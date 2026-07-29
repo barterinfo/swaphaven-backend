@@ -141,6 +141,20 @@
       "when": 1785100000000,
       "tag": "0018_trade_cancelled_notification",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785200000000,
+      "tag": "0019_saved_listings",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1753660800000,
+      "tag": "0020_superlike",
+      "breakpoints": true
     }
   ]
 }
