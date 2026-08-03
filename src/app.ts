@@ -24,6 +24,7 @@ import wellKnownRouter from "./routes/wellKnown.js";
 import listingPreviewRouter from "./routes/listingPreview.js";
 import profilePreviewRouter from "./routes/profilePreview.js";
 import savedRouter from "./routes/saved.js";
+import legalRouter from "./routes/legal.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -156,6 +157,7 @@ export function createApp(): express.Express {
   app.use("/.well-known", wellKnownRouter);
   app.use("/listings", listingPreviewRouter);
   app.use("/users", profilePreviewRouter);
+  app.use(legalRouter);
 
   // ─── Routes ───────────────────────────────────────────────────────────────────
   app.get("/api/categories", listCategories as express.RequestHandler);
