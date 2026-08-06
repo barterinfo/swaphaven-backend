@@ -10,6 +10,8 @@ import { serializeConversationListItem } from "../lib/inbox-serializers.js";
 import { fetchTransitSuggestions } from "../lib/overpass.js";
 import { sendPushToUser } from "../lib/push.js";
 import { containsProfanity } from "../lib/moderation.js";
+import { filterListingImageUrls } from "../lib/media.js";
+import { isImageObscene } from "../lib/image-moderation.js";
 
 const router = Router();
 
@@ -142,10 +144,21 @@ router.get("/:conversationId/messages", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/conversations/:conversationId/messages ─────────────────────────
-const sendMessageSchema = z.object({
-  body: z.string().min(1).max(2000),
-  type: z.enum(["text", "image"]).default("text"),
-});
+const sendMessageSchema = z
+  .object({
+    body: z.string().min(1).max(2000),
+    type: z.enum(["text", "image"]).default("text"),
+  })
+  .superRefine((data, ctx) => {
+    // Image messages carry a public URL in `body` (upload via POST /api/media/presign).
+    if (data.type === "image" && filterListingImageUrls([data.body]).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["body"],
+        message: "body must be a public https URL (upload via POST /api/media/presign first)",
+      });
+    }
+  });
 
 router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   const convId = req.params["conversationId"] as string;
@@ -165,11 +178,19 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
   }
 
-  // Image messages carry a URL in `body`; only text messages are scanned.
+  // Image messages carry a URL in `body`; only text messages are scanned for
+  // language. Images go through Rekognition moderation instead.
   if (parsed.data.type === "text" && containsProfanity(parsed.data.body)) {
     return res.status(400).json({
       error: "moderation",
       message: "message contains inappropriate language and cannot be sent.",
+    });
+  }
+
+  if (parsed.data.type === "image" && (await isImageObscene(parsed.data.body))) {
+    return res.status(400).json({
+      error: "moderation",
+      message: "image contains inappropriate content and cannot be sent.",
     });
   }
 
@@ -191,6 +212,12 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   const otherUserId =
     conv.offer.buyerId === userId ? conv.offer.sellerId : conv.offer.buyerId;
   const messageBody = parsed.data.body;
+  const preview =
+    parsed.data.type === "image"
+      ? "Photo"
+      : messageBody.length > 100
+        ? `${messageBody.slice(0, 100)}…`
+        : messageBody;
 
   void (async () => {
     const [senderProfile, convDetail] = await Promise.all([
@@ -213,17 +240,15 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     const senderName = senderProfile?.displayName ?? "Someone";
     const listingTitle = convDetail?.offer.listing?.title;
     const tradeTitle = listingTitle ? `${listingTitle} Trade` : undefined;
-    const body =
-      messageBody.length > 100 ? `${messageBody.slice(0, 100)}…` : messageBody;
 
     await sendPushToUser(otherUserId, {
       title: senderName,
-      body,
+      body: preview,
       data: {
         type: "new_message",
         conversationId: convId,
         senderName,
-        body,
+        body: preview,
         timestampLabel: "now",
         ...(tradeTitle ? { tradeTitle } : {}),
         ...(senderProfile?.avatarUrl ? { senderAvatarUrl: senderProfile.avatarUrl } : {}),

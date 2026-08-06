@@ -158,7 +158,7 @@ interface TradeInput {
   meetupLocation?: string | null;
 }
 
-interface MessageInput { body: string; senderId: string; createdAt: Date }
+interface MessageInput { body: string; senderId: string; createdAt: Date; type?: string }
 
 interface ConversationOfferInput {
   id: string;
@@ -208,7 +208,12 @@ export function serializeConversationListItem(
       : null,
     otherUser: serializeUserSummary(otherUserRaw),
     lastMessage: lastMessage
-      ? { body: lastMessage.body, sentAt: lastMessage.createdAt, senderId: lastMessage.senderId }
+      ? {
+          body: lastMessage.body,
+          sentAt: lastMessage.createdAt,
+          senderId: lastMessage.senderId,
+          type: lastMessage.type ?? "text",
+        }
       : null,
     unreadCount,
     updatedAt,

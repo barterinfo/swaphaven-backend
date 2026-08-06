@@ -13,6 +13,17 @@ vi.mock("../src/lib/overpass.js", () => ({
   ]),
 }));
 
+vi.mock("../src/lib/image-moderation.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/image-moderation.js")>();
+  return {
+    ...actual,
+    isImageObscene: vi.fn().mockResolvedValue(false),
+  };
+});
+
+import { isImageObscene } from "../src/lib/image-moderation.js";
+const mockIsImageObscene = vi.mocked(isImageObscene);
+
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 describe("GET /api/conversations", () => {
   it("returns conversations for both trade participants", async () => {
@@ -439,6 +450,69 @@ describe("POST /api/conversations/:conversationId/messages", () => {
       .send({ body: "", type: "text" });
 
     expect(res.status).toBe(400);
+  });
+
+  it("participant can send an image message with a public https URL", async () => {
+    const { buyer, trade } = await fullTradeSetup();
+    const imageUrl = "https://cdn.example.com/chat/photo.jpg";
+
+    const res = await request(app)
+      .post(`/api/conversations/${trade.conversationId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: imageUrl, type: "image" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.type).toBe("image");
+    expect(res.body.body).toBe(imageUrl);
+  });
+
+  it("rejects image messages whose body is not a public URL", async () => {
+    const { buyer, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .post(`/api/conversations/${trade.conversationId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: "not-a-url", type: "image" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation");
+  });
+
+  it("rejects image messages flagged as obscene", async () => {
+    mockIsImageObscene.mockResolvedValueOnce(true);
+    const { buyer, trade } = await fullTradeSetup();
+    const imageUrl = "https://cdn.example.com/chat/nsfw.jpg";
+
+    const res = await request(app)
+      .post(`/api/conversations/${trade.conversationId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: imageUrl, type: "image" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("moderation");
+    expect(res.body.message).toMatch(/inappropriate content/i);
+  });
+
+  it("conversations list exposes lastMessage.type for image messages", async () => {
+    const { buyer, trade } = await fullTradeSetup();
+    const imageUrl = "https://cdn.example.com/chat/preview.jpg";
+
+    await request(app)
+      .post(`/api/conversations/${trade.conversationId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: imageUrl, type: "image" });
+
+    const res = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const row = res.body.items.find(
+      (c: { id: string }) => c.id === trade.conversationId,
+    );
+    expect(row).toBeDefined();
+    expect(row.lastMessage.type).toBe("image");
+    expect(row.lastMessage.body).toBe(imageUrl);
   });
 
   it("third party cannot send messages", async () => {

@@ -436,6 +436,7 @@ export const openApiSpec = {
               body:     { type: "string" },
               sentAt:   { type: "string", format: "date-time" },
               senderId: { type: "string", format: "uuid" },
+              type:     { type: "string", enum: ["text", "image", "system"], default: "text" },
             },
           },
           unreadCount: { type: "integer" },
@@ -1559,9 +1560,13 @@ export const openApiSpec = {
       get: { tags: ["Chat"], summary: "Messages (cursor-paginated)", parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated messages" } } },
       post: {
         tags: ["Chat"], summary: "Send a message",
+        description: "For type \"image\", body must be a public https URL obtained from POST /api/media/presign (then PUT the bytes to uploadUrl). Image messages are scanned with AWS Rekognition for explicit content when ENABLE_PROFANITY_FILTER is on.",
         parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["body"], properties: { body: { type: "string", maxLength: 2000 }, type: { type: "string", enum: ["text","image"], default: "text" } } } } } },
-        responses: { "201": { description: "Message sent", content: { "application/json": { schema: { $ref: "#/components/schemas/Message" } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["body"], properties: { body: { type: "string", maxLength: 2000, description: "Text content, or a public https image URL when type is image" }, type: { type: "string", enum: ["text","image"], default: "text" } } } } } },
+        responses: {
+          "201": { description: "Message sent", content: { "application/json": { schema: { $ref: "#/components/schemas/Message" } } } },
+          "400": { description: "Validation or moderation error (invalid image URL, profanity, or explicit image content)" },
+        },
       },
     },
     "/api/conversations/{conversationId}/meetup-suggestions": {
