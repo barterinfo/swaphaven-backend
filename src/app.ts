@@ -25,6 +25,7 @@ import listingPreviewRouter from "./routes/listingPreview.js";
 import profilePreviewRouter from "./routes/profilePreview.js";
 import savedRouter from "./routes/saved.js";
 import legalRouter from "./routes/legal.js";
+import landingRouter from "./routes/landing.js";
 import barterAiRouter from "./routes/barterAi.js";
 
 export function createApp(): express.Express {
@@ -73,14 +74,7 @@ export function createApp(): express.Express {
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
   // ─── Health checks (before rate limits — Railway / probes must not throw) ─────
-  app.get("/", (_req, res) =>
-    res.json({
-      service: "swaphaven-api",
-      health: "/api/healthz",
-      ready: "/api/readyz",
-      docs: env.ENABLE_API_DOCS ? "/api-docs" : undefined,
-    }),
-  );
+  app.use("/", landingRouter);
 
   app.get("/health", (_req, res) => res.redirect(307, "/api/healthz"));
 
