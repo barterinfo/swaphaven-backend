@@ -10,7 +10,7 @@ describe("GET /", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/html/);
-    expect(res.text).toContain("Get the app");
+    expect(res.text).toContain("Download the app");
     expect(res.text).toContain("App Store");
     expect(res.text).toContain("Google Play");
     expect(res.text).toContain('href="/privacy"');

@@ -48,12 +48,15 @@ function buildLandingHtml(): string {
   const iosUrl = env.IOS_APP_STORE_URL ?? null;
   const androidUrl = env.ANDROID_PLAY_STORE_URL ?? null;
 
-  const appleIcon = `<svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M16.365 1.43c0 1.14-.417 2.064-1.248 2.772-.963.828-2.124 1.236-3.483 1.164-.035-1.098.396-2.064 1.293-2.898.897-.834 2.07-1.272 3.438-1.38.012.114.018.228.018.342zm3.408 20.447c-.885 1.305-1.932 2.472-3.141 3.501-1.224 1.044-2.238 1.566-3.042 1.566-.768 0-1.593-.522-2.475-1.566-.882-1.044-1.701-1.566-2.457-1.566-.768 0-1.812.534-3.132 1.602-1.32 1.068-2.394 1.602-3.222 1.602-.828 0-1.812-.51-2.952-1.53-1.14-1.02-2.07-2.286-2.79-3.798C1.14 18.234.78 16.458.78 14.502c0-2.244.486-4.164 1.458-5.76.972-1.596 2.274-2.394 3.906-2.394.828 0 1.812.534 2.952 1.602 1.14 1.068 2.058 1.602 2.754 1.602.648 0 1.548-.522 2.7-1.566 1.152-1.044 2.124-1.566 2.916-1.566 1.08 0 2.01.468 2.79 1.404.78.936 1.338 2.124 1.674 3.564-1.548.648-2.322 1.872-2.322 3.672 0 1.416.522 2.604 1.566 3.564 1.044.96 2.274 1.44 3.69 1.44.348 0 .708-.024 1.08-.072-.108.432-.252.864-.432 1.296z"/>
+  const appleIcon = `<svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
   </svg>`;
 
-  const playIcon = `<svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M3.609 1.814 13.792 12 3.61 22.186a1.002 1.002 0 0 1-1.61-.814V2.628a1.002 1.002 0 0 1 1.61-.814zm12.796 8.902 2.982 1.72a1 1 0 0 1 0 1.732l-2.982 1.72-3.464 2-2.982 1.72a1 1 0 0 1-1.528-.866V5.238a1 1 0 0 1 1.528-.866l2.982 1.72 3.464 2z"/>
+  const playIcon = `<svg viewBox="0 0 512 512" width="32" height="32" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#EA4335" d="M325.3 234.3L104.6 13l280.8 161.2-60.1 60.1z"/>
+    <path fill="#FBBC04" d="M86.4 256l133.5 77.1 60.1-60.1L86.4 256z"/>
+    <path fill="#4285F4" d="M86.4 256l133.5-77.1L104.6 13 86.4 256z"/>
+    <path fill="#34A853" d="M325.3 234.3l60.1 60.1 86.4-49.8-146.5-10.3z"/>
   </svg>`;
 
   const iosButton = buildStoreButton({
@@ -90,138 +93,261 @@ function buildLandingHtml(): string {
   <style>
     :root {
       color-scheme: dark;
-      --bg-top: #1a2744;
-      --bg-bottom: #000000;
-      --text: #f5f5f7;
-      --muted: #a1a1aa;
+      --text: #f8fafc;
+      --muted: #94a3b8;
       --navy: #1e3a8a;
+      --navy-deep: #172554;
       --amber: #d97706;
       --amber-bright: #f59e0b;
-      --card: rgba(255, 255, 255, 0.04);
-      --border: rgba(255, 255, 255, 0.08);
+      --amber-glow: rgba(245, 158, 11, 0.35);
+      --teal: #14b8a6;
+      --violet: #8b5cf6;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
       min-height: 100vh;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
-      background: radial-gradient(circle at 50% -20%, var(--bg-top) 0%, #121c30 35%, var(--bg-bottom) 100%);
+      background: #020617;
       line-height: 1.5;
+      overflow-x: hidden;
+    }
+    .bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 15% 10%, rgba(30, 58, 138, 0.55) 0%, transparent 55%),
+        radial-gradient(ellipse 70% 55% at 85% 15%, rgba(217, 119, 6, 0.35) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 50% at 50% 100%, rgba(20, 184, 166, 0.18) 0%, transparent 55%),
+        linear-gradient(180deg, #0f172a 0%, #020617 100%);
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(60px);
+      pointer-events: none;
+    }
+    .orb--amber {
+      width: 22rem;
+      height: 22rem;
+      top: -4rem;
+      right: 8%;
+      background: rgba(245, 158, 11, 0.28);
+    }
+    .orb--navy {
+      width: 28rem;
+      height: 28rem;
+      bottom: -6rem;
+      left: -4rem;
+      background: rgba(30, 58, 138, 0.45);
     }
     .page {
-      max-width: 42rem;
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      max-width: 80rem;
       margin: 0 auto;
-      padding: 3.5rem 1.5rem 2.5rem;
+      padding: clamp(2rem, 5vw, 4rem) clamp(1.25rem, 4vw, 3rem);
+      display: flex;
+      flex-direction: column;
+    }
+    .hero {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(2.5rem, 5vw, 4rem);
+      align-items: stretch;
+      justify-content: center;
+      min-height: calc(100vh - 8rem);
+    }
+    .hero__brand {
       text-align: center;
+      max-width: 44rem;
+      margin: 0 auto;
+    }
+    .logo-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
     }
     .logo {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 4.5rem;
-      height: 4.5rem;
-      border-radius: 1.25rem;
-      background: linear-gradient(135deg, var(--amber), var(--amber-bright));
+      width: clamp(4.5rem, 10vw, 5.5rem);
+      height: clamp(4.5rem, 10vw, 5.5rem);
+      border-radius: 1.35rem;
+      background: linear-gradient(145deg, var(--amber-bright), var(--amber));
       color: #111827;
-      font-size: 2rem;
+      font-size: clamp(2rem, 5vw, 2.5rem);
       font-weight: 800;
       letter-spacing: -0.04em;
-      box-shadow: 0 16px 40px rgba(217, 119, 6, 0.25);
-      margin-bottom: 1.5rem;
+      box-shadow: 0 20px 50px var(--amber-glow);
+      flex-shrink: 0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: var(--amber-bright);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
     }
     h1 {
-      margin: 0 0 0.75rem;
-      font-size: clamp(2rem, 5vw, 2.75rem);
-      letter-spacing: -0.03em;
+      margin: 0 0 1rem;
+      font-size: clamp(2.75rem, 7vw, 4.5rem);
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, #fff 30%, #fde68a 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
     .tagline {
-      margin: 0 auto 2rem;
-      max-width: 28rem;
+      margin: 0 auto;
+      max-width: 38rem;
       color: var(--muted);
-      font-size: 1.05rem;
+      font-size: clamp(1.05rem, 2.2vw, 1.25rem);
     }
-    .card {
-      border: 1px solid var(--border);
-      background: var(--card);
-      border-radius: 1.25rem;
-      padding: 1.75rem 1.25rem;
-      backdrop-filter: blur(8px);
+    .panel {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: linear-gradient(160deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.04) 100%);
+      border-radius: 1.75rem;
+      padding: clamp(2rem, 5vw, 3.5rem);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 32px 80px rgba(0, 0, 0, 0.4);
     }
-    .card h2 {
-      margin: 0 0 0.35rem;
-      font-size: 1.125rem;
+    .panel h2 {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      color: #fff;
     }
-    .card p {
-      margin: 0 0 1.5rem;
+    .panel > p {
+      margin: 0 0 2.25rem;
       color: var(--muted);
-      font-size: 0.95rem;
+      font-size: clamp(1rem, 2vw, 1.125rem);
     }
     .stores {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.875rem;
-      justify-content: center;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.125rem;
+    }
+    @media (min-width: 640px) {
+      .stores { grid-template-columns: 1fr 1fr; }
     }
     .store-btn {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      gap: 0.75rem;
-      min-width: 11.5rem;
-      padding: 0.75rem 1rem;
-      border-radius: 0.875rem;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.06);
+      gap: 1rem;
+      width: 100%;
+      min-height: 5rem;
+      padding: 1.25rem 1.5rem;
+      border-radius: 1.125rem;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(15, 23, 42, 0.75);
       color: var(--text);
       text-decoration: none;
-      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .store-btn:hover {
-      transform: translateY(-1px);
-      border-color: rgba(245, 158, 11, 0.45);
-      background: rgba(255, 255, 255, 0.09);
+      transform: translateY(-2px);
+      border-color: rgba(245, 158, 11, 0.5);
+      box-shadow: 0 12px 32px rgba(245, 158, 11, 0.15);
     }
+    .store-btn--apple:hover { border-color: rgba(255, 255, 255, 0.35); box-shadow: 0 12px 32px rgba(255,255,255,0.08); }
+    .store-btn--google:hover { border-color: rgba(20, 184, 166, 0.45); box-shadow: 0 12px 32px rgba(20, 184, 166, 0.15); }
     .store-btn--disabled {
-      opacity: 0.55;
+      opacity: 0.6;
       cursor: not-allowed;
     }
+    .store-btn--disabled:hover {
+      transform: none;
+      box-shadow: none;
+    }
+    .store-btn__icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.75rem;
+      height: 2.75rem;
+      flex-shrink: 0;
+    }
+    .store-btn__icon svg { display: block; width: 2.25rem; height: 2.25rem; }
     .store-btn__text {
       display: flex;
       flex-direction: column;
       align-items: flex-start;
       line-height: 1.15;
+      min-width: 0;
     }
     .store-btn__sublabel {
-      font-size: 0.7rem;
+      font-size: 0.78rem;
       color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
     .store-btn__label {
-      font-size: 1rem;
-      font-weight: 600;
+      font-size: 1.25rem;
+      font-weight: 700;
+      white-space: nowrap;
     }
     .features {
       display: grid;
-      gap: 0.75rem;
-      margin-top: 1.75rem;
-      text-align: left;
+      grid-template-columns: 1fr;
+      gap: 1.125rem;
+      margin-top: 2.25rem;
+    }
+    @media (min-width: 640px) {
+      .features { grid-template-columns: repeat(3, 1fr); }
     }
     .feature {
-      padding: 0.875rem 1rem;
-      border-radius: 0.875rem;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.03);
+      padding: 1.375rem 1.25rem;
+      border-radius: 1.125rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: left;
+      min-height: 9rem;
+    }
+    .feature--swipe {
+      background: linear-gradient(145deg, rgba(245,158,11,0.18), rgba(245,158,11,0.06));
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+    .feature--chat {
+      background: linear-gradient(145deg, rgba(30,58,138,0.35), rgba(30,58,138,0.12));
+      border-color: rgba(96, 165, 250, 0.25);
+    }
+    .feature--share {
+      background: linear-gradient(145deg, rgba(20,184,166,0.22), rgba(20,184,166,0.08));
+      border-color: rgba(20, 184, 166, 0.25);
+    }
+    .feature__icon {
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+      line-height: 1;
     }
     .feature strong {
       display: block;
-      margin-bottom: 0.15rem;
-      color: var(--text);
+      margin-bottom: 0.35rem;
+      color: #fff;
+      font-size: 1.05rem;
     }
     .feature span {
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.925rem;
+      line-height: 1.5;
     }
     footer {
-      margin-top: 2.5rem;
+      margin-top: auto;
+      padding-top: 2.5rem;
+      text-align: center;
       color: var(--muted);
       font-size: 0.875rem;
     }
@@ -234,34 +360,48 @@ function buildLandingHtml(): string {
   </style>
 </head>
 <body>
+  <div class="bg" aria-hidden="true">
+    <div class="orb orb--amber"></div>
+    <div class="orb orb--navy"></div>
+  </div>
   <main class="page">
-    <div class="logo" aria-hidden="true">B</div>
-    <h1>Barter</h1>
-    <p class="tagline">Trade what you have. Discover items nearby, make offers, and swap with people in your community.</p>
+    <div class="hero">
+      <section class="hero__brand">
+        <div class="logo-row">
+          <div class="logo" aria-hidden="true">B</div>
+          <span class="badge">Free on iOS &amp; Android</span>
+        </div>
+        <h1>Barter</h1>
+        <p class="tagline">Trade what you have. Discover items nearby, make offers, and swap with people in your community.</p>
+      </section>
 
-    <section class="card" aria-labelledby="download-heading">
-      <h2 id="download-heading">Get the app</h2>
-      <p>Available on iPhone, iPad, and Android.</p>
-      <div class="stores">
-        ${iosButton}
-        ${androidButton}
-      </div>
+      <section class="panel" aria-labelledby="download-heading">
+        <h2 id="download-heading">Download the app</h2>
+        <p>Available on iPhone, iPad, and Android phones.</p>
+        <div class="stores">
+          ${iosButton}
+          ${androidButton}
+        </div>
 
-      <div class="features">
-        <div class="feature">
-          <strong>Swipe to discover</strong>
-          <span>Browse local listings and save what catches your eye.</span>
+        <div class="features">
+          <div class="feature feature--swipe">
+            <div class="feature__icon" aria-hidden="true">✨</div>
+            <strong>Swipe to discover</strong>
+            <span>Browse local listings and save what catches your eye.</span>
+          </div>
+          <div class="feature feature--chat">
+            <div class="feature__icon" aria-hidden="true">💬</div>
+            <strong>Make offers &amp; chat</strong>
+            <span>Negotiate trades in-app and meet up when you are ready.</span>
+          </div>
+          <div class="feature feature--share">
+            <div class="feature__icon" aria-hidden="true">🔗</div>
+            <strong>Share listings</strong>
+            <span>Send a link — friends with the app open it directly.</span>
+          </div>
         </div>
-        <div class="feature">
-          <strong>Make offers &amp; chat</strong>
-          <span>Negotiate trades in-app and meet up when you are ready.</span>
-        </div>
-        <div class="feature">
-          <strong>Share listings</strong>
-          <span>Send a link — friends with the app open it directly.</span>
-        </div>
-      </div>
-    </section>
+      </section>
+    </div>
 
     <footer>
       <a href="/privacy">Privacy</a><span class="sep">·</span>
