@@ -25,6 +25,7 @@ import listingPreviewRouter from "./routes/listingPreview.js";
 import profilePreviewRouter from "./routes/profilePreview.js";
 import savedRouter from "./routes/saved.js";
 import legalRouter from "./routes/legal.js";
+import barterAiRouter from "./routes/barterAi.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -175,6 +176,7 @@ export function createApp(): express.Express {
   app.use("/api/media", mediaRouter);
   app.use("/api/ads",           adsRouter);
   app.use("/api/search",        searchRouter);
+  app.use("/api/barter-ai",     barterAiRouter);
 
   // ─── Error handling ───────────────────────────────────────────────────────────
   app.use(notFoundHandler);

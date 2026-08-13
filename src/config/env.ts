@@ -90,6 +90,10 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v !== "false"),
+  /** Optional barter-ai companion base URL (e.g. http://localhost:3002). When unset, client no-ops. */
+  BARTER_AI_URL: z.string().url().optional(),
+  /** Shared secret matching barter-ai INTERNAL_API_SECRET. Required when BARTER_AI_URL is set. */
+  BARTER_AI_SECRET: z.string().min(32).optional(),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));

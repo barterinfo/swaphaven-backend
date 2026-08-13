@@ -11,6 +11,12 @@
         "command": "node .harness/scripts/guard-pre-tool.mjs",
         "timeout": 10
       }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "node scripts/sync-barter-ai-schema.mjs",
+        "timeout": 30
+      }
     ]
   },
   "version": 1

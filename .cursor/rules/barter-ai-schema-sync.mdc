@@ -1,0 +1,43 @@
+---
+description: Sync Drizzle schema to barter-ai when swaphaven-api DB schema changes
+globs: src/db/schema/**/*,drizzle/**/*,drizzle.config.ts
+alwaysApply: false
+---
+
+# barter-ai schema sync (shared Postgres)
+
+**swaphaven-api owns the database.** barter-ai (`../barter-ai`) shares the same Postgres but keeps a **read-only TypeScript snapshot** at `../barter-ai/src/db/schema/`.
+
+## Automatic local sync (already wired)
+
+These run without manual `cp`:
+
+| Trigger | Mechanism |
+|---------|-----------|
+| Cursor / agent edits `src/db/schema/*.ts` | `.cursor/hooks.json` → `afterFileEdit` → `scripts/sync-barter-ai-schema.mjs` |
+| `npm run db:generate` | runs `schema:sync-barter-ai` after drizzle-kit |
+| Git commit with staged schema files | `.githooks/pre-commit` (enable once: `npm run setup:git-hooks`) |
+
+Manual fallback: `npm run schema:sync-barter-ai`
+
+## When this rule applies
+
+Any change under `src/db/schema/`, `drizzle/`, or `drizzle.config.ts`.
+
+## Required follow-up (same task / PR)
+
+1. **Migrate here only** — commit `drizzle/*.sql` + `drizzle/meta/_journal.json`; never add migrations to barter-ai.
+2. **Confirm sync ran** — check `../barter-ai/src/db/schema/` matches; re-run `npm run schema:sync-barter-ai` if needed.
+3. **Verify barter-ai** when present: `cd ../barter-ai && npm run typecheck`
+4. **Commit barter-ai** schema changes in the barter-ai repo.
+
+## Do not
+
+- Copy `drizzle/*.sql` or run `db:push` / `migrate` in barter-ai.
+- Edit barter-ai schema without matching changes here first.
+
+## One-time git hook setup (manual edits outside Cursor)
+
+```bash
+npm run setup:git-hooks
+```

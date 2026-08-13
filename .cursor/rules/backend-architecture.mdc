@@ -18,4 +18,5 @@ alwaysApply: false
 
 - Explanatory names; comments for security and non-obvious behavior only.
 - Commit `drizzle/*.sql` and `drizzle/meta/_journal.json` when schema changes.
+- **barter-ai:** after schema changes, run `npm run schema:sync-barter-ai` (see `.cursor/rules/barter-ai-schema-sync.mdc`).
 - No secrets in code; use auth middleware for protected routes.

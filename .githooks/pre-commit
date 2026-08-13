@@ -1,0 +1,8 @@
+#!/bin/sh
+# Auto-sync barter-ai schema when swaphaven-api schema files are committed.
+STAGED=$(git diff --cached --name-only -- "src/db/schema/")
+if [ -n "$STAGED" ]; then
+  node scripts/sync-barter-ai-schema.mjs
+  # Stage synced copies if barter-ai is a separate repo — user commits there separately.
+fi
+exit 0

@@ -10,12 +10,25 @@ Local dev uses `npm run dev` or `docker compose up` (optional).
 
 ```text
 Flutter app  ──HTTPS──►  Railway API service  ──►  Railway PostgreSQL
-                              │
+                              │                         ▲
+                              └──HTTP──► barter-ai ─────┘
                          /api/healthz
                          /api/readyz
 ```
 
 Listing images: S3 presigned uploads — see **[S3_SETUP.md](./S3_SETUP.md)**.
+
+## Companion service (barter-ai)
+
+Optional AI companion in a separate GitHub repo (`barterinfo/barter-ai`). Callable **standalone** (public or JWT from this API’s login) or **from this API** over HTTP. Deploy as a **second service in the same Railway project**:
+
+1. **+ New** → GitHub → `barter-ai`
+2. Variables → **Add Reference** → Postgres → `DATABASE_URL` (same DB as this API)
+3. Set `INTERNAL_API_SECRET` and `JWT_ACCESS_SECRET` (copy from this API) on barter-ai
+4. On this API service: `BARTER_AI_URL` (prefer Railway private DNS) + `BARTER_AI_SECRET` (same value as `INTERNAL_API_SECRET`)
+5. Generate a public Railway domain on barter-ai if mobile/standalone clients call it directly
+
+barter-ai does **not** run migrations — this API owns the schema.
 
 ---
 
