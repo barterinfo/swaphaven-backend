@@ -224,6 +224,12 @@ router.post("/login", async (req, res) => {
   if (!user || !valid) {
     return res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
   }
+  if (user.suspendedAt) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "This account has been suspended. Contact support@bartersg.com if you think this is a mistake.",
+    });
+  }
 
   const tokens = signTokens(user.id, user.email);
   return res.json({ ...tokens, user: userPublic(user) });
@@ -280,6 +286,13 @@ router.post("/social", async (req, res) => {
     }
   }
 
+  if (user.suspendedAt) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "This account has been suspended. Contact support@bartersg.com if you think this is a mistake.",
+    });
+  }
+
   const tokens = signTokens(user.id, user.email);
   return res.json({ ...tokens, user: userPublic(user) });
 });
@@ -301,6 +314,12 @@ router.post("/refresh", async (req, res) => {
   // Verify user still exists
   const user = await db.query.usersTable.findFirst({ where: eq(usersTable.id, payload.sub) });
   if (!user) return res.status(401).json({ error: "unauthorized", message: "User no longer exists" });
+  if (user.suspendedAt) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "This account has been suspended. Contact support@bartersg.com if you think this is a mistake.",
+    });
+  }
 
   const tokens = signTokens(user.id, user.email);
   return res.json({ ...tokens, user: userPublic(user) });
@@ -318,6 +337,12 @@ router.get("/me", requireAuth, async (req, res) => {
     where: eq(usersTable.id, req.user!.sub),
   });
   if (!user) return res.status(404).json({ error: "not_found", message: "User not found" });
+  if (user.suspendedAt) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "This account has been suspended. Contact support@bartersg.com if you think this is a mistake.",
+    });
+  }
   return res.json({ user: userPublic(user) });
 });
 

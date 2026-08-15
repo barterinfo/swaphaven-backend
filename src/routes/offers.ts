@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { and, eq, desc, sql } from "drizzle-orm";
+import { and, eq, desc, sql, notInArray } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
@@ -16,6 +16,7 @@ import { ACTIVE_OFFER_STATUSES } from "../lib/active-offer-listings.js";
 import { MAX_OFFER_ROUNDS } from "../lib/max-rounds.js";
 import { sendPushToUser } from "../lib/push.js";
 import { containsProfanity } from "../lib/moderation.js";
+import { isBlockedEitherWay, blockedUserIds } from "../lib/user-blocks.js";
 import {
   buildCounterOfferPush,
   buildOfferAcceptedPush,
@@ -99,6 +100,12 @@ router.post("/", requireAuth, async (req, res) => {
   if (listing.userId === req.user!.sub) {
     return res.status(400).json({ error: "bad_request", message: "Cannot make an offer on your own listing" });
   }
+  if (await isBlockedEitherWay(req.user!.sub, listing.userId)) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "You cannot make an offer to this user",
+    });
+  }
   if (listing.status !== "active") {
     return res.status(409).json({ error: "conflict", message: "Listing is no longer active" });
   }
@@ -174,9 +181,12 @@ router.post("/", requireAuth, async (req, res) => {
 router.get("/received", requireAuth, async (req, res) => {
   const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
   const { status } = req.query as { status?: string };
+  const userId = req.user!.sub;
 
-  const conditions: SQL<unknown>[] = [eq(offersTable.sellerId, req.user!.sub)];
+  const conditions: SQL<unknown>[] = [eq(offersTable.sellerId, userId)];
   if (status) conditions.push(eq(offersTable.status, status as "pending"));
+  const blocked = await blockedUserIds(userId);
+  if (blocked.length) conditions.push(notInArray(offersTable.buyerId, blocked));
 
   const items = await db.query.offersTable.findMany({
     where: and(...conditions),
@@ -193,9 +203,12 @@ router.get("/received", requireAuth, async (req, res) => {
 router.get("/sent", requireAuth, async (req, res) => {
   const { limit } = parsePaginationQuery(req.query as Record<string, unknown>);
   const { status } = req.query as { status?: string };
+  const userId = req.user!.sub;
 
-  const conditions: SQL<unknown>[] = [eq(offersTable.buyerId, req.user!.sub)];
+  const conditions: SQL<unknown>[] = [eq(offersTable.buyerId, userId)];
   if (status) conditions.push(eq(offersTable.status, status as "pending"));
+  const blocked = await blockedUserIds(userId);
+  if (blocked.length) conditions.push(notInArray(offersTable.sellerId, blocked));
 
   const items = await db.query.offersTable.findMany({
     where: and(...conditions),

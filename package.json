@@ -25,6 +25,8 @@
     "ads": "tsx scripts/ads.ts",
     "ads:prod": "DOTENV_CONFIG_PATH=.env.prod tsx scripts/ads.ts",
     "ads:prod:init": "sh -c 'if [ -f .env.prod ]; then echo \".env.prod already exists\"; else cp .env .env.prod && echo \"Created .env.prod from .env — set DATABASE_URL to Railway Postgres (Connect tab)\"; fi'",
+    "moderate": "tsx scripts/moderate.ts",
+    "moderate:prod": "DOTENV_CONFIG_PATH=.env.prod tsx scripts/moderate.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --reporter=verbose",

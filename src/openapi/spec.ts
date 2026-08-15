@@ -1284,6 +1284,97 @@ export const openApiSpec = {
         responses: { "204": { description: "Unsaved (or was not saved)" } },
       },
     },
+    // ── Safety (report / block) ────────────────────────────────────────────────
+    "/api/blocks": {
+      get: {
+        tags: ["Safety"],
+        summary: "List users the caller has blocked",
+        responses: {
+          "200": {
+            description: "Blocked user ids",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string", format: "uuid" },
+                          blockedUserId: { type: "string", format: "uuid" },
+                          createdAt: { type: "string", format: "date-time" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/blocks/{userId}": {
+      post: {
+        tags: ["Safety"],
+        summary: "Block a user (one-way hide)",
+        description:
+          "Idempotent. Hides the blocked user's listings/offers/chats for the caller only. " +
+          "Does not ban them on the platform.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Already blocked" },
+          "201": { description: "Blocked" },
+          "400": { description: "Cannot block self" },
+          "404": { description: "User not found" },
+        },
+      },
+      delete: {
+        tags: ["Safety"],
+        summary: "Unblock a user",
+        description: "Idempotent — always 204.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { "204": { description: "Unblocked" } },
+      },
+    },
+    "/api/reports": {
+      post: {
+        tags: ["Safety"],
+        summary: "Queue a content report for human review",
+        description:
+          "Stores a pending report and emails support. Does not hide content or ban anyone. " +
+          "Ops mark the row dismissed or actioned after review.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["targetType", "targetId", "reason"],
+                properties: {
+                  targetType: { type: "string", enum: ["listing", "user", "conversation"] },
+                  targetId: { type: "string", format: "uuid" },
+                  reason: {
+                    type: "string",
+                    enum: ["spam", "scam", "inappropriate", "harassment", "prohibited_item", "other"],
+                  },
+                  details: { type: "string", maxLength: 1000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Duplicate report already queued" },
+          "201": { description: "Report queued (pending)" },
+          "400": { description: "Validation or self-report" },
+          "403": { description: "Not a conversation participant" },
+          "404": { description: "Target not found" },
+        },
+      },
+    },
     // ── Offers ───────────────────────────────────────────────────────────────────
     "/api/offers": {
       post: {

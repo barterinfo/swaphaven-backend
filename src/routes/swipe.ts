@@ -13,6 +13,7 @@ import {
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
+import { blockedUserIds } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -107,6 +108,9 @@ router.get("/deck", requireAuth, async (req, res) => {
     sql`${listingsTable.userId} != ${userId}`,
   ];
   if (excludeIds.length) conditions.push(notInArray(listingsTable.id, excludeIds));
+
+  const blocked = await blockedUserIds(userId);
+  if (blocked.length) conditions.push(notInArray(listingsTable.userId, blocked));
 
   if (categorySlug) {
     // Browse bar sends slug (`electronics`); resolve once to categories.id.

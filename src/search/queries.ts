@@ -28,6 +28,10 @@ function buildFilterConditions(params: SearchListingParams): SQL<unknown>[] {
     conditions.push(ne(listingsTable.userId, params.excludeUserId));
   }
 
+  if (params.excludeOwnerIds && params.excludeOwnerIds.length > 0) {
+    conditions.push(notInArray(listingsTable.userId, params.excludeOwnerIds));
+  }
+
   if (params.excludeListingIds && params.excludeListingIds.length > 0) {
     conditions.push(notInArray(listingsTable.id, params.excludeListingIds));
   }

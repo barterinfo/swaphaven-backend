@@ -7,4 +7,5 @@ export * from "./trades.js";
 export * from "./messages.js";
 export * from "./notifications.js";
 export * from "./sponsored_ads.js";
+export * from "./safety.js";
 export * from "./relations.js";

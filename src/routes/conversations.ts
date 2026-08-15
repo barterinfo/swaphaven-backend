@@ -12,6 +12,7 @@ import { sendPushToUser } from "../lib/push.js";
 import { containsProfanity } from "../lib/moderation.js";
 import { filterListingImageUrls } from "../lib/media.js";
 import { isImageObscene } from "../lib/image-moderation.js";
+import { blockedUserIds, isBlockedEitherWay } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -77,19 +78,28 @@ router.get("/", requireAuth, async (req, res) => {
   });
   items.sort((a, b) => orderIndex.get(a.id)! - orderIndex.get(b.id)!);
 
+  const blocked = new Set(await blockedUserIds(userId));
+  const visible = blocked.size
+    ? items.filter((c) => {
+        const other =
+          c.offer.buyerId === userId ? c.offer.sellerId : c.offer.buyerId;
+        return !blocked.has(other);
+      })
+    : items;
+
   const unreadByConversation = new Map<string, number>();
   const rows = await db
     .select({ conversationId: messagesTable.conversationId, unread: count() })
     .from(messagesTable)
     .where(and(
-      inArray(messagesTable.conversationId, convIds),
+      inArray(messagesTable.conversationId, visible.map((c) => c.id)),
       ne(messagesTable.senderId, userId),
       isNull(messagesTable.readAt),
     ))
     .groupBy(messagesTable.conversationId);
   for (const row of rows) unreadByConversation.set(row.conversationId, Number(row.unread));
 
-  const serialized = items.map((c) =>
+  const serialized = visible.map((c) =>
     serializeConversationListItem(c, userId, unreadByConversation.get(c.id) ?? 0),
   );
   const lastSortAt = idRows.at(-1)!.sortAt;
@@ -173,6 +183,15 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "forbidden" });
   }
 
+  const otherUserId =
+    conv.offer.buyerId === userId ? conv.offer.sellerId : conv.offer.buyerId;
+  if (await isBlockedEitherWay(userId, otherUserId)) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "Messaging is unavailable with this user",
+    });
+  }
+
   const parsed = sendMessageSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
@@ -209,8 +228,6 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   // (broadcastToRoom already delivers to open sockets). We send regardless
   // because FCM will suppress the notification if the app is in the foreground
   // on the device — iOS/Android handle that deduplication natively.
-  const otherUserId =
-    conv.offer.buyerId === userId ? conv.offer.sellerId : conv.offer.buyerId;
   const messageBody = parsed.data.body;
   const preview =
     parsed.data.type === "image"

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, desc, eq, inArray, lt, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, ne, notInArray } from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
   savedListingsTable,
@@ -10,6 +10,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
 import { serializeListingBarter } from "../lib/barter-listing.js";
+import { blockedUserIds } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -23,6 +24,10 @@ router.get("/", requireAuth, async (req, res) => {
     eq(savedListingsTable.userId, userId),
     eq(listingsTable.status, "active"),
   ];
+  const blocked = await blockedUserIds(userId);
+  if (blocked.length) {
+    conditions.push(notInArray(listingsTable.userId, blocked));
+  }
   if (cursor) {
     conditions.push(lt(savedListingsTable.createdAt, cursor));
   }

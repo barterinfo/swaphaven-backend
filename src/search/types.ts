@@ -20,6 +20,8 @@ export type SearchListingParams = {
   excludeUserId?: string;
   /** Listing IDs to hide (active offers / open trades with this user). */
   excludeListingIds?: string[];
+  /** Owner user IDs to hide (e.g. one-way blocks). */
+  excludeOwnerIds?: string[];
   /** Phase 2 hook — accepted and ignored in Phase 1. */
   seedIds?: string[];
 };

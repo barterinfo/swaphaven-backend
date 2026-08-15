@@ -3,6 +3,7 @@ import { z } from "zod";
 import { optionalAuth } from "../middleware/auth.js";
 import { searchListings } from "../search/queries.js";
 import type { SearchSort } from "../search/types.js";
+import { blockedUserIds } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -75,6 +76,9 @@ router.get("/listings", optionalAuth, async (req, res) => {
 
   const q = parsed.data;
   const sort = q.sort ?? defaultSort(q.q, q.lat, q.lng);
+  const excludeOwnerIds = req.user?.sub
+    ? await blockedUserIds(req.user.sub)
+    : [];
 
   const result = await searchListings({
     q: q.q,
@@ -87,6 +91,7 @@ router.get("/listings", optionalAuth, async (req, res) => {
     limit: q.limit,
     offset: q.offset,
     excludeUserId: req.user?.sub,
+    excludeOwnerIds,
     seedIds: parseSeedIds(q.seed_ids),
   });
 
@@ -105,6 +110,9 @@ router.get("/trending", optionalAuth, async (req, res) => {
   }
 
   const q = parsed.data;
+  const excludeOwnerIds = req.user?.sub
+    ? await blockedUserIds(req.user.sub)
+    : [];
   const result = await searchListings({
     lat: q.lat,
     lng: q.lng,
@@ -115,6 +123,7 @@ router.get("/trending", optionalAuth, async (req, res) => {
     limit: q.limit,
     offset: 0,
     excludeUserId: req.user?.sub,
+    excludeOwnerIds,
   });
 
   return res.json({

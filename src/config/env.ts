@@ -72,6 +72,8 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   /** Verified Resend From address, e.g. `SwapHaven <noreply@mail.example.com>`. */
   EMAIL_FROM: z.string().optional(),
+  /** Inbox for content reports (Guideline 1.2 moderation queue). Defaults to support@bartersg.com. */
+  SUPPORT_EMAIL: z.string().email().optional(),
   // ─── Universal Links / App Links (share product) ───────────────────────────
   /** Apple Developer Team ID for apple-app-site-association `appID`. */
   APPLE_TEAM_ID: z.string().optional(),

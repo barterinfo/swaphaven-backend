@@ -162,6 +162,20 @@
       "when": 1785220000000,
       "tag": "0021_ensure_saved_and_superlike",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0022_safety_report_block",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785400000000,
+      "tag": "0023_user_suspend",
+      "breakpoints": true
     }
   ]
 }

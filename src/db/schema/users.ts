@@ -14,6 +14,9 @@ export const usersTable = pgTable("users", {
   passwordResetTokenHash: text("password_reset_token_hash"),
   passwordResetExpires:   timestamp("password_reset_expires"),
   passwordResetAttempts:  integer("password_reset_attempts").notNull().default(0),
+  /** Set by ops to lock the account (login/refresh/social rejected). Null = active. */
+  suspendedAt:            timestamp("suspended_at"),
+  suspendedReason:        text("suspended_reason"),
   createdAt:              timestamp("created_at").notNull().defaultNow(),
   updatedAt:              timestamp("updated_at").notNull().defaultNow(),
 });

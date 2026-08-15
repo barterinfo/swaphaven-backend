@@ -89,3 +89,55 @@ export async function sendRegistrationOtp(params: {
     failLabel: "verification",
   });
 }
+
+/**
+ * Notifies ops of a new content report. Best-effort — missing mail config logs
+ * and returns; the report row is already persisted for manual review.
+ */
+export async function notifyContentReport(params: {
+  reportId: string;
+  reporterId: string;
+  reportedUserId: string;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  details?: string | null;
+}): Promise<void> {
+  const to = env.SUPPORT_EMAIL ?? "support@bartersg.com";
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
+    console.info(
+      `[safety] Report ${params.reportId} queued (pending). Mailer not configured — check DB content_reports.`,
+    );
+    return;
+  }
+
+  const text = [
+    "New Barter content report (status: pending — no auto-ban).",
+    "",
+    `Report ID: ${params.reportId}`,
+    `Target: ${params.targetType} ${params.targetId}`,
+    `Reported user: ${params.reportedUserId}`,
+    `Reporter: ${params.reporterId}`,
+    `Reason: ${params.reason}`,
+    params.details ? `Details: ${params.details}` : null,
+    "",
+    "Review in DB (content_reports). Mark dismissed or actioned after you decide.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const resend = getClient();
+    const { error } = await resend.emails.send({
+      from: env.EMAIL_FROM,
+      to: [to],
+      subject: `[Barter] Report: ${params.reason} (${params.targetType})`,
+      text,
+    });
+    if (error) {
+      console.error("[safety] Failed to email content report:", error);
+    }
+  } catch (err) {
+    console.error("[safety] Failed to email content report:", err);
+  }
+}
