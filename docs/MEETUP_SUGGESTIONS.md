@@ -87,6 +87,11 @@ Returns transit-stop suggestions near the midpoint between buyer and seller.
 { "midpoint": { "lat": ..., "lng": ... }, "suggestions": [], "reason": "overpass_error" }
 ```
 
+**Response — traders more than 100 km apart:**
+```json
+{ "midpoint": { "lat": ..., "lng": ... }, "suggestions": [], "reason": "too_far" }
+```
+
 | Field | Type | Notes |
 |---|---|---|
 | `midpoint` | `{ lat, lng } \| null` | `null` when location unavailable |
@@ -153,7 +158,10 @@ The Overpass client is a standalone module with no external dependencies beyond 
   - MRT/LRT stations are distinguished from generic train stations by checking `station=subway` or `station=light_rail` on `railway=station` nodes
 - **Deduplication:** Multiple OSM nodes/ways often represent the same physical place (one node per platform, one per entrance, etc.). Results are grouped by name and the closest entry to the midpoint is kept.
 - **Cache:** `Map<string, { suggestions, expiresAt }>` keyed on `"${lat.toFixed(3)},${lng.toFixed(3)}"`. TTL = 1 hour. Cache is in-process (resets on server restart).
-- **Timeout:** The Overpass HTTP request has a 15-second `AbortSignal` timeout. Overpass itself is asked for a 12-second server-side timeout (`[timeout:12]`). If either fires, the route returns `reason: "overpass_error"` with an empty list — never a 5xx.
+- **User-Agent:** Requests send `SwapHaven/1.0 (meetup-suggestions; api@swaphaven.io)`. Public Overpass instances reject Node's empty User-Agent with HTTP 406 / 429.
+- **Overpass:** `overpass-api.de`, `overpass.kumi.systems`, and `overpass.private.coffee` are raced in parallel (8s timeout, `[timeout:7]`). The query omits individual bus-stop nodes so public instances do not time out.
+- **Nominatim fallback:** If Overpass 504s / times out, a bounded Nominatim search (`q=station` and `q=mall`) is used. First non-empty source wins. If every source fails, the route returns `reason: "overpass_error"` — never a 5xx.
+- **Distance cap:** Buyer and seller more than 100 km apart skip Overpass and return `reason: "too_far"` (arithmetic midpoint is otherwise often in the ocean).
 - **Max raw results:** 80 nodes/ways fetched from Overpass, then sliced to 10 after deduplication and sorting.
 
 ### Mobile — `meetup_suggestions_sheet.dart`

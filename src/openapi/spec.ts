@@ -464,7 +464,7 @@ export const openApiSpec = {
           suggestions: { type: "array", items: { $ref: "#/components/schemas/MeetupSuggestion" } },
           reason: {
             type: "string", nullable: true,
-            enum: ["location_unavailable", "none_found", "overpass_error"],
+            enum: ["location_unavailable", "none_found", "overpass_error", "too_far"],
             description: "Populated when suggestions is empty to explain why",
           },
         },
@@ -1692,7 +1692,7 @@ export const openApiSpec = {
       get: {
         tags: ["Chat"],
         summary: "Transit-stop meetup suggestions at the midpoint between buyer and seller",
-        description: "Calculates the geographic midpoint between both users' saved locations and returns nearby transit stops from OpenStreetMap. Returns reason:\"location_unavailable\" if either user has no location on their profile.",
+        description: "Calculates the geographic midpoint between both users' saved locations and returns nearby transit stops from OpenStreetMap. Returns reason:\"location_unavailable\" if either user has no location on their profile, or reason:\"too_far\" when they are more than 100 km apart.",
         parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Suggestions (may be empty)", content: { "application/json": { schema: { $ref: "#/components/schemas/MeetupSuggestionsResponse" } } } },

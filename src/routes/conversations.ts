@@ -16,6 +16,19 @@ import { blockedUserIds, isBlockedEitherWay } from "../lib/user-blocks.js";
 
 const router = Router();
 
+/** Local-barter cap: beyond this, a geographic midpoint is not a useful meetup. */
+const MAX_MEETUP_SEPARATION_M = 100_000;
+
+function metersBetween(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // ─── GET /api/conversations ───────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res) => {
   const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
@@ -337,6 +350,12 @@ router.get("/:conversationId/meetup-suggestions", requireAuth, async (req, res) 
   const midLat = (buyerLat + sellerLat) / 2;
   const midLng = (buyerLng + sellerLng) / 2;
 
+  // Arithmetic midpoint of transcontinental users lands in the ocean (e.g.
+  // India + US west → Atlantic). Skip Overpass and tell the client.
+  if (metersBetween(buyerLat, buyerLng, sellerLat, sellerLng) > MAX_MEETUP_SEPARATION_M) {
+    return res.json({ midpoint: { lat: midLat, lng: midLng }, suggestions: [], reason: "too_far" });
+  }
+
   try {
     const suggestions = await fetchTransitSuggestions(midLat, midLng);
     return res.json({
@@ -344,7 +363,8 @@ router.get("/:conversationId/meetup-suggestions", requireAuth, async (req, res) 
       suggestions,
       ...(suggestions.length === 0 ? { reason: "none_found" } : {}),
     });
-  } catch {
+  } catch (err) {
+    console.error("[meetup-suggestions] Overpass failed:", err);
     return res.json({ midpoint: { lat: midLat, lng: midLng }, suggestions: [], reason: "overpass_error" });
   }
 });

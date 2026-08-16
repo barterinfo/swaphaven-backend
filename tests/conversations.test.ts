@@ -4,6 +4,7 @@ import { app } from "./helpers/app.js";
 import {
   registerUser, fullTradeSetup, createListing, createOffer, acceptOffer,
 } from "./helpers/fixtures.js";
+import { fetchTransitSuggestions } from "../src/lib/overpass.js";
 
 // Mock Overpass so tests are deterministic and don't hit the public endpoint.
 vi.mock("../src/lib/overpass.js", () => ({
@@ -325,6 +326,49 @@ describe("GET /api/conversations/:conversationId/meetup-suggestions", () => {
     const res = await request(app)
       .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`);
     expect(res.status).toBe(401);
+  });
+
+  it("returns too_far when traders are more than 100 km apart", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+    vi.mocked(fetchTransitSuggestions).mockClear();
+
+    await Promise.all([
+      request(app).patch("/api/users/me").set("Authorization", `Bearer ${seller.accessToken}`)
+        .send({ locationLat: 1.3521, locationLng: 103.8198 }),
+      request(app).patch("/api/users/me").set("Authorization", `Bearer ${buyer.accessToken}`)
+        .send({ locationLat: 28.6139, locationLng: 77.2090 }),
+    ]);
+
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.reason).toBe("too_far");
+    expect(res.body.suggestions).toHaveLength(0);
+    expect(res.body.midpoint).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number) });
+    expect(vi.mocked(fetchTransitSuggestions)).not.toHaveBeenCalled();
+  });
+
+  it("returns overpass_error when Overpass throws", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await Promise.all([
+      request(app).patch("/api/users/me").set("Authorization", `Bearer ${seller.accessToken}`)
+        .send({ locationLat: 37.7749, locationLng: -122.4194 }),
+      request(app).patch("/api/users/me").set("Authorization", `Bearer ${buyer.accessToken}`)
+        .send({ locationLat: 37.7580, locationLng: -122.4382 }),
+    ]);
+
+    vi.mocked(fetchTransitSuggestions).mockRejectedValueOnce(new Error("Overpass HTTP 406"));
+
+    const res = await request(app)
+      .get(`/api/conversations/${trade.conversationId}/meetup-suggestions`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.reason).toBe("overpass_error");
+    expect(res.body.suggestions).toHaveLength(0);
   });
 });
 
