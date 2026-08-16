@@ -10,6 +10,7 @@ import { db } from "../src/db/client.js";
 import { usersTable, deviceTokensTable, pendingRegistrationsTable } from "../src/db/schema/index.js";
 import { SocialAuthError, verifySocialToken } from "../src/lib/social-auth.js";
 import { sendPasswordResetOtp, sendRegistrationOtp } from "../src/lib/mailer.js";
+import { hashEmail, maskEmail } from "../src/lib/email-privacy.js";
 
 // Mock the provider verification so tests never hit Google / Facebook.
 vi.mock("../src/lib/social-auth.js", async () => {
@@ -53,7 +54,7 @@ describe("POST /api/auth/register", () => {
     expect(mockSendRegistrationOtp).toHaveBeenCalledOnce();
     expect(mockSendRegistrationOtp.mock.calls[0]![0].to).toBe(email);
 
-    const user = await testDb.query.usersTable.findFirst({ where: eq(usersTable.email, email) });
+    const user = await testDb.query.usersTable.findFirst({ where: eq(usersTable.emailHash, hashEmail(email)) });
     expect(user).toBeUndefined();
   });
 
@@ -102,7 +103,7 @@ describe("POST /api/auth/register", () => {
 
     expect(res.status).toBe(503);
     const pending = await testDb.query.pendingRegistrationsTable.findFirst({
-      where: eq(pendingRegistrationsTable.email, email),
+      where: eq(pendingRegistrationsTable.emailHash, hashEmail(email)),
     });
     expect(pending).toBeUndefined();
   });
@@ -129,7 +130,7 @@ describe("POST /api/auth/register/verify", () => {
     expect(res.status).toBe(201);
     expect(res.body.accessToken).toBeTruthy();
     expect(res.body.refreshToken).toBeTruthy();
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(maskEmail(email));
     expect(res.body.user.name).toBe("Alice");
   });
 
@@ -178,7 +179,7 @@ describe("POST /api/auth/login", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.accessToken).toBeTruthy();
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(maskEmail(email));
   });
 
   it("rejects wrong password with 401", async () => {
@@ -217,7 +218,7 @@ describe("POST /api/auth/social", () => {
     expect(res.status).toBe(200);
     expect(res.body.accessToken).toBeTruthy();
     expect(res.body.refreshToken).toBeTruthy();
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(maskEmail(email));
     expect(res.body.user.name).toBe("Social Sam");
     expect(res.body.user.passwordHash).toBeUndefined();
     expect(mockVerify).toHaveBeenCalledWith("google", "google-id-token");
@@ -241,7 +242,7 @@ describe("POST /api/auth/social", () => {
     const [{ count }] = await testDb
       .select({ count: sql<number>`count(*)::int` })
       .from(usersTable)
-      .where(eq(usersTable.email, email));
+      .where(eq(usersTable.emailHash, hashEmail(email)));
     expect(count).toBe(1);
   });
 
@@ -255,7 +256,7 @@ describe("POST /api/auth/social", () => {
       .send({ provider: "google", idToken: "tok" });
 
     expect(res.status).toBe(200);
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(maskEmail(email));
     expect(res.body.accessToken).toBeTruthy();
   });
 
@@ -267,7 +268,11 @@ describe("POST /api/auth/social", () => {
     const findFirstSpy = vi
       .spyOn(db.query.usersTable, "findFirst")
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(existing);
+      .mockResolvedValueOnce({
+        id: existing.id,
+        emailMasked: existing.email,
+        name: existing.name,
+      } as typeof existing & { emailMasked: string });
 
     const insertSpy = vi.spyOn(db, "insert").mockImplementation(() => {
       throw Object.assign(new DatabaseError("duplicate key", 0, "error"), { code: "23505" });
@@ -279,7 +284,7 @@ describe("POST /api/auth/social", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(existing.id);
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(maskEmail(email));
     expect(insertSpy).toHaveBeenCalled();
     expect(findFirstSpy).toHaveBeenCalledTimes(2);
 
@@ -296,7 +301,7 @@ describe("POST /api/auth/social", () => {
       .send({ provider: "google", idToken: "tok" });
 
     expect(res.status).toBe(200);
-    expect(res.body.user.email).toBe(email.toLowerCase());
+    expect(res.body.user.email).toBe(maskEmail(email));
   });
 
   it("rejects an unsupported provider with 400", async () => {
@@ -393,7 +398,7 @@ describe("GET /api/auth/me", () => {
       .set("Authorization", `Bearer ${accessToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(maskEmail(email));
     expect(res.body.user.passwordHash).toBeUndefined();
   });
 
@@ -448,7 +453,7 @@ describe("POST /api/auth/forgot-password", () => {
     expect(res.body.error).toBe("service_unavailable");
 
     const row = await testDb.query.usersTable.findFirst({
-      where: eq(usersTable.email, email),
+      where: eq(usersTable.emailHash, hashEmail(email)),
     });
     expect(row?.passwordResetTokenHash).toBeNull();
     expect(row?.passwordResetExpires).toBeNull();
@@ -503,7 +508,7 @@ describe("POST /api/auth/reset-password", () => {
         passwordResetExpires: new Date(Date.now() + 600_000),
         passwordResetAttempts: 0,
       })
-      .where(eq(usersTable.email, email));
+      .where(eq(usersTable.emailHash, hashEmail(email)));
 
     const res = await request(app)
       .post("/api/auth/reset-password")
@@ -512,7 +517,7 @@ describe("POST /api/auth/reset-password", () => {
     expect(res.status).toBe(400);
 
     const row = await testDb.query.usersTable.findFirst({
-      where: eq(usersTable.email, email),
+      where: eq(usersTable.emailHash, hashEmail(email)),
     });
     expect(row?.passwordResetAttempts).toBe(1);
   });
@@ -529,7 +534,7 @@ describe("POST /api/auth/reset-password", () => {
         passwordResetExpires: new Date(Date.now() + 600_000),
         passwordResetAttempts: 0,
       })
-      .where(eq(usersTable.email, email));
+      .where(eq(usersTable.emailHash, hashEmail(email)));
 
     for (let i = 0; i < 5; i++) {
       const res = await request(app)
@@ -539,7 +544,7 @@ describe("POST /api/auth/reset-password", () => {
     }
 
     const afterLock = await testDb.query.usersTable.findFirst({
-      where: eq(usersTable.email, email),
+      where: eq(usersTable.emailHash, hashEmail(email)),
     });
     expect(afterLock?.passwordResetTokenHash).toBeNull();
 

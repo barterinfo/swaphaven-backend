@@ -44,6 +44,8 @@ services:
       CORS_ORIGINS: "*"
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-only-change-me-access-secret-32chars-minimum-xx}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-only-change-me-refresh-secret-32chars-minimum-xx}
+      EMAIL_HASH_PEPPER: ${EMAIL_HASH_PEPPER:-dev-only-change-me-email-hash-pepper-32chars-xx}
+      EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:-dev-only-change-me-email-enc-key-32chars-xx}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/readyz"]
       interval: 15s

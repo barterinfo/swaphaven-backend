@@ -15,6 +15,7 @@ import { requireAuth, signTokens, verifyRefreshToken } from "../middleware/auth.
 import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
 import { containsProfanity } from "../lib/moderation.js";
 import { sendPasswordResetOtp, sendRegistrationOtp } from "../lib/mailer.js";
+import { decryptEmail, hashEmail, sealEmail } from "../lib/email-privacy.js";
 import { env } from "../config/env.js";
 
 const router = Router();
@@ -41,13 +42,13 @@ async function clearPasswordReset(userId: string): Promise<void> {
     .where(eq(usersTable.id, userId));
 }
 
-async function clearPendingRegistration(email: string): Promise<void> {
+async function clearPendingRegistration(emailHash: string): Promise<void> {
   await db.delete(pendingRegistrationsTable)
-    .where(eq(pendingRegistrationsTable.email, email));
+    .where(eq(pendingRegistrationsTable.emailHash, emailHash));
 }
 
-function userPublic(u: { id: string; email: string; name: string }) {
-  return { id: u.id, email: u.email, name: u.name };
+function userPublic(u: { id: string; emailMasked: string; name: string }) {
+  return { id: u.id, email: u.emailMasked, name: u.name };
 }
 
 // ─── POST /api/auth/register ──────────────────────────────────────────────────
@@ -72,9 +73,11 @@ router.post("/register", async (req, res) => {
       message: "name contains inappropriate language and cannot be used.",
     });
   }
-  const normalized = email.toLowerCase();
+  const sealed = sealEmail(email);
 
-  const existing = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+  const existing = await db.query.usersTable.findFirst({
+    where: eq(usersTable.emailHash, sealed.emailHash),
+  });
   if (existing) return res.status(409).json({ error: "conflict", message: "Email already registered" });
 
   const passwordHash = await bcrypt.hash(password, 12);
@@ -85,7 +88,7 @@ router.post("/register", async (req, res) => {
 
   await db.insert(pendingRegistrationsTable)
     .values({
-      email: normalized,
+      ...sealed,
       passwordHash,
       name,
       otpHash,
@@ -95,8 +98,10 @@ router.post("/register", async (req, res) => {
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: pendingRegistrationsTable.email,
+      target: pendingRegistrationsTable.emailHash,
       set: {
+        emailCiphertext: sealed.emailCiphertext,
+        emailMasked: sealed.emailMasked,
         passwordHash,
         name,
         otpHash,
@@ -108,13 +113,13 @@ router.post("/register", async (req, res) => {
 
   try {
     await sendRegistrationOtp({
-      to: normalized,
+      to: email.trim().toLowerCase(),
       otp,
       expiresMinutes: OTP_EXPIRES_MINUTES,
     });
   } catch (err) {
-    console.error(`[auth] Failed to send registration OTP to ${normalized}:`, err);
-    await clearPendingRegistration(normalized);
+    console.error(`[auth] Failed to send registration OTP to ${sealed.emailMasked}:`, err);
+    await clearPendingRegistration(sealed.emailHash);
     return res.status(503).json({
       error: "service_unavailable",
       message: "Unable to send verification email. Please try again.",
@@ -122,7 +127,7 @@ router.post("/register", async (req, res) => {
   }
 
   if (env.NODE_ENV !== "production") {
-    console.info(`[auth] Registration OTP for ${normalized} (dev only): ${otp}`);
+    console.info(`[auth] Registration OTP for ${sealed.emailMasked} (dev only): ${otp}`);
   }
 
   return res.status(200).json({
@@ -144,10 +149,10 @@ router.post("/register/verify", async (req, res) => {
   }
 
   const { email, token } = parsed.data;
-  const normalized = email.toLowerCase();
+  const emailHash = hashEmail(email);
 
   const pending = await db.query.pendingRegistrationsTable.findFirst({
-    where: eq(pendingRegistrationsTable.email, normalized),
+    where: eq(pendingRegistrationsTable.emailHash, emailHash),
   });
 
   const invalid = !pending
@@ -163,41 +168,43 @@ router.post("/register/verify", async (req, res) => {
   if (submitted.length !== stored.length || !crypto.timingSafeEqual(submitted, stored)) {
     const attempts = pending.otpAttempts + 1;
     if (attempts >= OTP_MAX_ATTEMPTS) {
-      await clearPendingRegistration(normalized);
+      await clearPendingRegistration(emailHash);
     } else {
       await db.update(pendingRegistrationsTable)
         .set({ otpAttempts: attempts, updatedAt: new Date() })
-        .where(eq(pendingRegistrationsTable.email, normalized));
+        .where(eq(pendingRegistrationsTable.emailHash, emailHash));
     }
     return res.status(400).json({ error: "bad_request", message: "Invalid or expired verification code" });
   }
 
   // Race: account may have been created via social while OTP was pending.
-  const already = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+  const already = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, emailHash) });
   if (already) {
-    await clearPendingRegistration(normalized);
+    await clearPendingRegistration(emailHash);
     return res.status(409).json({ error: "conflict", message: "Email already registered" });
   }
 
   let user;
   try {
     [user] = await db.insert(usersTable).values({
-      email: normalized,
+      emailHash: pending.emailHash,
+      emailCiphertext: pending.emailCiphertext,
+      emailMasked: pending.emailMasked,
       passwordHash: pending.passwordHash,
       name: pending.name,
     }).returning();
     await db.insert(userProfilesTable).values({ id: user.id, displayName: pending.name });
   } catch (err) {
     if (err instanceof DatabaseError && err.code === "23505") {
-      await clearPendingRegistration(normalized);
+      await clearPendingRegistration(emailHash);
       return res.status(409).json({ error: "conflict", message: "Email already registered" });
     }
     throw err;
   }
 
-  await clearPendingRegistration(normalized);
+  await clearPendingRegistration(emailHash);
 
-  const tokens = signTokens(user.id, user.email);
+  const tokens = signTokens(user.id);
   return res.status(201).json({ ...tokens, user: userPublic(user) });
 });
 
@@ -214,7 +221,7 @@ router.post("/login", async (req, res) => {
   }
 
   const { email, password } = parsed.data;
-  const user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, email.toLowerCase()) });
+  const user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, hashEmail(email)) });
 
   // Use constant-time comparison to avoid user enumeration timing attacks
   const dummyHash = "$2a$12$invalidhashfortimingprotection000000000000000000000000";
@@ -231,7 +238,7 @@ router.post("/login", async (req, res) => {
     });
   }
 
-  const tokens = signTokens(user.id, user.email);
+  const tokens = signTokens(user.id);
   return res.json({ ...tokens, user: userPublic(user) });
 });
 
@@ -259,26 +266,26 @@ router.post("/social", async (req, res) => {
     throw err;
   }
 
-  const normalized = profile.email.toLowerCase();
+  const sealed = sealEmail(profile.email);
   // Keep the display name within the same bounds as /register so it can't diverge downstream.
   const name = profile.name.trim().slice(0, 80);
 
-  let user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+  let user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, sealed.emailHash) });
 
   if (!user) {
     // Social accounts have no local password — store an unguessable random hash so
     // password login is effectively disabled until the user sets one via reset-password.
     const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
     try {
-      [user] = await db.insert(usersTable).values({ email: normalized, passwordHash, name }).returning();
+      [user] = await db.insert(usersTable).values({ ...sealed, passwordHash, name }).returning();
       await db.insert(userProfilesTable).values({ id: user.id, displayName: name });
       // Drop any unfinished email/password signup for this address.
-      await clearPendingRegistration(normalized);
+      await clearPendingRegistration(sealed.emailHash);
     } catch (err) {
       // Concurrent sign-up (mobile clients often double-submit): the loser of the race hits the
       // unique-email constraint — recover by reading the row the winning request just created.
       if (err instanceof DatabaseError && err.code === "23505") {
-        user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, normalized) });
+        user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, sealed.emailHash) });
         if (!user) throw err;
       } else {
         throw err;
@@ -293,7 +300,7 @@ router.post("/social", async (req, res) => {
     });
   }
 
-  const tokens = signTokens(user.id, user.email);
+  const tokens = signTokens(user.id);
   return res.json({ ...tokens, user: userPublic(user) });
 });
 
@@ -321,7 +328,7 @@ router.post("/refresh", async (req, res) => {
     });
   }
 
-  const tokens = signTokens(user.id, user.email);
+  const tokens = signTokens(user.id);
   return res.json({ ...tokens, user: userPublic(user) });
 });
 
@@ -363,7 +370,7 @@ router.post("/forgot-password", async (req, res) => {
   };
 
   const user = await db.query.usersTable.findFirst({
-    where: eq(usersTable.email, parsed.data.email.toLowerCase()),
+    where: eq(usersTable.emailHash, hashEmail(parsed.data.email)),
   });
   if (!user) return res.json(generic);
 
@@ -381,12 +388,12 @@ router.post("/forgot-password", async (req, res) => {
 
   try {
     await sendPasswordResetOtp({
-      to: user.email,
+      to: decryptEmail(user.emailCiphertext),
       otp,
       expiresMinutes: OTP_EXPIRES_MINUTES,
     });
   } catch (err) {
-    console.error(`[auth] Failed to send password reset OTP to ${user.email}:`, err);
+    console.error(`[auth] Failed to send password reset OTP to ${user.emailMasked}:`, err);
     await clearPasswordReset(user.id);
     return res.status(503).json({
       error: "service_unavailable",
@@ -396,7 +403,7 @@ router.post("/forgot-password", async (req, res) => {
 
   // Dev aid — OTP is still emailed; log only outside production.
   if (env.NODE_ENV !== "production") {
-    console.info(`[auth] Password reset OTP for ${user.email} (dev only): ${otp}`);
+    console.info(`[auth] Password reset OTP for ${user.emailMasked} (dev only): ${otp}`);
   }
 
   return res.json(generic);
@@ -418,7 +425,7 @@ router.post("/reset-password", async (req, res) => {
 
   const { email, token, newPassword } = parsed.data;
   const user = await db.query.usersTable.findFirst({
-    where: eq(usersTable.email, email.toLowerCase()),
+    where: eq(usersTable.emailHash, hashEmail(email)),
   });
 
   const invalid = !user || !user.passwordResetTokenHash || !user.passwordResetExpires

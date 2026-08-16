@@ -32,7 +32,7 @@ export const openApiSpec = {
         type: "object",
         properties: {
           id:    { type: "string", format: "uuid" },
-          email: { type: "string", format: "email" },
+          email: { type: "string", description: "Masked address (e.g. p***m@gmail.com). Never the full email." },
           name:  { type: "string" },
         },
       },

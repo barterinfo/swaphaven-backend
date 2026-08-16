@@ -12,6 +12,7 @@ import {
   purgeUserAccount,
   type PurgeUserAccountResult,
 } from "./account-deletion.js";
+import { hashEmail } from "./email-privacy.js";
 
 export class ModerationError extends Error {
   constructor(message: string) {
@@ -31,7 +32,7 @@ export async function findUserByIdOrEmail(idOrEmail: string) {
     if (byId) return byId;
   }
   return db.query.usersTable.findFirst({
-    where: eq(usersTable.email, key.toLowerCase()),
+    where: eq(usersTable.emailHash, hashEmail(key)),
   });
 }
 
@@ -47,7 +48,7 @@ export async function listPendingReports(limit = 50) {
       details: contentReportsTable.details,
       status: contentReportsTable.status,
       createdAt: contentReportsTable.createdAt,
-      reportedEmail: usersTable.email,
+      reportedEmail: usersTable.emailMasked,
       reportedName: userProfilesTable.displayName,
     })
     .from(contentReportsTable)
@@ -117,7 +118,7 @@ export async function suspendUser(params: {
 
   return {
     userId: user.id,
-    email: user.email,
+    email: user.emailMasked,
     listingsDeleted: deleted.length,
   };
 }
@@ -138,7 +139,7 @@ export async function unsuspendUser(userId: string): Promise<{ userId: string; e
     })
     .where(eq(usersTable.id, userId));
 
-  return { userId: user.id, email: user.email };
+  return { userId: user.id, email: user.emailMasked };
 }
 
 /**

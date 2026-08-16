@@ -4,7 +4,6 @@ import { env } from "../config/env.js";
 
 export interface AuthPayload {
   sub: string;   // userId
-  email: string;
   typ: "access" | "refresh";
 }
 
@@ -55,14 +54,14 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
   next();
 }
 
-export function signTokens(sub: string, email: string): { accessToken: string; refreshToken: string } {
+export function signTokens(sub: string): { accessToken: string; refreshToken: string } {
   const accessToken = jwt.sign(
-    { sub, email, typ: "access" } satisfies AuthPayload,
+    { sub, typ: "access" } satisfies AuthPayload,
     env.JWT_ACCESS_SECRET,
     { expiresIn: env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions["expiresIn"] },
   );
   const refreshToken = jwt.sign(
-    { sub, email, typ: "refresh" } satisfies AuthPayload,
+    { sub, typ: "refresh" } satisfies AuthPayload,
     env.JWT_REFRESH_SECRET,
     { expiresIn: env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions["expiresIn"] },
   );

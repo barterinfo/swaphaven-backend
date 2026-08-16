@@ -21,6 +21,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 chars"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be at least 32 chars"),
+  /** HMAC pepper for email lookup hashes. Changing this invalidates all stored email_hash values. */
+  EMAIL_HASH_PEPPER: z.string().min(32, "EMAIL_HASH_PEPPER must be at least 32 chars"),
+  /** AES-256-GCM key material (SHA-256'd to 32 bytes). Changing this makes stored emails unreadable. */
+  EMAIL_ENCRYPTION_KEY: z.string().min(32, "EMAIL_ENCRYPTION_KEY must be at least 32 chars"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
   PORT: z.coerce.number().default(3001),

@@ -241,12 +241,12 @@ async function main(): Promise<void> {
   console.log("Account created successfully.\n");
   console.log(`  User ID:  ${user.id}`);
   console.log(`  Name:     ${user.name}`);
-  console.log(`  Email:    ${user.email}`);
+  console.log(`  Email:    ${details.email}`);
   console.log(`  Password: ${details.password}`);
   console.log(`  Token:    ${result.accessToken!.slice(0, 24)}...`);
   console.log("\nYou can log in with this account in the app, or run:");
   console.log(
-    `  SEED_EMAIL=${user.email} SEED_PASSWORD='${details.password}' npm run seed:listings`,
+    `  SEED_EMAIL=${details.email} SEED_PASSWORD='${details.password}' npm run seed:listings`,
   );
 }
 

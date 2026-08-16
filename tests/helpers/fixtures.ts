@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import request from "supertest";
 import { categoryIdBySlug } from "../../src/lib/categories.js";
 import { pendingRegistrationsTable } from "../../src/db/schema/index.js";
+import { hashEmail } from "../../src/lib/email-privacy.js";
 import { app } from "./app.js";
 import { testDb } from "./db.js";
 
@@ -43,7 +44,7 @@ export async function registerUser(overrides: Record<string, string> = {}): Prom
       otpAttempts: 0,
       otpExpires: new Date(Date.now() + 10 * 60 * 1000),
     })
-    .where(eq(pendingRegistrationsTable.email, normalized));
+    .where(eq(pendingRegistrationsTable.emailHash, hashEmail(normalized)));
 
   const res = await request(app)
     .post("/api/auth/register/verify")

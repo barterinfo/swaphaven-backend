@@ -102,7 +102,7 @@ describe("purgeUserAccount", () => {
     await createListing(user.accessToken);
 
     const result = await deleteUser(user.user.id);
-    expect(result.email).toBe(user.email);
+    expect(result.email).toBe(user.user.email);
 
     const gone = await testDb.query.usersTable.findFirst({
       where: eq(usersTable.id, user.user.id),

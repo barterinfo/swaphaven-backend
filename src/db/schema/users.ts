@@ -8,7 +8,9 @@ export const platformEnum = pgEnum("platform", ["ios", "android", "web"]);
 // ─── users ────────────────────────────────────────────────────────────────────
 export const usersTable = pgTable("users", {
   id:                     uuid("id").primaryKey().defaultRandom(),
-  email:                  text("email").notNull().unique(),
+  emailHash:              text("email_hash").notNull().unique(),
+  emailCiphertext:        text("email_ciphertext").notNull(),
+  emailMasked:            text("email_masked").notNull(),
   passwordHash:           text("password_hash").notNull(),
   name:                   text("name").notNull(),
   passwordResetTokenHash: text("password_reset_token_hash"),
@@ -24,7 +26,9 @@ export const usersTable = pgTable("users", {
 // ─── pending_registrations ────────────────────────────────────────────────────
 /** Email/password signup awaiting OTP verification — no `users` row until verified. */
 export const pendingRegistrationsTable = pgTable("pending_registrations", {
-  email:        text("email").primaryKey(),
+  emailHash:        text("email_hash").primaryKey(),
+  emailCiphertext:  text("email_ciphertext").notNull(),
+  emailMasked:      text("email_masked").notNull(),
   passwordHash: text("password_hash").notNull(),
   name:         text("name").notNull(),
   otpHash:      text("otp_hash").notNull(),

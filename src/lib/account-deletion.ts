@@ -158,13 +158,13 @@ export async function purgeUserAccount(userId: string): Promise<PurgeUserAccount
 
     await tx
       .delete(pendingRegistrationsTable)
-      .where(eq(pendingRegistrationsTable.email, user.email));
+      .where(eq(pendingRegistrationsTable.emailHash, user.emailHash));
 
     await tx.delete(usersTable).where(eq(usersTable.id, userId));
 
     return {
       userId: user.id,
-      email: user.email,
+      email: user.emailMasked,
       offersDeleted: offerIds.length,
       listingsDeleted: userListings.length,
     };
