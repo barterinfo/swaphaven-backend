@@ -713,6 +713,34 @@ export const openApiSpec = {
         responses: { "204": { description: "Token registered" } },
       },
     },
+    "/api/account": {
+      delete: {
+        tags: ["Account"],
+        summary: "Permanently delete own account",
+        description:
+          "Hard-deletes the authenticated user and purges offers, trades, chats, and reviews involving them. Counterparties on open deals receive cancel notifications. Irreversible. Segregated from profile PATCH /api/users/me.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["confirm"],
+                properties: {
+                  confirm: { type: "boolean", enum: [true], description: "Must be true to proceed." },
+                  password: { type: "string", description: "Current password (recommended for email/password accounts)." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "204": { description: "Account deleted" },
+          "400": { description: "Validation error (confirm missing)" },
+          "401": { description: "Invalid password or missing auth" },
+        },
+      },
+    },
     // ── Users ────────────────────────────────────────────────────────────────────
     "/api/users/me": {
       get: {

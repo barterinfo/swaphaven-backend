@@ -147,7 +147,9 @@ async function cmdDeleteUser(
   // Mark report first — delete cascades would remove the report row.
   await maybeActionReport(reportId);
   const result = await deleteUser(user.id);
-  console.log(`Deleted user ${result.email} (${result.userId})`);
+  console.log(
+    `Deleted user ${result.email} (${result.userId}); purged ${result.offersDeleted} offer(s), ${result.listingsDeleted} listing(s)`,
+  );
 }
 
 async function interactive(): Promise<void> {

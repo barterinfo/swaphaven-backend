@@ -149,8 +149,23 @@ For `delete-user`, the script marks the report **actioned first** (if `--report`
 
 ### Delete user
 
-- Soft-deletes listings, then deletes the `users` row (FK cascades)  
-- Prefer suspend when reversible action is enough  
+Uses the segregated purge in [`src/lib/account-deletion.ts`](../src/lib/account-deletion.ts) (`purgeUserAccount`). Does **not** modify listing DELETE, mark-sold, or offer accept/deny routes.
+
+Order of operations:
+
+1. Soft-delete the user’s listings; deny pending offers on those listings and notify buyers.
+2. Deny open offers (`pending` / `countered`) where the user is buyer or seller; notify the other party (“The other user left Barter”).
+3. Notify counterparties on open trades (`pending_meetup` / `disputed`).
+4. Delete trade reviews, trades, and offers involving the user (cascades chats/messages).
+5. Null `traded_with_user_id` on other users’ sold listings.
+6. Clear `pending_registrations` for that email.
+7. Delete the `users` row (cascades profile, tokens, swipes, saved, blocks, reports).
+
+**Survivor behavior:** the other user’s own listings stay; status unchanged (`active` unless already `traded`). Shared offers/chats/trades with the deleted user disappear.
+
+**In-app Delete Account:** `DELETE /api/account` with `{ "confirm": true, "password": "..." }` — same purge, auth required.
+
+Prefer **`suspend`** when reversible; **`delete-user`** / **`DELETE /api/account`** are permanent.
 
 ---
 
@@ -168,6 +183,8 @@ For `delete-user`, the script marks the report **actioned first** (if `--report`
 
 | Path | Role |
 |------|------|
+| `src/lib/account-deletion.ts` | Segregated hard-delete purge (`purgeUserAccount`) |
+| `src/routes/account-deletion.ts` | `DELETE /api/account` (in-app Delete Account) |
 | `src/db/schema/safety.ts` | Blocks + reports tables |
 | `src/db/schema/users.ts` | `suspendedAt` / `suspendedReason` |
 | `src/lib/user-blocks.ts` | Block helpers for feeds |

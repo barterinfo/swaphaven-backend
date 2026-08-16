@@ -7,6 +7,11 @@ import {
   usersTable,
   userProfilesTable,
 } from "../db/schema/index.js";
+import {
+  AccountDeletionError,
+  purgeUserAccount,
+  type PurgeUserAccountResult,
+} from "./account-deletion.js";
 
 export class ModerationError extends Error {
   constructor(message: string) {
@@ -137,23 +142,18 @@ export async function unsuspendUser(userId: string): Promise<{ userId: string; e
 }
 
 /**
- * Permanently delete the user row (cascades listings, messages ownership FKs, etc.).
- * Prefer suspend for reversible action.
+ * Permanently delete a user via the segregated account-deletion purge.
+ * Ops CLI wrapper — does not modify listing or offer route logic.
  */
-export async function deleteUser(userId: string): Promise<{ userId: string; email: string }> {
-  const user = await db.query.usersTable.findFirst({
-    where: eq(usersTable.id, userId),
-  });
-  if (!user) throw new ModerationError(`User not found: ${userId}`);
-
-  // Soft-delete listings first so orphaned offer UIs see "deleted" if any FK survives.
-  await db
-    .update(listingsTable)
-    .set({ status: "deleted", updatedAt: new Date() })
-    .where(and(eq(listingsTable.userId, userId), ne(listingsTable.status, "deleted")));
-
-  await db.delete(usersTable).where(eq(usersTable.id, userId));
-  return { userId: user.id, email: user.email };
+export async function deleteUser(userId: string): Promise<PurgeUserAccountResult> {
+  try {
+    return await purgeUserAccount(userId);
+  } catch (err) {
+    if (err instanceof AccountDeletionError) {
+      throw new ModerationError(err.message);
+    }
+    throw err;
+  }
 }
 
 export async function markReport(
