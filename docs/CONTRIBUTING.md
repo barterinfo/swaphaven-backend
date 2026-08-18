@@ -66,3 +66,35 @@ API_BASE=http://127.0.0.1:3001
 ```
 
 Production: Railway HTTPS URL from [DEPLOYMENT.md](./DEPLOYMENT.md).
+
+---
+
+## EC2 / RDS infra repo (swaphaven-infra)
+
+[swaphaven-infra](https://github.com/barterinfo/swaphaven-infra) tracks this repo as a git submodule so a later Railway → EC2 + RDS cutover always has the latest `main` (including Drizzle migrations).
+
+**You do not need to sync it by hand after merging to `main`.** Two automations keep it current:
+
+| Trigger | Where | When |
+|---------|--------|------|
+| Push to `main` | `.github/workflows/sync-infra.yml` (this repo) | Immediate, if secret `INFRA_SYNC_TOKEN` is set |
+| Cron | `swaphaven-infra` workflow **Sync backend submodule** | Every 15 minutes (fallback if the token is missing) |
+
+Schema and `npm run db:generate` still happen **here**. After merge to `main`, Railway deploys as usual; infra follows automatically.
+
+Optional local sibling checkout (`../swaphaven-infra`):
+
+```bash
+npm run infra:sync           # commit submodule pointer locally
+npm run infra:sync -- --push # also push infra origin/main
+```
+
+### One-time: enable immediate sync (`INFRA_SYNC_TOKEN`)
+
+Without this secret, infra still updates within ~15 minutes via cron.
+
+1. GitHub → **Settings → Developer settings → Personal access tokens** (classic `repo` scope, or fine-grained **Contents: Read and write** on `barterinfo/swaphaven-infra`).
+2. `swaphaven-backend` → **Settings → Secrets and variables → Actions** → New repository secret:
+   - Name: `INFRA_SYNC_TOKEN`
+   - Value: the token
+

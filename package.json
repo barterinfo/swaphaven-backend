@@ -18,6 +18,7 @@
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "schema:sync-barter-ai": "node scripts/sync-barter-ai-schema.mjs",
+    "infra:sync": "bash scripts/sync-infra.sh",
     "setup:git-hooks": "git config core.hooksPath .githooks && chmod +x .githooks/pre-commit",
     "db:reset": "tsx scripts/reset-db.ts",
     "seed:listings": "tsx scripts/seed-listings.ts",

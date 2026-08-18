@@ -1,0 +1,27 @@
+---
+description: Keep swaphaven-infra in sync after backend/schema changes land on main
+globs: src/db/schema/**/*,drizzle/**/*,drizzle.config.ts
+alwaysApply: false
+---
+
+# swaphaven-infra sync (Railway → EC2/RDS side project)
+
+**swaphaven-api owns the database and API.** `../swaphaven-infra` tracks this repo as a submodule for a future EC2 + RDS migration. Do not copy `drizzle/*.sql` into infra.
+
+## Automatic (preferred)
+
+Pushes to `main` update infra via `.github/workflows/sync-infra.yml` (needs `INFRA_SYNC_TOKEN`). A 15-minute cron in swaphaven-infra is the fallback.
+
+## Local (optional)
+
+If `../swaphaven-infra` is cloned:
+
+```bash
+npm run infra:sync
+npm run infra:sync -- --push
+```
+
+## Do not
+
+- Duplicate migrations in swaphaven-infra.
+- Block a backend PR on a manual infra sync — CI in infra validates the submodule after it moves.

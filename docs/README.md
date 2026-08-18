@@ -26,7 +26,7 @@
 | [deeplink-push-notifications.md](./deeplink-push-notifications.md) | FCM push + deep links; in-app vs push matrix (incl. sold/delete) |
 | [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md) | Google / Facebook OAuth setup |
 | [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md) | Email OTP signup — sequences, DFD, DB, API, mobile bind |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review, swaphaven-infra sync |
 | [MEETUP_SUGGESTIONS.md](./MEETUP_SUGGESTIONS.md) | Meet Halfway — transit stop suggestions between buyer and seller |
 
 **Quick links**
