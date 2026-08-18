@@ -14,6 +14,38 @@ const migrationsFolder = path.resolve(
   "../../drizzle",
 );
 
+/** Match the runtime pool's hosted-Postgres TLS behavior. */
+function poolSsl(
+  url: string,
+): boolean | { rejectUnauthorized: boolean } | undefined {
+  if (url.includes("sslmode=disable")) return undefined;
+  // Strict modes use NODE_EXTRA_CA_CERTS. The Docker image includes AWS's
+  // published RDS CA bundle, so RDS verifies both the certificate and hostname.
+  if (url.includes("sslmode=verify-full") || url.includes("sslmode=verify-ca")) {
+    return undefined;
+  }
+  if (
+    url.includes("sslmode=require") ||
+    url.includes("railway.app")
+  ) {
+    return { rejectUnauthorized: false };
+  }
+  return process.env["NODE_ENV"] === "production"
+    ? { rejectUnauthorized: false }
+    : undefined;
+}
+
+/** sslmode=require currently overrides Pool.ssl, so remove it for compatibility mode. */
+function poolConfig(connectionString: string): pg.PoolConfig {
+  const ssl = poolSsl(connectionString);
+  if (!ssl) return { connectionString };
+  const stripped = connectionString
+    .replace(/[?&]sslmode=[^&]*/gi, "")
+    .replace(/[?&]$/, "")
+    .replace(/\?&/, "?");
+  return { connectionString: stripped, ssl };
+}
+
 async function main(): Promise<void> {
   const connectionString = process.env["DATABASE_URL"];
   if (!connectionString) {
@@ -21,7 +53,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const pool = new pg.Pool({ connectionString });
+  const pool = new pg.Pool(poolConfig(connectionString));
   const db = drizzle(pool);
 
   console.log(`[migrate] Applying migrations from ${migrationsFolder}`);

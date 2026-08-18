@@ -23,6 +23,12 @@ ENV HOST=0.0.0.0
 
 RUN apk add --no-cache wget
 
+RUN mkdir -p /app/certs \
+    && wget -qO /app/certs/aws-rds-global-bundle.pem \
+      https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+ENV NODE_EXTRA_CA_CERTS=/app/certs/aws-rds-global-bundle.pem
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

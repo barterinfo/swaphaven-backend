@@ -280,7 +280,7 @@ Without `APPLE_TEAM_ID` / Android fingerprint, `.well-known` still responds but 
 ### 6.8 Example `.env` skeleton
 
 ```bash
-DATABASE_URL=postgresql://USER:PASSWORD@RDS_ENDPOINT:5432/swaphaven
+DATABASE_URL=postgresql://USER:PASSWORD@RDS_ENDPOINT:5432/swaphaven?sslmode=verify-full
 JWT_ACCESS_SECRET=paste-from-railway
 JWT_REFRESH_SECRET=paste-from-railway
 NODE_ENV=production
