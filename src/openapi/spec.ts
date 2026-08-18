@@ -1746,7 +1746,7 @@ export const openApiSpec = {
           { name: "q", in: "query", schema: { type: "string" }, description: "Search query (normalized; length < 2 ignored)" },
           { name: "lat", in: "query", schema: { type: "number" } },
           { name: "lng", in: "query", schema: { type: "number" } },
-          { name: "radius", in: "query", schema: { type: "number", minimum: 1, maximum: 25 }, description: "Max distance miles (hard filter)" },
+          { name: "radius", in: "query", schema: { type: "number", minimum: 1, maximum: 32 }, description: "Max distance miles (hard filter)" },
           { name: "condition", in: "query", schema: { type: "string" }, description: "CSV of like_new,great,good,fair,new" },
           { name: "category", in: "query", schema: { type: "string" }, description: "Category slug" },
           {

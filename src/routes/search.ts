@@ -20,7 +20,7 @@ const searchListingsQuerySchema = z.object({
   q: z.string().optional(),
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
-  radius: z.coerce.number().min(1).max(25).optional(),
+  radius: z.coerce.number().min(1).max(32).optional(),
   condition: z.string().optional(),
   category: z.string().optional(),
   sort: sortEnum.optional(),
@@ -33,7 +33,7 @@ const searchListingsQuerySchema = z.object({
 const trendingQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
-  radius: z.coerce.number().min(1).max(25).optional(),
+  radius: z.coerce.number().min(1).max(32).optional(),
   limit: z.coerce.number().int().min(1).max(40).optional().default(8),
 });
 
