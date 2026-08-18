@@ -485,6 +485,24 @@ describe("POST /api/conversations/:conversationId/messages", () => {
     expect(res.body.items).toHaveLength(2);
   });
 
+  it("records avgResponseMinutes when a participant replies", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+    const convId = trade.conversationId;
+
+    await request(app)
+      .post(`/api/conversations/${convId}/messages`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ body: "Hello" });
+
+    await request(app)
+      .post(`/api/conversations/${convId}/messages`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .send({ body: "Hi back" });
+
+    const profile = await request(app).get(`/api/users/${seller.user.id}`);
+    expect(profile.body.avgResponseMinutes).toBeGreaterThanOrEqual(1);
+  });
+
   it("rejects empty message body", async () => {
     const { buyer, trade } = await fullTradeSetup();
 

@@ -54,9 +54,9 @@ export const userProfilesTable = pgTable("user_profiles", {
   isVerified:          boolean("is_verified").notNull().default(false),
   // TODO(server-managed): populated by phone verification flow (follow-up PR).
   isPhoneVerified:     boolean("is_phone_verified").notNull().default(false),
-  // TODO(server-managed): populated from trade completion stats (follow-up PR).
+  /** % of terminal trades completed — refreshed on complete/cancel. */
   completionRate:      integer("completion_rate"),
-  // TODO(server-managed): populated from messaging response times (follow-up PR).
+  /** Rolling average chat reply time in minutes — updated on message send. */
   avgResponseMinutes:  integer("avg_response_minutes"),
   /** Free superlike quota. Decremented on each super-swipe; 0 means quota spent. */
   superlikesRemaining: integer("superlikes_remaining").notNull().default(2),

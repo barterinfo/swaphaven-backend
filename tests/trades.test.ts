@@ -133,6 +133,20 @@ describe("POST /api/trades/:tradeId/complete", () => {
     expect(closesAt - completedAt).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
+  it("updates completionRate to 100% for both parties on complete", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/complete`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const sellerProfile = await request(app).get(`/api/users/${seller.user.id}`);
+    const buyerProfile = await request(app).get(`/api/users/${buyer.user.id}`);
+
+    expect(sellerProfile.body.completionRate).toBe(100);
+    expect(buyerProfile.body.completionRate).toBe(100);
+  });
+
   it("cannot complete an already-completed trade", async () => {
     const { seller, trade } = await fullTradeSetup();
 
@@ -171,6 +185,20 @@ describe("POST /api/trades/:tradeId/cancel", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("cancelled");
     expect(res.body.completedAt).toBeNull();
+  });
+
+  it("updates completionRate to 0% when the only trade is cancelled", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    await request(app)
+      .post(`/api/trades/${trade.id}/cancel`)
+      .set("Authorization", `Bearer ${seller.accessToken}`);
+
+    const sellerProfile = await request(app).get(`/api/users/${seller.user.id}`);
+    const buyerProfile = await request(app).get(`/api/users/${buyer.user.id}`);
+
+    expect(sellerProfile.body.completionRate).toBe(0);
+    expect(buyerProfile.body.completionRate).toBe(0);
   });
 
   it("cannot cancel an already-completed trade", async () => {

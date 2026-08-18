@@ -14,6 +14,7 @@ import {
 } from "../lib/review-window.js";
 import { p } from "../lib/route-helpers.js";
 import { containsProfanity } from "../lib/moderation.js";
+import { refreshCompletionRateForUsers } from "../lib/profile-stats.js";
 
 const router = Router();
 
@@ -126,6 +127,7 @@ router.post("/:tradeId/complete", requireAuth, async (req, res) => {
     .returning();
 
   const otherUserId = userId === trade.offer.buyerId ? trade.offer.sellerId : trade.offer.buyerId;
+  await refreshCompletionRateForUsers([trade.offer.buyerId, trade.offer.sellerId]);
   await db.insert(notificationsTable).values({
     userId: otherUserId, type: "trade_completed",
     title: "Trade marked complete",
@@ -159,6 +161,7 @@ router.post("/:tradeId/cancel", requireAuth, async (req, res) => {
     .returning();
 
   const otherUserId = userId === trade.offer.buyerId ? trade.offer.sellerId : trade.offer.buyerId;
+  await refreshCompletionRateForUsers([trade.offer.buyerId, trade.offer.sellerId]);
   await db.insert(notificationsTable).values({
     userId: otherUserId, type: "trade_cancelled",
     title: "Trade cancelled",

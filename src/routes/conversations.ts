@@ -13,6 +13,7 @@ import { containsProfanity } from "../lib/moderation.js";
 import { filterListingImageUrls } from "../lib/media.js";
 import { isImageObscene } from "../lib/image-moderation.js";
 import { blockedUserIds, isBlockedEitherWay } from "../lib/user-blocks.js";
+import { recordMessageResponse } from "../lib/profile-stats.js";
 
 const router = Router();
 
@@ -234,6 +235,9 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
       ...parsed.data,
     })
     .returning();
+
+  // Fold reply latency into the sender's avgResponseMinutes before responding.
+  await recordMessageResponse(convId, userId, message.createdAt);
 
   broadcastToRoom(convId, { event: "new_message", message });
 

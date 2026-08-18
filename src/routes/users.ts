@@ -7,13 +7,17 @@ import { requireAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { findProfaneField } from "../lib/moderation.js";
+import { refreshCompletionRate } from "../lib/profile-stats.js";
 
 const router = Router();
 
 // ─── GET /api/users/me ────────────────────────────────────────────────────────
 router.get("/me", requireAuth, async (req, res) => {
+  const userId = req.user!.sub;
+  await refreshCompletionRate(userId);
+
   const profile = await db.query.userProfilesTable.findFirst({
-    where: eq(userProfilesTable.id, req.user!.sub),
+    where: eq(userProfilesTable.id, userId),
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "Profile not found" });
   return res.json(profile);
@@ -67,10 +71,16 @@ router.patch("/me", requireAuth, async (req, res) => {
 
 // ─── GET /api/users/:userId ───────────────────────────────────────────────────
 router.get("/:userId", async (req, res) => {
-  const profile = await db.query.userProfilesTable.findFirst({
-    where: eq(userProfilesTable.id, p(req.params["userId"])),
+  const userId = p(req.params["userId"]);
+  let profile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, userId),
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "User not found" });
+
+  await refreshCompletionRate(userId);
+  profile = (await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, userId),
+  }))!;
 
   const { locationLat } = profile;
   const rating =
