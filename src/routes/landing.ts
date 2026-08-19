@@ -406,6 +406,7 @@ function buildLandingHtml(): string {
     <footer>
       <a href="/privacy">Privacy</a><span class="sep">·</span>
       <a href="/terms">Terms</a><span class="sep">·</span>
+      <a href="/delete-account">Delete account</a><span class="sep">·</span>
       <a href="mailto:support@bartersg.com">support@bartersg.com</a>
     </footer>
   </main>

@@ -15,6 +15,7 @@ describe("GET /", () => {
     expect(res.text).toContain("Google Play");
     expect(res.text).toContain('href="/privacy"');
     expect(res.text).toContain('href="/terms"');
+    expect(res.text).toContain('href="/delete-account"');
   });
 
   it("returns JSON when the client explicitly requests application/json", async () => {

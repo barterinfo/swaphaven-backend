@@ -25,3 +25,16 @@ describe("GET /terms", () => {
     expect(res.text).toContain("Limitation of Liability");
   });
 });
+
+describe("GET /delete-account", () => {
+  it("returns the account deletion help page", async () => {
+    const res = await request(app).get("/delete-account");
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/html/);
+    expect(res.text).toContain("How do I delete my Barter account?");
+    expect(res.text).toContain("Delete my profile");
+    expect(res.text).toContain("This cannot be undone");
+    expect(res.text).toContain("support@bartersg.com");
+  });
+});

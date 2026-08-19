@@ -16,7 +16,8 @@ const STYLES = `
     .updated { color: #a1a1aa; font-size: 0.875rem; margin-bottom: 2.5rem; }
     h2 { font-size: 1.15rem; margin-top: 2.25rem; color: #f5f5f7; }
     p, li { color: #d4d4d8; font-size: 0.95rem; }
-    ul { padding-left: 1.25rem; }
+    ul, ol { padding-left: 1.25rem; }
+    ol li { margin-bottom: 0.45rem; }
     a { color: #a78bfa; }
     .callout {
       border: 1px solid #7c3aed; background: rgba(124, 58, 237, 0.1);
@@ -30,7 +31,9 @@ function buildLegalPageHtml(opts: {
   title: string;
   description: string;
   bodyHtml: string;
+  lastUpdated?: string;
 }): string {
+  const lastUpdated = opts.lastUpdated ?? LAST_UPDATED;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,7 +47,7 @@ function buildLegalPageHtml(opts: {
 <body>
   <div class="wrap">
     <h1>${opts.title}</h1>
-    <p class="updated">Last updated: ${LAST_UPDATED}</p>
+    <p class="updated">Last updated: ${lastUpdated}</p>
     ${opts.bodyHtml}
   </div>
 </body>
@@ -212,6 +215,55 @@ function buildTermsHtml(): string {
   });
 }
 
+function buildDeleteAccountHtml(): string {
+  return buildLegalPageHtml({
+    title: "How do I delete my Barter account?",
+    description:
+      "Step-by-step instructions to delete your Barter account in the app, and what happens to your data.",
+    lastUpdated: "August 19, 2026",
+    bodyHtml: `
+    <p>You can delete your Barter account yourself in the app. Deletion is
+    immediate and permanent — we do not keep a waiting period, and you cannot
+    recover the account once it is gone.</p>
+
+    <h2>Delete your account in the app</h2>
+    <ol>
+      <li>Open the Barter app and sign in.</li>
+      <li>Go to the <strong>Profile</strong> tab (your own profile).</li>
+      <li>Tap the <strong>gear</strong> icon at the top of your profile to open Settings.</li>
+      <li>Scroll down to <strong>Delete my profile</strong>.</li>
+      <li>Tap <strong>Delete my profile</strong>.</li>
+      <li>Read the warning, then tap <strong>Delete</strong> to confirm.</li>
+    </ol>
+    <p>The app will sign you out when deletion finishes.</p>
+
+    <div class="callout">
+      <p><strong>This cannot be undone.</strong> Deleting your profile permanently
+      removes your account, listings, offers, and chats.</p>
+    </div>
+
+    <h2>What we delete</h2>
+    <p>When you confirm, we immediately purge your account from Barter:</p>
+    <ul>
+      <li>Your profile, email, and sign-in credentials</li>
+      <li>Your listings (they are taken down and no longer visible to others)</li>
+      <li>Your offers, chats, trade history, and reviews</li>
+      <li>Saved items, swipe history, and notification records tied to you</li>
+    </ul>
+    <p>Open offers and trades with other people are cancelled. They may see a
+    notice that you left Barter. Their own listings stay up.</p>
+    <p>If you return later, you will need to create a new account. You can use
+    the same email address.</p>
+
+    <h2>If you cannot open the app</h2>
+    <p>Email us from the address on your Barter account and ask us to delete it:</p>
+    <p><a href="mailto:support@bartersg.com">support@bartersg.com</a></p>
+    <p>Include the display name on the account if you can. We will delete the
+    same data as the in-app flow once we confirm it is your account.</p>
+    `,
+  });
+}
+
 // ─── GET /privacy ───────────────────────────────────────────────────────────
 // Static privacy policy page, publicly served at https://www.bartersg.com/privacy
 router.get("/privacy", (_req, res) => {
@@ -222,6 +274,13 @@ router.get("/privacy", (_req, res) => {
 // Static terms & conditions page, publicly served at https://www.bartersg.com/terms
 router.get("/terms", (_req, res) => {
   res.type("html").send(buildTermsHtml());
+});
+
+// ─── GET /delete-account ─────────────────────────────────────────────────────
+// Public help page for Play Console / App Store account-deletion URL.
+// Served at https://www.bartersg.com/delete-account
+router.get("/delete-account", (_req, res) => {
+  res.type("html").send(buildDeleteAccountHtml());
 });
 
 export default router;
