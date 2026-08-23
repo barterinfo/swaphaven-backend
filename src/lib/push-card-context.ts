@@ -7,6 +7,7 @@ import {
   offerRoundsTable,
 } from "../db/schema/index.js";
 import type { PushPayload } from "./push.js";
+import { listingValueCents } from "./barter-listing.js";
 
 /** Listing fields needed to populate native push cards. */
 export interface PushListingSummary {
@@ -26,9 +27,7 @@ function resolveValueCents(listing: {
   estimatedValueCents?: number | null;
   estimatedValue?: number | null;
 }): number {
-  if (listing.estimatedValueCents != null) return listing.estimatedValueCents;
-  if (listing.estimatedValue != null) return listing.estimatedValue * 100;
-  return 0;
+  return listingValueCents(listing);
 }
 
 /** Join multi-item titles the way native cards expect ("A + B"). */
@@ -73,7 +72,6 @@ export async function loadListingsForPush(
     columns: {
       id: true,
       title: true,
-      estimatedValue: true,
       estimatedValueCents: true,
     },
   });

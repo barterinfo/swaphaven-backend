@@ -32,7 +32,9 @@ export const createListingBodySchema = z.object({
   condition: z
     .enum(["new", "like_new", "great", "good", "fair"])
     .default("good"),
+  /** Legacy dollar estimate — converted once to cents on write. Prefer [estimatedValueCents]. */
   estimatedValue: z.coerce.number().nonnegative().optional(),
+  /** Canonical listing value in integer cents. */
   estimatedValueCents: z.coerce.number().int().nonnegative().optional(),
   acceptCashTopUps: z.boolean().optional().default(false),
   isSwipeOnly: z.boolean().optional().default(false),
@@ -90,8 +92,7 @@ export function buildListingPayload(
     category: fixture.category,
     categoryId: fixture.categoryId,
     condition: fixture.condition,
-    estimatedValue: fixture.estimatedValue,
-    estimatedValueCents: fixture.estimatedValue * 100,
+    estimatedValueCents: Math.round(fixture.estimatedValue * 100),
     acceptCashTopUps: fixture.acceptCashTopUps,
     isSwipeOnly: fixture.isSwipeOnly,
     wantedCategoryIds: fixture.wantedCategoryIds,
@@ -107,15 +108,36 @@ export function resolveCategoryUuid(data: CreateListingBody): string {
   return data.categoryId.trim();
 }
 
-export function resolveEstimatedValue(data: CreateListingBody): number {
-  if (data.estimatedValue != null && Number.isFinite(data.estimatedValue)) {
-    return Math.round(data.estimatedValue);
-  }
+/** Precise listing value in cents. Prefers cents, else dollars × 100. */
+export function resolveEstimatedValueCents(data: {
+  estimatedValue?: number;
+  estimatedValueCents?: number;
+}): number {
   if (
     data.estimatedValueCents != null &&
     Number.isFinite(data.estimatedValueCents)
   ) {
-    return Math.round(data.estimatedValueCents / 100);
+    return Math.round(data.estimatedValueCents);
+  }
+  if (data.estimatedValue != null && Number.isFinite(data.estimatedValue)) {
+    return Math.round(data.estimatedValue * 100);
+  }
+  return 0;
+}
+
+export function listingValueCents(listing: {
+  estimatedValueCents?: number | null;
+  /** Legacy dollar field still accepted on older wire payloads. */
+  estimatedValue?: number | null;
+}): number {
+  if (
+    listing.estimatedValueCents != null &&
+    Number.isFinite(listing.estimatedValueCents)
+  ) {
+    return listing.estimatedValueCents;
+  }
+  if (listing.estimatedValue != null && Number.isFinite(listing.estimatedValue)) {
+    return Math.round(listing.estimatedValue * 100);
   }
   return 0;
 }
@@ -191,6 +213,7 @@ export function serializeListingBarter(
   const wantedIds = listing.wantedCategoryIds ?? [];
   const wantedLabels = listing.wantedCategories ?? [];
   const details = listing.details ?? { ageRange: "", brand: "" };
+  const cents = listingValueCents(listing);
 
   return {
     id: listing.id,
@@ -200,7 +223,11 @@ export function serializeListingBarter(
     category: listing.category,
     category_id: listing.categoryId ?? null,
     condition: listing.condition,
-    estimated_value: listing.estimatedValue ?? 0,
+    // Canonical amount. Prefer this over estimated_value for display/math.
+    estimatedValueCents: cents,
+    estimated_value_cents: cents,
+    // Whole-dollar denormalization for older clients / sort keys — not precise.
+    estimated_value: Math.floor(cents / 100),
     accept_cash_top_ups: listing.acceptCashTopUps,
     wanted_category_ids: wantedIds,
     wanted_categories: wantedLabels,

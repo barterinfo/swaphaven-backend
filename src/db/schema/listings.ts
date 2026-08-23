@@ -27,8 +27,8 @@ export const listingsTable = pgTable("listings", {
   description:         text("description").notNull().default(""),
   category:            text("category").notNull().default("general"),
   condition:           conditionEnum("condition").notNull(),
-  estimatedValue:      integer("estimated_value").notNull().default(0),
-  estimatedValueCents: integer("estimated_value_cents"),
+  /** Canonical listing value in integer cents. */
+  estimatedValueCents: integer("estimated_value_cents").notNull().default(0),
   acceptCashTopUps:    boolean("accept_cash_top_ups").notNull().default(false),
   wantedCategoryIds:   jsonb("wanted_category_ids").$type<string[]>().notNull().default([]),
   wantedCategories:    jsonb("wanted_categories").$type<string[]>().notNull().default([]),

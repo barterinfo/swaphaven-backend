@@ -192,7 +192,7 @@ export async function searchListings(params: SearchListingParams): Promise<{
       orderBy = [desc(listingsTable.createdAt)];
       break;
     case "value_asc":
-      orderBy = [asc(listingsTable.estimatedValue), desc(listingsTable.createdAt)];
+      orderBy = [asc(listingsTable.estimatedValueCents), desc(listingsTable.createdAt)];
       break;
     case "most_saved":
       orderBy = [desc(listingsTable.rightSwipeCount), desc(listingsTable.createdAt)];
@@ -219,7 +219,7 @@ export async function searchListings(params: SearchListingParams): Promise<{
       description: listingsTable.description,
       category: listingsTable.category,
       condition: listingsTable.condition,
-      estimatedValue: listingsTable.estimatedValue,
+      estimatedValueCents: listingsTable.estimatedValueCents,
       acceptCashTopUps: listingsTable.acceptCashTopUps,
       wantedCategoryIds: listingsTable.wantedCategoryIds,
       wantedCategories: listingsTable.wantedCategories,
@@ -251,7 +251,6 @@ export async function searchListings(params: SearchListingParams): Promise<{
     const listingForSerialize = {
       ...row,
       categoryId: null,
-      estimatedValueCents: null,
       isSwipeOnly: false,
       soldMethod: null,
       tradedWithUserId: null,

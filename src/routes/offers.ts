@@ -30,7 +30,6 @@ const router = Router();
 const listingSummaryColumns = {
   id: true,
   title: true,
-  estimatedValue: true,
   estimatedValueCents: true,
   status: true,
 } as const;

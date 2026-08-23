@@ -161,6 +161,7 @@ describe("POST /api/listings", () => {
     expect(res.body.listing.title).toBe("Vintage Camera");
     expect(res.body.listing.category).toBe("Cameras");
     expect(res.body.listing.estimated_value).toBe(250);
+    expect(res.body.listing.estimatedValueCents).toBe(25000);
     expect(res.body.listing.accept_cash_top_ups).toBe(true);
     expect(res.body.listing.wanted_category_ids).toEqual([
       electronicsId,
@@ -169,6 +170,50 @@ describe("POST /api/listings", () => {
     expect(res.body.listing.images).toEqual([
       "https://cdn.example.com/listings/photo1.jpg",
     ]);
+  });
+
+  it("stores estimatedValueCents as the canonical amount", async () => {
+    const { accessToken } = await registerUser();
+    const camerasId = categoryIdBySlug("cameras")!;
+
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: "Decimal Camera",
+        categoryId: camerasId,
+        condition: "good",
+        estimatedValueCents: 1250,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.listing.estimated_value_cents).toBe(1250);
+    expect(res.body.listing.estimatedValueCents).toBe(1250);
+    // Whole-dollar denormalization on the wire only — not a DB column.
+    expect(res.body.listing.estimated_value).toBe(12);
+
+    const row = await testDb.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, res.body.id),
+    });
+    expect(row?.estimatedValueCents).toBe(1250);
+  });
+
+  it("still accepts legacy estimatedValue dollars and converts once to cents", async () => {
+    const { accessToken } = await registerUser();
+    const camerasId = categoryIdBySlug("cameras")!;
+
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: "Legacy Dollar Camera",
+        categoryId: camerasId,
+        condition: "good",
+        estimatedValue: 12.5,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.listing.estimatedValueCents).toBe(1250);
   });
 
   it("rejects create listing without a UUID categoryId", async () => {

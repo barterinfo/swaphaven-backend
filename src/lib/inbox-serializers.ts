@@ -7,6 +7,8 @@
  * crucially, only surface safe public fields for users.
  */
 
+import { listingValueCents } from "./barter-listing.js";
+
 interface ProfileSummaryInput {
   displayName?: string | null;
   avatarUrl?: string | null;
@@ -43,9 +45,7 @@ interface ListingSummaryInput {
 }
 
 function resolveValueCents(listing: ListingSummaryInput): number {
-  if (listing.estimatedValueCents != null) return listing.estimatedValueCents;
-  if (listing.estimatedValue != null) return listing.estimatedValue * 100;
-  return 0;
+  return listingValueCents(listing);
 }
 
 function serializeListingSummary(listing: ListingSummaryInput | null | undefined) {

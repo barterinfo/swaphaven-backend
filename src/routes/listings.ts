@@ -21,7 +21,7 @@ import {
   isUuid,
   normalizeDetails,
   resolveCategoryUuid,
-  resolveEstimatedValue,
+  resolveEstimatedValueCents,
   resolveLocation,
   serializeListingBarter,
   type SellerSnapshot,
@@ -166,13 +166,14 @@ router.post("/", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Unknown categoryId" });
   }
   const category = data.category?.trim() || catRow.name;
-  const estimatedValue = resolveEstimatedValue(data);
+  const estimatedValueCents = resolveEstimatedValueCents(data);
+  const estimatedValueDollars = Math.floor(estimatedValueCents / 100);
   const details = normalizeDetails(data.details);
   const location = resolveLocation(data);
   const reviewSnapshot = buildReviewSnapshot(
     data,
     category,
-    estimatedValue,
+    estimatedValueDollars,
     details,
     location,
   );
@@ -186,10 +187,7 @@ router.post("/", requireAuth, async (req, res) => {
       category,
       categoryId: categoryUuid,
       condition: data.condition,
-      estimatedValue,
-      estimatedValueCents:
-        data.estimatedValueCents ??
-        (estimatedValue > 0 ? estimatedValue * 100 : null),
+      estimatedValueCents,
       acceptCashTopUps: Boolean(data.acceptCashTopUps),
       wantedCategoryIds: data.wantedCategoryIds ?? [],
       wantedCategories: data.wantedCategories ?? [],
@@ -417,7 +415,7 @@ const updateListingSchema = z.object({
   categoryId: z.string().uuid().optional(),
   condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
   estimatedValue: z.coerce.number().nonnegative().optional(),
-  estimatedValueCents: z.number().int().positive().optional(),
+  estimatedValueCents: z.number().int().nonnegative().optional(),
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
 });
@@ -477,6 +475,11 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     nextCategory = patch.category?.trim() || catRow.name;
   }
 
+  const valuePatch =
+    patch.estimatedValue !== undefined || patch.estimatedValueCents !== undefined
+      ? { estimatedValueCents: resolveEstimatedValueCents(patch) }
+      : {};
+
   const [updated] = await db
     .update(listingsTable)
     .set({
@@ -485,12 +488,7 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(nextCategory !== undefined ? { category: nextCategory } : {}),
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
-      ...(patch.estimatedValue !== undefined
-        ? { estimatedValue: Math.round(patch.estimatedValue) }
-        : {}),
-      ...(patch.estimatedValueCents !== undefined
-        ? { estimatedValueCents: patch.estimatedValueCents }
-        : {}),
+      ...valuePatch,
       ...(patch.wantedCategoryIds !== undefined
         ? { wantedCategoryIds: patch.wantedCategoryIds }
         : {}),

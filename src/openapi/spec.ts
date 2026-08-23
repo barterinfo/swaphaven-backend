@@ -126,8 +126,7 @@ export const openApiSpec = {
           title:               { type: "string" },
           description:         { type: "string", nullable: true },
           condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
-          estimatedValue:      { type: "integer" },
-          estimatedValueCents: { type: "integer", nullable: true },
+          estimatedValueCents: { type: "integer", description: "Canonical listing value in integer cents." },
           isSwipeOnly:         { type: "boolean" },
           status:              { type: "string", enum: ["active","traded","paused","deleted"] },
           soldMethod:          { type: "string", enum: ["traded_on_barter","sold_for_cash","given_away"], nullable: true, description: "How the item left the seller. Set by POST /sold; null while the listing is active." },
@@ -151,7 +150,16 @@ export const openApiSpec = {
           description:         { type: "string" },
           category:            { type: "string", nullable: true },
           condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
-          estimated_value:     { type: "integer" },
+          estimated_value: {
+            type: "integer",
+            description:
+              "Whole-dollar denormalization for older clients — not precise. Prefer estimatedValueCents.",
+          },
+          estimated_value_cents: { type: "integer" },
+          estimatedValueCents: {
+            type: "integer",
+            description: "Canonical listing value in integer cents.",
+          },
           accept_cash_top_ups: { type: "boolean" },
           wanted_category_ids: { type: "array", items: { type: "string" } },
           wanted_categories:   { type: "array", items: { type: "string" } },
@@ -905,8 +913,15 @@ export const openApiSpec = {
                   category: { type: "string", description: "Optional display label; defaults to category name" },
                   categoryId: { type: "string", format: "uuid", description: "Required categories.id UUID" },
                   condition: { type: "string", enum: ["new","like_new","great","good","fair"] },
-                  estimatedValue: { type: "integer", description: "Dollar estimate (barter-stack / Flutter)" },
-                  estimatedValueCents: { type: "integer" },
+                  estimatedValue: {
+                    type: "number",
+                    description:
+                      "Legacy dollar estimate — converted once to cents. Prefer estimatedValueCents.",
+                  },
+                  estimatedValueCents: {
+                    type: "integer",
+                    description: "Canonical listing value in integer cents.",
+                  },
                   acceptCashTopUps: { type: "boolean" },
                   isSwipeOnly: { type: "boolean" },
                   wantedCategoryIds: { type: "array", items: { type: "string", format: "uuid" } },
@@ -1013,8 +1028,15 @@ export const openApiSpec = {
                   category:            { type: "string", description: "Display label (optional when categoryId is set)." },
                   categoryId:          { type: "string", format: "uuid", description: "categories.id UUID when changing category." },
                   condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
-                  estimatedValue:      { type: "integer", description: "Dollar estimate (Est. Value field)." },
-                  estimatedValueCents: { type: "integer", description: "Value in cents — alternative to estimatedValue." },
+                  estimatedValue: {
+                    type: "number",
+                    description:
+                      "Legacy dollar estimate — converted once to cents. Prefer estimatedValueCents.",
+                  },
+                  estimatedValueCents: {
+                    type: "integer",
+                    description: "Canonical listing value in integer cents.",
+                  },
                   wantedCategoryIds:   { type: "array", items: { type: "string", format: "uuid" }, description: "Open to trade for — category UUIDs." },
                   wantedCategories:    { type: "array", items: { type: "string" }, description: "Open to trade for — display labels (e.g. 'Vintage Clothing', 'Sneakers')." },
                 },
