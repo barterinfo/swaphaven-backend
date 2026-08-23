@@ -13,6 +13,7 @@ import {
 } from "../db/schema/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
+import { computeMatchScore } from "../lib/match-score.js";
 import { blockedUserIds } from "../lib/user-blocks.js";
 
 const router = Router();
@@ -158,25 +159,6 @@ router.get("/deck", requireAuth, async (req, res) => {
     myListings.map((l) => l.category.trim().toLowerCase()),
   );
 
-  function computeMatchScore(wantedCategories: string[]): {
-    mutualFitScore: number;
-    matchedWantedLabels: string[];
-    matchReason: string | null;
-  } {
-    if (!wantedCategories.length || !myOfferCategories.size) {
-      return { mutualFitScore: 0, matchedWantedLabels: [], matchReason: null };
-    }
-    const matched = wantedCategories.filter((w) =>
-      myOfferCategories.has(w.trim().toLowerCase()),
-    );
-    const score = matched.length / wantedCategories.length;
-    const reason =
-      matched.length > 0
-        ? `You have items in: ${matched.join(", ")}`
-        : null;
-    return { mutualFitScore: score, matchedWantedLabels: matched, matchReason: reason };
-  }
-
   // Streak + daily count are required. Saved/superlike enrichment is best-effort so
   // a missing migration (saved_listings / superlikes_remaining) cannot 500 the deck.
   const [streak, swipesToday] = await Promise.all([
@@ -221,7 +203,7 @@ router.get("/deck", requireAuth, async (req, res) => {
   return res.json({
     cards: cards.map((c) => {
       const { mutualFitScore, matchedWantedLabels, matchReason } =
-        computeMatchScore(c.wantedCategories ?? []);
+        computeMatchScore(c.wantedCategories ?? [], myOfferCategories);
       const { user, ...listing } = c;
       const ownerName = user?.profile?.displayName?.trim() || user?.name?.trim() || "";
       return {
