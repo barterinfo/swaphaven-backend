@@ -19,6 +19,7 @@ describe("GET /api/categories", () => {
     expect(res.body.some((c: { slug: string }) => c.slug === "electronics")).toBe(
       true,
     );
+    expect(res.body.some((c: { slug: string }) => c.slug === "others")).toBe(true);
   });
 });
 

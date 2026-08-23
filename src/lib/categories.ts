@@ -18,6 +18,7 @@ export const CANONICAL_CATEGORIES = [
   { id: "a0000000-0000-4000-8000-000000000010", name: "Other Toys", slug: "other_toys", icon: "🧩" },
   { id: "a0000000-0000-4000-8000-000000000011", name: "Board Games", slug: "board_games", icon: "♟️" },
   { id: "a0000000-0000-4000-8000-000000000012", name: "Jewelry", slug: "jewelry", icon: "💍" },
+  { id: "a0000000-0000-4000-8000-000000000013", name: "Others", slug: "others", icon: "📦" },
 ] as const;
 
 export type CanonicalCategory = (typeof CANONICAL_CATEGORIES)[number];
