@@ -293,9 +293,19 @@ curl -s -X POST http://localhost:3001/api/ads/<adId>/click
 |--------|------|------|
 | GET | `/api/swipe/deck` | ✓ |
 | POST | `/api/swipe` | ✓ |
+| DELETE | `/api/swipe/:swipeId` | ✓ |
 | GET | `/api/swipe/streak` | ✓ |
 
-See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md).
+See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) and [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md).
+
+### Deck (optional category)
+
+```bash
+curl -s "http://localhost:3001/api/swipe/deck?category=electronics" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`category`: browse slug, or omit / `all` for unfiltered.
 
 ### Record swipe
 
@@ -306,7 +316,16 @@ curl -s -X POST http://localhost:3001/api/swipe \
   -d '{"listingId":"<uuid>","direction":"right"}'
 ```
 
-`direction`: `left` | `right`
+`direction`: `left` | `right` | `super`
+
+### Undo a left pass
+
+```bash
+curl -s -X DELETE http://localhost:3001/api/swipe/<swipeId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Only `left` swipes can be undone. Restores daily/bonus quota.
 
 ---
 

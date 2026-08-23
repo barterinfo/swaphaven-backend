@@ -10,7 +10,8 @@ Users browse other people’s **active** listings in a Tinder-style card stack.
 
 | Action | Meaning |
 |--------|---------|
-| **Left swipe** | Pass — recorded; listing won’t appear again for this user |
+| **Left swipe** | Pass — recorded; listing won’t appear again for this user unless **rewound** |
+| **Rewind** | Undo the newest left pass (session stack, remote cap). See [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) |
 | **Right swipe** | Interested — recorded; opens **Make an Offer** (after optional empty-closet gate) |
 | **Ad card** | Sponsored slot interleaved client-side; dismiss/engage does **not** use swipe quota |
 
@@ -158,6 +159,7 @@ Returns one page of candidate cards plus quota metadata.
 | Param | Type | Description |
 |-------|------|-------------|
 | `excludeIds` | string or string[] | Optional. Comma-separated and/or repeated UUIDs already held in the client deck (for prefetch). Invalid UUIDs → **400**. |
+| `category` | string | Optional browse slug (e.g. `electronics`). Omit, empty, or `all` for an unfiltered deck. Resolved to `categories.id`; unknown slug → empty page. See [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md). |
 
 **Success — 200**
 
@@ -206,6 +208,7 @@ Notes:
    - `status = 'active'`
    - `userId ≠ viewer`
    - `id NOT IN` exclusion set
+   - if `category` is set: `category_id` matches the resolved catalog row
 5. `ORDER BY RANDOM()`, `LIMIT 20`.
 6. Eager-load `images`, `categoryRow`, `wants`, `user` + `profile`.
 7. Compute mutual-fit per card (see §7).
@@ -256,7 +259,15 @@ Records a swipe (or returns the existing one idempotently).
 
 ---
 
-### 5.3 `GET /api/swipe/streak`
+### 5.3 `DELETE /api/swipe/:swipeId`
+
+Undo a **left** pass so the listing can reappear. Right/super cannot be undone.
+
+Full contract, quota restore, and the mobile LIFO stack: [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) §3.
+
+---
+
+### 5.4 `GET /api/swipe/streak`
 
 Returns streak row, or zeros if none:
 
@@ -508,12 +519,9 @@ sequenceDiagram
 
 ## 12. Category filtering
 
-- Client-side only on `allCards`.
-- `SwipeCategoryBar` + browse sheet + clear chip.
-- Match via `swipeListingMatchesCategory` (browse slug / backend label helpers).
-- Changing category rebuilds `visibleCards` / `deckItems` from cached cards and **reuses** ad slots (no ad refetch).
-- May trigger prefetch if the filtered visible stack shrinks to ≤5.
-- Prefetch `excludeIds` still come from full `allCards`.
+**Server-scoped.** `selectCategory` refetches `GET /api/swipe/deck?category=<slug>` and **clears the rewind stack**. Ads from the session cache are reused (no ad refetch). Prefetch keeps the same `category` and `excludeIds` from `allCards`.
+
+Catalog, wanted categories, open-to-any, and Nearby/Search differences: [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md).
 
 ---
 
@@ -605,7 +613,7 @@ sequenceDiagram
 
 | File | Focus |
 |------|-------|
-| `swipe_discovery_notifier_test.dart` | load, swipe, quota order, prefetch append/dedupe, deckExhausted, ads |
+| `swipe_discovery_notifier_test.dart` | load, swipe, quota order, prefetch, rewind stack, `selectCategory` refetch, ads |
 | `swipe_repository_impl_test.dart` | mapping + `excludeIds` forward |
 | `swipe_data_models_test.dart` | JSON parsing, category match |
 | `load_swipe_discovery_use_case_test.dart` | parallel deck + streak |
@@ -627,6 +635,7 @@ sequenceDiagram
 
 | Doc | Relevance |
 |-----|-----------|
+| [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Undo left pass; category catalog, browse, wanted, match-score |
 | [ADS.md](./ADS.md) | Sponsored cards in the stack |
 | [API_GUIDE.md](./API_GUIDE.md) | Route table / curl samples |
 | [DB_SCHEMA.md](./DB_SCHEMA.md) | `swipes`, `swipe_streaks` |
@@ -652,6 +661,6 @@ sequenceDiagram
 
 - `lib/features/discovery/**`
 - `lib/core/services/api_endpoints.dart` (`swipe`, `swipeDeck`, `swipeStreak`)
-- `lib/core/services/barter_api_service.dart` (`getSwipeDeck`, `recordSwipe`)
+- `lib/core/services/barter_api_service.dart` (`getSwipeDeck`, `recordSwipe`, `undoSwipe`)
 - `lib/service_providers.dart` (repository + use cases)
 - `lib/features/ads/**` (session ads + impression/click)

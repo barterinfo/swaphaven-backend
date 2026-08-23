@@ -17,6 +17,7 @@
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
 | [REPORT_AND_BLOCK.md](./REPORT_AND_BLOCK.md) | Report / Block listings & users, no auto-ban, `npm run moderate` ops CLI |
 | [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, streaks, mobile UI, make-offer |
+| [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Rewind (undo left pass) and category catalog / browse / wanted / match-score |
 | [SAVED_FEATURE.md](./SAVED_FEATURE.md) | Save-for-later — schema, `/api/saved`, owner stats, mobile Saved tab |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Listing search — architecture, sequences, API, DB, mobile flows |
 | [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md) | Profile closet owner actions — overview |
