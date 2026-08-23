@@ -3,7 +3,7 @@ import { z } from "zod";
 import { optionalAuth } from "../middleware/auth.js";
 import { searchListings } from "../search/queries.js";
 import type { SearchSort } from "../search/types.js";
-import { blockedUserIds } from "../lib/user-blocks.js";
+import { hiddenOwnerIds } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -77,7 +77,7 @@ router.get("/listings", optionalAuth, async (req, res) => {
   const q = parsed.data;
   const sort = q.sort ?? defaultSort(q.q, q.lat, q.lng);
   const excludeOwnerIds = req.user?.sub
-    ? await blockedUserIds(req.user.sub)
+    ? await hiddenOwnerIds(req.user.sub)
     : [];
 
   const result = await searchListings({
@@ -111,7 +111,7 @@ router.get("/trending", optionalAuth, async (req, res) => {
 
   const q = parsed.data;
   const excludeOwnerIds = req.user?.sub
-    ? await blockedUserIds(req.user.sub)
+    ? await hiddenOwnerIds(req.user.sub)
     : [];
   const result = await searchListings({
     lat: q.lat,
