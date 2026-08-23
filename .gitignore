@@ -2,7 +2,10 @@ node_modules/
 dist/
 .env
 .env.prod
+.env.uat
 .env.production
 *.local
 .env.test
+scripts/clear-db.ts
+scripts/reset-db.ts
 # drizzle/*.sql and drizzle/meta/_journal.json must be committed for production migrate
