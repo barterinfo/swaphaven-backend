@@ -77,6 +77,25 @@ describe("GET /listings/:listingId", () => {
     expect(res.status).toBe(404);
     expect(res.text).toContain("Listing not found");
   });
+
+  it("redirects Android browsers to the Play Store listing", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      title: "Android Store Redirect Listing",
+    });
+
+    const res = await request(app)
+      .get(`/listings/${listing.id}`)
+      .set(
+        "User-Agent",
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36",
+      );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(
+      "https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile&hl=en_SG",
+    );
+  });
 });
 
 describe("GET /users/:userId", () => {

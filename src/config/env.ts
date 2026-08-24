@@ -88,9 +88,21 @@ const envSchema = z.object({
   /** SHA-256 fingerprint of the Android signing cert (for assetlinks.json). */
   ANDROID_SHA256_CERT_FINGERPRINT: z.string().optional(),
   /** App Store listing URL used when the app is not installed (iOS). */
-  IOS_APP_STORE_URL: z.string().url().optional(),
+  IOS_APP_STORE_URL: z.preprocess((v) => {
+    if (typeof v !== "string") return undefined;
+    const trimmed = v.trim();
+    if (!trimmed || /XXXXXXXX/i.test(trimmed) || /\/idX+\b/i.test(trimmed)) {
+      return undefined;
+    }
+    return trimmed;
+  }, z.string().url().optional()),
   /** Play Store listing URL used when the app is not installed (Android). */
-  ANDROID_PLAY_STORE_URL: z.string().url().optional(),
+  ANDROID_PLAY_STORE_URL: z.preprocess((v) => {
+    if (typeof v !== "string" || v.trim() === "") return undefined;
+    return v.trim();
+  }, z.string().url().default(
+    "https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile&hl=en_SG",
+  )),
   /** When false, profanity checks are skipped on all user-generated text fields. Defaults to true. */
   ENABLE_PROFANITY_FILTER: z
     .enum(["true", "false"])

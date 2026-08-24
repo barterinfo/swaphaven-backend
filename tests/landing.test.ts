@@ -13,6 +13,10 @@ describe("GET /", () => {
     expect(res.text).toContain("Download the app");
     expect(res.text).toContain("App Store");
     expect(res.text).toContain("Google Play");
+    expect(res.text).toContain(
+      "https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile&amp;hl=en_SG",
+    );
+    expect(res.text).toContain("store-btn--apple store-btn--disabled");
     expect(res.text).toContain('href="/privacy"');
     expect(res.text).toContain('href="/terms"');
     expect(res.text).toContain('href="/delete-account"');
