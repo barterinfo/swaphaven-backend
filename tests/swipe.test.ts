@@ -301,6 +301,25 @@ describe("POST /api/swipe", () => {
     expect(res.body.direction).toBe("left");
   });
 
+  it("returns 403 when swiping a listing whose owner blocked the viewer", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+    const listing = await createListing(seller.accessToken);
+
+    await request(app)
+      .post(`/api/blocks/${buyer.user.id}`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .expect(201);
+
+    const res = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("forbidden");
+  });
+
   it("prevents swiping on own listing", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken);

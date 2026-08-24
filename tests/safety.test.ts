@@ -53,6 +53,31 @@ describe("POST /api/blocks/:userId", () => {
     expect(ids).toContain(visibleListing.id);
     expect(ids).not.toContain(blockedListing.id);
   });
+
+  it("hides listings from users who blocked the viewer", async () => {
+    const viewer = await registerUser();
+    const blocker = await registerUser();
+    const other = await registerUser();
+
+    const hiddenListing = await createListing(blocker.accessToken);
+    const visibleListing = await createListing(other.accessToken);
+
+    await request(app)
+      .post(`/api/blocks/${viewer.user.id}`)
+      .set("Authorization", `Bearer ${blocker.accessToken}`)
+      .expect(201);
+
+    const deck = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(deck.status).toBe(200);
+    const ids = (deck.body.cards as Array<{ listing: { id: string } }>).map(
+      (c) => c.listing.id,
+    );
+    expect(ids).toContain(visibleListing.id);
+    expect(ids).not.toContain(hiddenListing.id);
+  });
 });
 
 describe("POST /api/reports", () => {

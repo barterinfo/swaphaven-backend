@@ -14,7 +14,7 @@ import {
 import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { computeMatchScore } from "../lib/match-score.js";
-import { blockedUserIds } from "../lib/user-blocks.js";
+import { hiddenOwnerIds, isBlockedEitherWay } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -110,8 +110,8 @@ router.get("/deck", requireAuth, async (req, res) => {
   ];
   if (excludeIds.length) conditions.push(notInArray(listingsTable.id, excludeIds));
 
-  const blocked = await blockedUserIds(userId);
-  if (blocked.length) conditions.push(notInArray(listingsTable.userId, blocked));
+  const hiddenOwners = await hiddenOwnerIds(userId);
+  if (hiddenOwners.length) conditions.push(notInArray(listingsTable.userId, hiddenOwners));
 
   if (categorySlug) {
     // Browse bar sends slug (`electronics`); resolve once to categories.id.
@@ -243,6 +243,12 @@ router.post("/", requireAuth, async (req, res) => {
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId === userId) {
     return res.status(400).json({ error: "bad_request", message: "Cannot swipe on your own listing" });
+  }
+  if (await isBlockedEitherWay(userId, listing.userId)) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "You cannot interact with this user",
+    });
   }
 
   const activeOfferListingIds = await getActiveNegotiationListingIds(userId);

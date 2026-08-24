@@ -27,6 +27,27 @@ describe("POST /api/offers", () => {
     expect(res.body.sellerId).toBe(seller.user.id);
   });
 
+  it("returns 403 when the seller has blocked the buyer", async () => {
+    const seller = await registerUser();
+    const buyer  = await registerUser();
+    const sellerListing = await createListing(seller.accessToken);
+    const buyerListing  = await createListing(buyer.accessToken);
+
+    await request(app)
+      .post(`/api/blocks/${buyer.user.id}`)
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .expect(201);
+
+    const res = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ listingId: sellerListing.id, offeredListingIds: [buyerListing.id] });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("forbidden");
+    expect(res.body.message).toMatch(/cannot make an offer/i);
+  });
+
   it("prevents seller from making an offer on their own listing", async () => {
     const seller = await registerUser();
     const sellerListing  = await createListing(seller.accessToken);

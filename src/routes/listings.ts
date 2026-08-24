@@ -14,7 +14,7 @@ import { filterListingImageUrls } from "../lib/media.js";
 import { findProfaneField } from "../lib/moderation.js";
 import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-moderation.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
-import { blockedUserIds } from "../lib/user-blocks.js";
+import { hiddenOwnerIds } from "../lib/user-blocks.js";
 import {
   buildReviewSnapshot,
   createListingBodySchema,
@@ -97,8 +97,8 @@ router.get("/", optionalAuth, async (req, res) => {
   if (req.user) {
     const hidden = await getActiveNegotiationListingIds(req.user.sub);
     if (hidden.length) conditions.push(notInArray(listingsTable.id, hidden));
-    const blocked = await blockedUserIds(req.user.sub);
-    if (blocked.length) conditions.push(notInArray(listingsTable.userId, blocked));
+    const hiddenOwners = await hiddenOwnerIds(req.user.sub);
+    if (hiddenOwners.length) conditions.push(notInArray(listingsTable.userId, hiddenOwners));
   }
 
   const rawItems = await db.query.listingsTable.findMany({
@@ -257,8 +257,8 @@ router.get("/trending", optionalAuth, async (req, res) => {
     baseConditions.push(ne(listingsTable.userId, userId));
     const hidden = await getActiveNegotiationListingIds(userId);
     if (hidden.length) baseConditions.push(notInArray(listingsTable.id, hidden));
-    const blocked = await blockedUserIds(userId);
-    if (blocked.length) baseConditions.push(notInArray(listingsTable.userId, blocked));
+    const hiddenOwners = await hiddenOwnerIds(userId);
+    if (hiddenOwners.length) baseConditions.push(notInArray(listingsTable.userId, hiddenOwners));
   }
 
   // Haversine distance in miles. Listings without coordinates are included as a
