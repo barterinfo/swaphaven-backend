@@ -152,13 +152,15 @@ export function resolveLocation(data: CreateListingBody) {
   const loc = data.location ?? {};
   const lat = parseCoord(loc.lat) ?? data.locationLat ?? null;
   const lng = parseCoord(loc.lng) ?? data.locationLng ?? null;
+  const rawCountry = loc.country?.trim() ?? "";
   return {
     lat,
     lng,
     address: loc.address?.trim() ?? "",
     city: loc.city?.trim() ?? data.locationCity?.trim() ?? "",
     state: loc.state?.trim() ?? "",
-    country: loc.country?.trim() ?? "",
+    /** Uppercase ISO-2 when provided; caller may fill from profile/IP when empty. */
+    country: rawCountry ? rawCountry.toUpperCase() : "",
     postalCode: (loc.postalCode ?? loc.postal_code ?? "").trim(),
   };
 }

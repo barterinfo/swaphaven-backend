@@ -29,6 +29,7 @@ import landingRouter from "./routes/landing.js";
 import barterAiRouter from "./routes/barterAi.js";
 import safetyRouter from "./routes/safety.js";
 import accountDeletionRouter from "./routes/account-deletion.js";
+import geoRouter from "./routes/geo.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -174,6 +175,7 @@ export function createApp(): express.Express {
   app.use("/api/search",        searchRouter);
   app.use("/api/barter-ai",     barterAiRouter);
   app.use("/api/account",       accountDeletionRouter);
+  app.use("/api/geo",           geoRouter);
   app.use("/api",               safetyRouter);
 
   // ─── Error handling ───────────────────────────────────────────────────────────

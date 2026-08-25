@@ -45,6 +45,8 @@ export const userProfilesTable = pgTable("user_profiles", {
   bio:          text("bio"),
   avatarUrl:    text("avatar_url"),
   locationCity: text("location_city"),
+  /** ISO-3166-1 alpha-2 country code (e.g. SG, NZ, IN). Empty until resolved. */
+  locationCountry: text("location_country").notNull().default(""),
   locationLat:  decimal("location_lat", { precision: 9, scale: 6 }),
   locationLng:  decimal("location_lng", { precision: 9, scale: 6 }),
   tradeScore:   integer("trade_score").notNull().default(0),

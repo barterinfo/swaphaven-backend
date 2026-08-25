@@ -611,3 +611,114 @@ describe("DELETE /api/swipe/:swipeId", () => {
     expect(undoRes.body.bonusSwipesAvailable).toBe(2);
   });
 });
+
+describe("GET /api/swipe/deck country filter", () => {
+  it("hides listings from a different country than the viewer", async () => {
+    const sgViewer = await registerUser();
+    const inSeller = await registerUser();
+    const sgSeller = await registerUser();
+
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${sgViewer.accessToken}`)
+      .send({ locationCountry: "SG" });
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${inSeller.accessToken}`)
+      .send({ locationCountry: "IN" });
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${sgSeller.accessToken}`)
+      .send({ locationCountry: "SG" });
+
+    const indiaListing = await createListing(inSeller.accessToken, {
+      title: "India Item",
+      location: { lat: 28.61, lng: 77.2, address: "New Delhi", country: "IN" },
+    });
+    const sgListing = await createListing(sgSeller.accessToken, {
+      title: "Singapore Item",
+      location: { lat: 1.35, lng: 103.82, address: "Singapore", country: "SG" },
+    });
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${sgViewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(ids).toContain(sgListing.id);
+    expect(ids).not.toContain(indiaListing.id);
+  });
+
+  it("shows NZ listings to a viewer inferred from CF-IPCountry NZ", async () => {
+    const nzViewer = await registerUser();
+    const nzSeller = await registerUser();
+    const sgSeller = await registerUser();
+
+    const nzListing = await createListing(nzSeller.accessToken, {
+      title: "NZ Item",
+      location: {
+        lat: -36.85,
+        lng: 174.76,
+        address: "Auckland",
+        country: "NZ",
+      },
+    });
+    await createListing(sgSeller.accessToken, {
+      title: "SG Item",
+      location: { lat: 1.35, lng: 103.82, address: "Singapore", country: "SG" },
+    });
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${nzViewer.accessToken}`)
+      .set("CF-IPCountry", "NZ");
+
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(ids).toContain(nzListing.id);
+    expect(ids).toHaveLength(1);
+
+    const me = await request(app)
+      .get("/api/users/me")
+      .set("Authorization", `Bearer ${nzViewer.accessToken}`);
+    expect(me.body.locationCountry).toBe("NZ");
+  });
+
+  it("stamps listing country from request IP when payload omits it", async () => {
+    const seller = await registerUser();
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${seller.accessToken}`)
+      .set("CF-IPCountry", "NZ")
+      .send({
+        title: `NZ-Stamp-${Date.now()}`,
+        condition: "good",
+        categoryId: (
+          await request(app).get("/api/categories")
+        ).body.find((c: { slug: string }) => c.slug === "electronics")?.id,
+        location: { lat: -36.85, lng: 174.76, address: "Auckland" },
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.listing.location.country).toBe("NZ");
+  });
+});
+
+describe("GET /api/geo/me", () => {
+  it("returns NZ when CF-IPCountry is NZ", async () => {
+    const res = await request(app).get("/api/geo/me").set("CF-IPCountry", "NZ");
+    expect(res.status).toBe(200);
+    expect(res.body.country).toBe("NZ");
+    expect(res.body.source).toBe("header");
+    expect(typeof res.body.lat).toBe("number");
+    expect(typeof res.body.lng).toBe("number");
+  });
+
+  it("falls back to SG when country cannot be resolved", async () => {
+    const res = await request(app).get("/api/geo/me");
+    expect(res.status).toBe(200);
+    expect(res.body.country).toBe("SG");
+    expect(res.body.source).toBe("fallback");
+  });
+});
