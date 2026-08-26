@@ -398,7 +398,7 @@ Indexes: `(status, created_at)`, `(user_id)`. Trigram search indexes: `0013_sear
 | `listing_id` | uuid | NN, FK→`listings.id` (cascade) | |
 | `direction` | `swipe_direction` enum | NN | |
 | `created_at` | timestamp | NN, default now | |
-| — | — | UK(`swiper_id`,`listing_id`) | one swipe per user/listing |
+| — | — | UK(`swiper_id`,`listing_id`) | at most one swipe row per user/listing (lefts can be deleted by rewind or recycle-left) |
 
 Right swipes bump `listings.right_swipe_count`. See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md).
 

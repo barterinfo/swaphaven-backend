@@ -293,6 +293,7 @@ curl -s -X POST http://localhost:3001/api/ads/<adId>/click
 |--------|------|------|
 | GET | `/api/swipe/deck` | ✓ |
 | POST | `/api/swipe` | ✓ |
+| POST | `/api/swipe/recycle-left` | ✓ |
 | DELETE | `/api/swipe/:swipeId` | ✓ |
 | GET | `/api/swipe/streak` | ✓ |
 
@@ -317,6 +318,15 @@ curl -s -X POST http://localhost:3001/api/swipe \
 ```
 
 `direction`: `left` | `right` | `super`
+
+### Recycle left passes
+
+```bash
+curl -s -X POST http://localhost:3001/api/swipe/recycle-left \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Deletes this user’s `left` swipe rows only (`{ "recycledCount": n }`). Right/super stay. Listing `status` is unchanged. Mobile calls this only when the deck is empty **and** Remote Config `allowRepeatLefts` is true.
 
 ### Undo a left pass
 

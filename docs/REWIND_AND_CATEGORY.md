@@ -2,7 +2,7 @@
 
 End-to-end reference for two discovery behaviors that share a deck: **rewind** (undo a left pass) and **category** (taxonomy, listing wants, and browse filters). Backend lives in `swaphaven-api`; the session stack and browse bar live in `barter-stack/mobile`.
 
-Swipe quota, prefetch, ads, and streaks stay in [SWIPE_FEATURE.md](./SWIPE_FEATURE.md). This doc is the source of truth for rewind and categories.
+Swipe quota, prefetch, empty-deck recycle (`allowRepeatLefts`), ads, and streaks stay in [SWIPE_FEATURE.md](./SWIPE_FEATURE.md). This doc is the source of truth for rewind and categories.
 
 ---
 
@@ -27,7 +27,7 @@ Swipe quota, prefetch, ads, and streaks stay in [SWIPE_FEATURE.md](./SWIPE_FEATU
 
 ### Rewind
 
-A Tinder-style **undo** for **left (pass)** swipes only. The listing returns to the top of the deck and the pass is deleted on the server so it can show up again.
+A Tinder-style **undo** for **left (pass)** swipes only. The listing returns to the top of the deck and the pass is deleted on the server so it can show up again. Empty-deck **recycle** (`allowRepeatLefts`) also deletes lefts, but in bulk and without restoring quota — see [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) §9.
 
 | Can rewind | Cannot rewind |
 |------------|----------------|
@@ -35,7 +35,7 @@ A Tinder-style **undo** for **left (pass)** swipes only. The listing returns to 
 | | Super like |
 | | Another user’s swipe |
 | | Passes older than the remote cap |
-| | Passes from a previous deck load / category switch |
+| | Passes from a previous deck load / category switch / recycle |
 
 ### Category
 
@@ -73,6 +73,7 @@ flowchart TD
   Right[Right / super] --> Keep[Prior lefts stay rewindable]
   Load[load / tab full reload] --> Clear[Clear passedSwipeHistory]
   Cat[selectCategory] --> Load
+  Recycle[_restartDeck / recycle-left] --> Clear
   Undo[undo] --> Pop[Pop newest left, restore card]
 ```
 
@@ -82,6 +83,7 @@ flowchart TD
 | Right or super | Unchanged |
 | `load()` | Cleared |
 | `selectCategory()` | Cleared (it calls `load()`) |
+| Empty-deck recycle (`allowRepeatLefts`) | Cleared — swipe ids were deleted on the server |
 | Account switch | Cleared (notifier rebuilds) |
 | Failed undo API | Unchanged; card stays gone from the UI until retry |
 
@@ -93,7 +95,7 @@ The daily-limit screen is skipped while `canUndo` is true, so a user who just hi
 
 ### 3.1 Product rules
 
-1. Only **left** passes are undoable. Right and super are permanent for this user/listing pair (`UNIQUE (swiper_id, listing_id)`).
+1. Only **left** passes are undoable. Right and super are permanent for this user/listing pair until recycle deletes lefts (`UNIQUE (swiper_id, listing_id)` still holds while the row exists).
 2. Undo is **LIFO**: newest eligible pass first.
 3. The stack is **session memory**. It is not persisted across process death, `load()`, or category change.
 4. The server is the source of truth: the client must `DELETE /api/swipe/:swipeId` before putting the card back. A client-only pop would leave the row in `swipes` and the listing would stay hidden from future decks.
@@ -104,13 +106,15 @@ The daily-limit screen is skipped while `canUndo` is true, so a user who just hi
 | Key | Default | App clamp | Meaning |
 |-----|---------|-----------|---------|
 | `rewind_limit` | `1` | `0…50` | Max left passes kept in `passedSwipeHistory` |
+| `allowRepeatLefts` | `false` | boolean | When true, an empty deck recycles this user’s left-passes and reloads. See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) §9 |
 
 - `0` disables rewind (lefts are not stacked; `undo()` is a no-op).
 - Values above `50` are clamped so a console typo cannot grow session RAM without bound.
 - If remote config lowers the cap mid-session, `undo()` re-trims before popping.
 - Offline fallback matches the historical single-slot undo (`RemoteConfigDefaults.rewindLimit = 1`).
+- `allowRepeatLefts` defaults **off** so a failed fetch cannot start looping passed cards.
 
-Firebase / template: `mobile/remoteconfig.template.json` → `rewind_limit`.
+Firebase / template: `mobile/remoteconfig.template.json` → `rewind_limit`, `allowRepeatLefts`.
 
 ### 3.3 Session stack (mobile)
 
@@ -204,7 +208,7 @@ flowchart TD
   Recount --> Ok[200]
 ```
 
-Because `(swiper_id, listing_id)` is unique, deleting the row is what makes `GET /api/swipe/deck` eligible to return that listing again.
+Because `(swiper_id, listing_id)` is unique, deleting the row is what makes `GET /api/swipe/deck` eligible to return that listing again. `POST /api/swipe/recycle-left` deletes **all** of this user’s left rows at once (no quota restore); rewind deletes one row and restores quota.
 
 ### 3.5 Quota restore details
 
@@ -230,6 +234,7 @@ The client **trusts the DELETE response** for remaining/bonus instead of increme
 | Top card is an ad | Rewind button is hidden; ads are not stacked |
 | Prefetch raced and re-fetched the listing | Restore path de-dupes by listing id |
 | Right swipe after a left | The left remains rewindable; undo brings that older listing back on top |
+| Empty-deck recycle | History cleared; those swipe ids are gone. Undo is unavailable until new lefts. |
 
 ---
 
@@ -450,6 +455,8 @@ Do not send slugs as `categoryId`. Do not send UUIDs as the swipe `category` que
 | `rewind_limit = 0` | `canUndo` false; no DELETE |
 | Right after left | Left stays rewindable |
 | `load()` / `selectCategory()` | Stack cleared |
+| Recycle with `allowRepeatLefts` | `recycleLeftPasses` called; history cleared |
+| Flag off | Empty deck; `recycleLeftPasses` not called |
 | `selectCategory` | `loadDeck` called with that slug (server refetch) |
 
 Helpers: `swipe_data_models_test.dart` (`swipeListingMatchesCategory`), `suggested_wanted_categories_test.dart` (open-to-any / suggestions).
@@ -460,7 +467,7 @@ Helpers: `swipe_data_models_test.dart` (`swipeListingMatchesCategory`), `suggest
 
 | Doc | Relevance |
 |-----|-----------|
-| [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Deck, quota, prefetch, ads, make-offer |
+| [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Deck, quota, prefetch, recycle-left / `allowRepeatLefts`, ads, make-offer |
 | [API_GUIDE.md](./API_GUIDE.md) | Curl samples |
 | [DB_SCHEMA.md](./DB_SCHEMA.md) | `categories`, `listings.category_*`, `listing_wants`, `swipes` |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Search `category` query and label aliases |
@@ -472,7 +479,7 @@ Helpers: `swipe_data_models_test.dart` (`swipeListingMatchesCategory`), `suggest
 
 **API**
 
-- `src/routes/swipe.ts` — deck `category` query, `DELETE /:swipeId`
+- `src/routes/swipe.ts` — deck `category` query, `POST /recycle-left`, `DELETE /:swipeId`
 - `src/routes/listings.ts` — `GET /api/categories`, listing category writes, `listing_wants`
 - `src/lib/categories.ts` — `CANONICAL_CATEGORIES`, `categoryIdBySlug`
 - `src/lib/match-score.ts` — mutual-fit + open-to-any
@@ -482,11 +489,12 @@ Helpers: `swipe_data_models_test.dart` (`swipeListingMatchesCategory`), `suggest
 
 **Mobile**
 
-- `lib/features/discovery/di/discovery_providers.dart` — stack, `undo()`, `selectCategory()`
+- `lib/features/discovery/di/discovery_providers.dart` — stack, `undo()`, `_restartDeck()`, `selectCategory()`
 - `lib/features/discovery/application/undo_swipe_use_case.dart`
+- `lib/features/discovery/application/recycle_left_passes_use_case.dart`
 - `lib/features/discovery/domain/swipe_category_filter.dart` — helper / tests
 - `lib/features/listings/di/category_providers.dart` — catalog + browse chips
 - `lib/features/listings/domain/suggested_wanted_categories.dart`
 - `lib/core/categories/catalog_category.dart` — parse, fallback UUIDs, slug migrate
-- `packages/barter_remote_config` — `rewind_limit`
+- `packages/barter_remote_config` — `rewind_limit`, `allowRepeatLefts`
 - `remoteconfig.template.json`

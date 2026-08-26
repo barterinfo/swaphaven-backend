@@ -1,6 +1,6 @@
 # Swipe / Discovery Feature
 
-End-to-end reference for the discovery swipe deck: backend (`swaphaven-api`) and mobile (`barter-stack/mobile`). Covers APIs, quota, prefetch paging, mutual-fit scoring, streaks, ads interleaving, make-offer handoff, and edge cases.
+End-to-end reference for the discovery swipe deck: backend (`swaphaven-api`) and mobile (`barter-stack/mobile`). Covers APIs, quota, prefetch paging, empty-deck recycle (`allowRepeatLefts`), mutual-fit scoring, streaks, ads interleaving, make-offer handoff, and edge cases.
 
 ---
 
@@ -10,8 +10,9 @@ Users browse other people’s **active** listings in a Tinder-style card stack.
 
 | Action | Meaning |
 |--------|---------|
-| **Left swipe** | Pass — recorded; listing won’t appear again for this user unless **rewound** |
+| **Left swipe** | Pass — recorded; listing won’t appear again for this user unless **rewound** or **recycled** (see below) |
 | **Rewind** | Undo the newest left pass (session stack, remote cap). See [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) |
+| **Repeat lefts** | When Remote Config `allowRepeatLefts` is **true**, an empty deck deletes this user’s left-pass rows and reloads those listings. Likes and super-likes stay hidden. Off by default. |
 | **Right swipe** | Interested — recorded; opens **Make an Offer** (after optional empty-closet gate) |
 | **Ad card** | Sponsored slot interleaved client-side; dismiss/engage does **not** use swipe quota |
 
@@ -30,6 +31,9 @@ flowchart LR
   Closet -->|yes| Offer[Make Offer screen]
   AddListing -->|published| Offer
   Deck -->|prefetch when ≤5 cards| More[GET /api/swipe/deck?excludeIds]
+  Deck -->|no more cards| Empty
+  Empty -->|allowRepeatLefts| Recycle[POST /api/swipe/recycle-left]
+  Recycle --> Deck
 ```
 
 ---
@@ -100,6 +104,7 @@ Vitest sets `DAILY_SWIPE_LIMIT=20` if unset so quota/429 tests still run (`vites
 |------|-------|------|
 | `_kPrefetchThreshold` | `5` | When `visibleCards.length ≤ 5`, fetch next page |
 | `_kAdEvery` | `5` | Insert one ad after every 5 listing cards |
+| `allowRepeatLefts` | Remote Config; default **false** | When true, empty deck recycles this user’s left-passes then reloads. Firebase / `mobile/remoteconfig.template.json` |
 
 **Important:** page size and daily quota are independent. Prefetch can load more than 20 cards into the client over a session; the daily quota (if set) still caps how many **swipes** are allowed.
 
@@ -139,8 +144,10 @@ erDiagram
   }
 ```
 
-- Unique constraint: `(swiper_id, listing_id)` — one swipe per user per listing forever.
+- Unique constraint: `(swiper_id, listing_id)` — at most one swipe row per user per listing at a time.
+- Left-pass rows can be deleted by **rewind** (`DELETE /api/swipe/:swipeId`) or **recycle** (`POST /api/swipe/recycle-left`). Right/super rows stay until the listing leaves inventory.
 - `right_swipe_count` is denormalized; incremented only on a **new** right swipe.
+- Recycle does **not** change listing `status` (`active` / `traded` / …). That field is global, not per-viewer.
 
 Schema details: [DB_SCHEMA.md](./DB_SCHEMA.md).
 
@@ -249,7 +256,7 @@ Records a swipe (or returns the existing one idempotently).
 }
 ```
 
-**Idempotency:** If `(swiperId, listingId)` already exists → **201** with stored swipe; **does not** consume quota again; `streakUpdated: false`. Returned `direction` is the **stored** one.
+**Idempotency:** If `(swiperId, listingId)` already exists → **201** with stored swipe; **does not** consume quota again; `streakUpdated: false`. Returned `direction` is the **stored** one. `GET /deck` never auto-recycles, and `POST /` never replaces a left with a right — recycle is a separate call.
 
 **Side effects on a new swipe**
 
@@ -259,7 +266,28 @@ Records a swipe (or returns the existing one idempotently).
 
 ---
 
-### 5.3 `DELETE /api/swipe/:swipeId`
+### 5.3 `POST /api/swipe/recycle-left`
+
+Deletes **this caller’s** `direction = 'left'` swipe rows so those listings are unseen again. Right and super rows are untouched. Listing `status` is untouched.
+
+The client calls this only when the on-screen deck is empty **and** Remote Config `allowRepeatLefts` is true, then loads `GET /api/swipe/deck` as usual. The API itself does not loop the deck.
+
+**Success — 200**
+
+```json
+{ "recycledCount": 12 }
+```
+
+| Status | When |
+|--------|------|
+| **200** | Left rows deleted (count may be `0` if there were none) |
+| **401** | Missing / invalid auth |
+
+Quota is **not** restored. Deleting today’s lefts would otherwise raise `remainingSwipesToday` as if the user undid every pass. After recycle the app keeps **min(local, server)** remaining/bonus so looping does not refill the daily cap.
+
+---
+
+### 5.4 `DELETE /api/swipe/:swipeId`
 
 Undo a **left** pass so the listing can reappear. Right/super cannot be undone.
 
@@ -267,7 +295,7 @@ Full contract, quota restore, and the mobile LIFO stack: [REWIND_AND_CATEGORY.md
 
 ---
 
-### 5.4 `GET /api/swipe/streak`
+### 5.5 `GET /api/swipe/streak`
 
 Returns streak row, or zeros if none:
 
@@ -394,6 +422,17 @@ sequenceDiagram
 | Failure | Non-fatal; user keeps swiping remaining cards |
 | Exhausted | Empty page → `deckExhausted = true`; stop further prefetch |
 
+### Empty-deck recycle (`allowRepeatLefts`)
+
+When the last listing is gone (or a trailing ad is dismissed on an empty listing stack) **and** the user can still swipe:
+
+| `allowRepeatLefts` | Behavior |
+|--------------------|----------|
+| **false** (default) | Stay on empty-deck UI. `GET /deck` is not recycled. Tab resume may `loadIfNeeded()` without deleting lefts. |
+| **true** | `_restartDeck()`: `POST /api/swipe/recycle-left` → `GET /api/swipe/deck` → clear rewind history (those swipe ids no longer exist) → apply **min(local, server)** remaining/bonus |
+
+Rights, supers, active offers, blocks, and non-`active` listings still never come back. Recycle runs only when the on-screen deck is empty, not after every left swipe.
+
 ---
 
 ## 10. Mobile architecture
@@ -405,6 +444,8 @@ mobile/lib/features/discovery/
 ├── application/
 │   ├── load_swipe_discovery_use_case.dart   # deck + streak in parallel
 │   ├── record_swipe_use_case.dart
+│   ├── recycle_left_passes_use_case.dart
+│   ├── undo_swipe_use_case.dart
 │   ├── load_make_offer_data_use_case.dart
 │   └── create_offer_use_case.dart
 ├── data/
@@ -451,8 +492,11 @@ stateDiagram-v2
   LoadingMore --> Ready: append or exhausted
   Ready --> DailyLimit: remaining=0 and bonus=0
   Ready --> Empty: canSwipe and no cards
+  Empty --> Recycle: allowRepeatLefts
+  Recycle --> Ready: lefts reset + deck reload
+  Recycle --> Empty: still no unseen inventory
   DailyLimit --> Loading: tab resume / retry
-  Empty --> Loading: tab resume
+  Empty --> Loading: tab resume / loadIfNeeded
 ```
 
 **Quota decrement (client, matches server):** daily first, then bonus.
@@ -473,7 +517,7 @@ else if (bonus > 0) bonus--;
 1. **Loading** — initial `isLoading`
 2. **Error** — `error != null` and no visible cards (+ Retry)
 3. **Daily limit** — `!canSwipe` (shown even if cards remain in memory)
-4. **Empty deck** — `canSwipe` but `visibleCards.isEmpty` (“No more listings right now”)
+4. **Empty deck** — `canSwipe` but `visibleCards.isEmpty` (“No more listings right now”). If `allowRepeatLefts` is on, `_restartDeck` runs first and this UI only shows when recycle + reload still returns nothing.
 5. **Card stack** — `SwipeCardStack` on interleaved `deckItems`
 
 Lifecycle: `onScreenResumed` → `notifier.load()`.
@@ -574,7 +618,16 @@ sequenceDiagram
   alt Quota exhausted
     App-->>U: Daily limit UI + refreshesAt
   else No more listings
-    App-->>U: Empty deck UI
+    alt allowRepeatLefts
+      App->>App: POST /swipe/recycle-left then GET /deck
+      opt Left-passes remain as inventory
+        App-->>U: Deck restarts with passed listings
+      else Still empty
+        App-->>U: Empty deck UI
+      end
+    else Flag off
+      App-->>U: Empty deck UI
+    end
   end
 ```
 
@@ -586,6 +639,8 @@ sequenceDiagram
 |------|----------|
 | Own listing | Never in deck; POST → 400 |
 | Already swiped | Hidden from deck; POST → idempotent 201 |
+| Recycle lefts (`allowRepeatLefts`) | Empty deck → delete caller’s left rows → normal GET /deck; rights/supers stay hidden |
+| `allowRepeatLefts` off | Empty deck stays empty; no `recycle-left` call |
 | Active negotiation | Hidden; POST → 409 |
 | Unlimited quota | No 429; huge `remainingSwipesToday` |
 | Prefetch race vs swipe | Client keeps lower remaining/bonus |
@@ -594,6 +649,7 @@ sequenceDiagram
 | Empty first page | `deckExhausted`; empty UI if still can swipe |
 | Daily limit with cards left | Limit UI wins (cards not shown) |
 | Duplicate right swipe | No second `right_swipe_count` increment |
+| Recycle then right | Same listing can be liked; POST is a **new** swipe (old left row is gone) |
 | Offer withdrawn | Listing can reappear in deck |
 | Counter excludes an offered item | That item can reappear for the seller |
 
@@ -608,12 +664,13 @@ sequenceDiagram
 - `excludeIds` paging + page size ≤ 20
 - Remaining decrements with `DAILY_SWIPE_LIMIT=20` in test env
 - POST left/right, own listing, 409, idempotency, **429** after 20
+- `POST /recycle-left`: lefts reappear, rights stay hidden, empty recycle is idempotent, left→recycle→right is a new like
 
 ### Mobile — `mobile/test/features/discovery/`
 
 | File | Focus |
 |------|-------|
-| `swipe_discovery_notifier_test.dart` | load, swipe, quota order, prefetch, rewind stack, `selectCategory` refetch, ads |
+| `swipe_discovery_notifier_test.dart` | load, swipe, quota order, prefetch, rewind stack, `selectCategory` refetch, ads, `allowRepeatLefts` recycle |
 | `swipe_repository_impl_test.dart` | mapping + `excludeIds` forward |
 | `swipe_data_models_test.dart` | JSON parsing, category match |
 | `load_swipe_discovery_use_case_test.dart` | parallel deck + streak |
@@ -625,9 +682,10 @@ sequenceDiagram
 
 1. **Restart the API** after changing `DAILY_SWIPE_LIMIT`.
 2. Deck uses `ORDER BY RANDOM()` — fine at small/medium scale; revisit if inventory is huge (seeded/cursor ranking).
-3. Historical swipe exclusion list grows with power users (`NOT IN` all past swipes).
-4. OpenAPI documents deck + swipe + streak; some runtime fields (`matchedWantedLabels`, unlimited remaining) are richer than the schema.
+3. Historical swipe exclusion list grows with power users (`NOT IN` all past swipes). Recycle only shrinks **left** rows for that user.
+4. OpenAPI documents deck + swipe + recycle-left + streak; some runtime fields (`matchedWantedLabels`, unlimited remaining) are richer than the schema.
 5. Deploy API + mobile together when changing deck response shape (`ownerName`, prefetch `excludeIds`).
+6. To enable looping passed cards in production: set Firebase Remote Config Boolean **`allowRepeatLefts`** to `true` (template default is `false`). A console flip applies on the next empty-deck restart; no app store release.
 
 ---
 
@@ -635,7 +693,7 @@ sequenceDiagram
 
 | Doc | Relevance |
 |-----|-----------|
-| [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Undo left pass; category catalog, browse, wanted, match-score |
+| [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Undo left pass; recycle clears rewind stack; category catalog, browse, wanted, match-score |
 | [ADS.md](./ADS.md) | Sponsored cards in the stack |
 | [API_GUIDE.md](./API_GUIDE.md) | Route table / curl samples |
 | [DB_SCHEMA.md](./DB_SCHEMA.md) | `swipes`, `swipe_streaks` |
@@ -660,7 +718,9 @@ sequenceDiagram
 **Mobile**
 
 - `lib/features/discovery/**`
-- `lib/core/services/api_endpoints.dart` (`swipe`, `swipeDeck`, `swipeStreak`)
-- `lib/core/services/barter_api_service.dart` (`getSwipeDeck`, `recordSwipe`, `undoSwipe`)
+- `lib/core/services/api_endpoints.dart` (`swipe`, `swipeDeck`, `swipeRecycleLeft`, `swipeStreak`)
+- `lib/core/services/barter_api_service.dart` (`getSwipeDeck`, `recordSwipe`, `recycleLeftPasses`, `undoSwipe`)
 - `lib/service_providers.dart` (repository + use cases)
+- `packages/barter_remote_config` (`allowRepeatLefts`, `rewind_limit`)
+- `remoteconfig.template.json`
 - `lib/features/ads/**` (session ads + impression/click)

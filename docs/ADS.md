@@ -114,7 +114,7 @@ Server filters: `active = true`, date window, `ORDER BY weight DESC, id`.
 | Screen | `swipe_discovery_screen.dart` | CTA → `AdUrlLauncher` (external browser / deep link) |
 | UI | `packages/barter_ui/…/swipe_ad_card.dart` | Card layout + `BarterCachedImage` |
 
-Dismissing an ad does **not** decrement the daily swipe quota.
+Dismissing an ad does **not** decrement the daily swipe quota. If the ad is the last card on an empty listing stack and Remote Config `allowRepeatLefts` is on, dismiss triggers the same left-pass recycle as swiping the last listing — see [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) §9.
 
 | Trigger | Re-fetches ads? |
 |---------|-----------------|

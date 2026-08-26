@@ -36,6 +36,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-08-26 | Recycle left-passes behind remote config | POST /api/swipe/recycle-left, allowRepeatLefts, discovery _restartDeck, SWIPE_FEATURE.md | [Recycle left-pass swipe deck](3e80f36c-232c-4949-bfea-1c09ff8258f1) |
 | 2026-08-26 | Announcement push ops doc | docs/ANNOUNCEMENTS.md, push:announce CLI | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
 | 2026-08-26 | Announcement push CLI | src/lib/push.ts sendPushBroadcast, scripts/push-announce.ts | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
 | 2026-08-24 | Rewind and category docs | docs/REWIND_AND_CATEGORY.md, SWIPE_FEATURE, API_GUIDE, README | [Rewind and category docs](46691518-3bb4-428f-be2a-d969420b8de5) |
@@ -426,5 +427,13 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 - **Chat:** [Save-for-later listings feature](5525bf4c-7c05-4039-92ac-d5d498906676)
 - **Areas:** saved_listings schema/migration, /api/saved, listing is_saved + /stats, mobile features/saved, Saved tab
 - **Summary:** Save-for-later independent of swipes; Me Saved tab; owner save_count via listing stats. See [SAVED_FEATURE.md](./SAVED_FEATURE.md).
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Recycle left-passes behind remote config
+
+- **Date:** 2026-08-26
+- **Chat:** [Recycle left-pass swipe deck](3e80f36c-232c-4949-bfea-1c09ff8258f1)
+- **Areas:** POST /api/swipe/recycle-left, OpenAPI, discovery `_restartDeck`, `allowRepeatLefts`, SWIPE_FEATURE.md
+- **Summary:** Empty swipe deck can reset this user’s left-pass rows then reload. Liked/super-liked stay hidden. Mobile only calls recycle when Firebase Remote Config `allowRepeatLefts` is true (default false). Quota uses min(local, server) so looping does not refill the daily cap. See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) §5.3 and §9.
 - **Also tracked in:** barter-stack FEATURE_LOG
 
