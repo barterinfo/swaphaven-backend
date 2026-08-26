@@ -239,7 +239,19 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   // Fold reply latency into the sender's avgResponseMinutes before responding.
   await recordMessageResponse(convId, userId, message.createdAt);
 
-  broadcastToRoom(convId, { event: "new_message", message });
+  const senderProfile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, userId),
+    columns: { id: true, displayName: true, avatarUrl: true },
+  });
+  const messageWithSender = {
+    ...message,
+    sender: {
+      id: userId,
+      displayName: senderProfile?.displayName ?? "",
+      avatarUrl: senderProfile?.avatarUrl ?? null,
+    },
+  };
+  broadcastToRoom(convId, { event: "new_message", message: messageWithSender });
 
   // Push to the other participant only when they are not connected via WS
   // (broadcastToRoom already delivers to open sockets). We send regardless
@@ -254,22 +266,16 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
         : messageBody;
 
   void (async () => {
-    const [senderProfile, convDetail] = await Promise.all([
-      db.query.userProfilesTable.findFirst({
-        where: eq(userProfilesTable.id, userId),
-        columns: { displayName: true, avatarUrl: true },
-      }),
-      db.query.conversationsTable.findFirst({
-        where: eq(conversationsTable.id, convId),
-        with: {
-          offer: {
-            with: {
-              listing: { columns: { title: true } },
-            },
+    const convDetail = await db.query.conversationsTable.findFirst({
+      where: eq(conversationsTable.id, convId),
+      with: {
+        offer: {
+          with: {
+            listing: { columns: { title: true } },
           },
         },
-      }),
-    ]);
+      },
+    });
 
     const senderName = senderProfile?.displayName ?? "Someone";
     const listingTitle = convDetail?.offer.listing?.title;

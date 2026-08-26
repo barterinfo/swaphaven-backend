@@ -42,7 +42,7 @@ Chat uses WebSockets — test with a WS client:
 ws://localhost:3001/ws/<conversationId>?token=<accessToken>
 ```
 
-Send JSON text messages; see [API_GUIDE.md](./API_GUIDE.md#chat--websocket).
+Listen for `new_message` frames; send via HTTP POST. See [API_GUIDE.md](./API_GUIDE.md#chat--websocket).
 
 ---
 

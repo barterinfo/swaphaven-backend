@@ -1,63 +1,129 @@
 import { WebSocketServer, WebSocket } from "ws";
-import type { Server } from "http";
+import type { IncomingMessage, Server } from "http";
 import jwt from "jsonwebtoken";
+import { eq } from "drizzle-orm";
 import { env } from "../config/env.js";
 import type { AuthPayload } from "../middleware/auth.js";
+import { db } from "../db/client.js";
+import { conversationsTable } from "../db/schema/index.js";
 
-// Map conversationId → Set<WebSocket>
 const rooms = new Map<string, Set<WebSocket>>();
 
+const CONVERSATION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const PING_MS = 25_000;
+
+function parseConversationId(pathname: string): string | null {
+  const match = pathname.match(/^\/ws\/([^/]+)\/?$/);
+  if (!match) return null;
+  const id = match[1]!;
+  return CONVERSATION_ID.test(id) ? id : null;
+}
+
+function denyUpgrade(
+  socket: { write: (chunk: string) => unknown; destroy: () => void },
+  status: number,
+  reason: string,
+): void {
+  socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
+  socket.destroy();
+}
+
+async function authorizeUpgrade(req: IncomingMessage): Promise<
+  { conversationId: string } | { status: number; reason: string }
+> {
+  const url = new URL(req.url ?? "", "http://localhost");
+  const conversationId = parseConversationId(url.pathname);
+  const token = url.searchParams.get("token");
+  if (!conversationId || !token) {
+    return { status: 401, reason: "Unauthorized" };
+  }
+
+  let userId: string;
+  try {
+    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as AuthPayload;
+    if (payload.typ !== "access") throw new Error("Invalid token type");
+    userId = payload.sub;
+  } catch {
+    return { status: 401, reason: "Unauthorized" };
+  }
+
+  const conv = await db.query.conversationsTable.findFirst({
+    where: eq(conversationsTable.id, conversationId),
+    with: { offer: { columns: { buyerId: true, sellerId: true } } },
+  });
+  if (!conv || (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId)) {
+    return { status: 403, reason: "Forbidden" };
+  }
+
+  return { conversationId };
+}
+
+function joinRoom(conversationId: string, ws: WebSocket): void {
+  if (!rooms.has(conversationId)) rooms.set(conversationId, new Set());
+  rooms.get(conversationId)!.add(ws);
+
+  const alive = ws as WebSocket & { isAlive?: boolean };
+  alive.isAlive = true;
+  ws.on("pong", () => {
+    alive.isAlive = true;
+  });
+
+  ws.on("close", () => {
+    rooms.get(conversationId)?.delete(ws);
+    if (rooms.get(conversationId)?.size === 0) rooms.delete(conversationId);
+  });
+
+  // Live send is HTTP POST → broadcastToRoom. Ignore client frames so
+  // unsaved/unmoderated payloads cannot spoof a message.
+  ws.on("message", () => {});
+
+  ws.on("error", (err) => {
+    console.error("[ws] client error:", err.message);
+  });
+}
+
 export function createWsServer(httpServer: Server): WebSocketServer {
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wss = new WebSocketServer({ noServer: true });
 
-  wss.on("connection", (ws, req) => {
-    const url = new URL(req.url ?? "", `http://localhost`);
-    const conversationId = url.pathname.replace("/ws/", "").replace("/ws", "");
-    const token = url.searchParams.get("token");
-
-    if (!conversationId || !token) {
-      ws.close(1008, "Missing conversationId or token");
+  httpServer.on("upgrade", (req, socket, head) => {
+    const url = new URL(req.url ?? "", "http://localhost");
+    if (url.pathname !== "/ws" && !url.pathname.startsWith("/ws/")) {
+      socket.destroy();
       return;
     }
 
-    let userId: string;
-    try {
-      const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as AuthPayload;
-      if (payload.typ !== "access") throw new Error("Invalid token type");
-      userId = payload.sub;
-    } catch {
-      ws.close(1008, "Invalid or expired token");
-      return;
-    }
-
-    // Join room
-    if (!rooms.has(conversationId)) rooms.set(conversationId, new Set());
-    rooms.get(conversationId)!.add(ws);
-
-    ws.on("close", () => {
-      rooms.get(conversationId)?.delete(ws);
-      if (rooms.get(conversationId)?.size === 0) rooms.delete(conversationId);
-    });
-
-    ws.on("message", (data) => {
-      try {
-        const text = data.toString();
-        // Attach sender for client-side use
-        const broadcast = JSON.stringify({ ...JSON.parse(text), senderId: userId });
-        rooms.get(conversationId)?.forEach((client) => {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(broadcast);
-          }
-        });
-      } catch {
-        // ignore malformed frames
+    void authorizeUpgrade(req).then((result) => {
+      if (socket.destroyed) return;
+      if ("status" in result) {
+        denyUpgrade(socket, result.status, result.reason);
+        return;
       }
-    });
-
-    ws.on("error", (err) => {
-      console.error("[ws] client error:", err.message);
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        joinRoom(result.conversationId, ws);
+        wss.emit("connection", ws, req);
+      });
+    }).catch((err) => {
+      console.error("[ws] upgrade error:", err instanceof Error ? err.message : err);
+      if (!socket.destroyed) denyUpgrade(socket, 500, "Internal Server Error");
     });
   });
+
+  const interval = setInterval(() => {
+    for (const client of wss.clients) {
+      const alive = client as WebSocket & { isAlive?: boolean };
+      if (alive.isAlive === false) {
+        alive.terminate();
+        continue;
+      }
+      alive.isAlive = false;
+      alive.ping();
+    }
+  }, PING_MS);
+  interval.unref();
+
+  wss.on("close", () => clearInterval(interval));
 
   return wss;
 }

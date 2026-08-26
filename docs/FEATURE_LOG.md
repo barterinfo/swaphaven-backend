@@ -37,6 +37,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
 | 2026-08-26 | Recycle left-passes behind remote config | POST /api/swipe/recycle-left, allowRepeatLefts, discovery _restartDeck, SWIPE_FEATURE.md | [Recycle left-pass swipe deck](3e80f36c-232c-4949-bfea-1c09ff8258f1) |
+| 2026-08-26 | Live chat over WebSocket | src/lib/ws.ts path/membership, conversations broadcast sender, tests/ws.test.ts | [Live chat over WebSocket](395220fa-cc37-4fc4-a6ed-8141a0af2b41) |
 | 2026-08-26 | Announcement push ops doc | docs/ANNOUNCEMENTS.md, push:announce CLI | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
 | 2026-08-26 | Announcement push CLI | src/lib/push.ts sendPushBroadcast, scripts/push-announce.ts | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
 | 2026-08-24 | Rewind and category docs | docs/REWIND_AND_CATEGORY.md, SWIPE_FEATURE, API_GUIDE, README | [Rewind and category docs](46691518-3bb4-428f-be2a-d969420b8de5) |
@@ -435,5 +436,13 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 - **Chat:** [Recycle left-pass swipe deck](3e80f36c-232c-4949-bfea-1c09ff8258f1)
 - **Areas:** POST /api/swipe/recycle-left, OpenAPI, discovery `_restartDeck`, `allowRepeatLefts`, SWIPE_FEATURE.md
 - **Summary:** Empty swipe deck can reset this user’s left-pass rows then reload. Liked/super-liked stay hidden. Mobile only calls recycle when Firebase Remote Config `allowRepeatLefts` is true (default false). Quota uses min(local, server) so looping does not refill the daily cap. See [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) §5.3 and §9.
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Live chat over WebSocket
+
+- **Date:** 2026-08-26
+- **Chat:** [Live chat over WebSocket](395220fa-cc37-4fc4-a6ed-8141a0af2b41)
+- **Areas:** `src/lib/ws.ts` `/ws/:conversationId` handshake + membership, conversations `new_message` broadcast with `sender`
+- **Summary:** Documented WS path actually accepts connections. Strangers get 403 before upgrade. POST fans the GET-shaped message to the room; client frames are ignored. Mobile replaces 5s polling with this socket.
 - **Also tracked in:** barter-stack FEATURE_LOG
 

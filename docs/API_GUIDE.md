@@ -502,13 +502,13 @@ curl -s -X PATCH http://localhost:3001/api/conversations/<conversationId>/meetup
 
 ### WebSocket
 
-Connect:
+Connect (participant JWT required; strangers get `403` before the handshake):
 
 ```text
 ws://localhost:3001/ws/<conversationId>?token=<accessToken>
 ```
 
-Send JSON (server adds `senderId` and broadcasts).
+Listen for `{ "event": "new_message", "message": { ...same shape as GET /messages items } }`. Send via `POST /api/conversations/:id/messages` (persist + moderate); the server fans the saved row out to the room. Client frames are ignored.
 
 ---
 
