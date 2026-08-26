@@ -45,6 +45,7 @@ export const openApiSpec = {
           bio:                { type: "string", nullable: true },
           avatarUrl:          { type: "string", nullable: true },
           locationCity:       { type: "string", nullable: true },
+          locationCountry:    { type: "string", description: "ISO-3166-1 alpha-2 country code (e.g. SG, NZ)." },
           tradeScore:         { type: "integer" },
           totalTrades:        { type: "integer" },
           ratingSum:          { type: "integer" },
@@ -85,9 +86,26 @@ export const openApiSpec = {
           bio:          { type: "string", maxLength: 500 },
           avatarUrl:    { type: "string", maxLength: 2048 },
           locationCity: { type: "string", maxLength: 100 },
+          locationCountry: {
+            type: "string",
+            maxLength: 2,
+            description: "ISO-3166-1 alpha-2 country code (e.g. SG, NZ). Empty string clears.",
+          },
           locationLat:  { type: "number", minimum: -90, maximum: 90 },
           locationLng:  { type: "number", minimum: -180, maximum: 180 },
         },
+      },
+      GeoMeResponse: {
+        type: "object",
+        description: "Approximate geo from the request IP — used when the client denies GPS.",
+        properties: {
+          country: { type: "string", description: "ISO-3166-1 alpha-2" },
+          city:    { type: "string" },
+          lat:     { type: "number" },
+          lng:     { type: "number" },
+          source:  { type: "string", enum: ["header", "ip", "fallback"] },
+        },
+        required: ["country", "city", "lat", "lng", "source"],
       },
       SellerSnapshot: {
         type: "object",
@@ -557,6 +575,25 @@ export const openApiSpec = {
       get: {
         tags: ["Meta"], summary: "Health check", security: [],
         responses: { "200": { description: "Service healthy" } },
+      },
+    },
+    "/api/geo/me": {
+      get: {
+        tags: ["Geo"],
+        summary: "Approximate country for this request",
+        description:
+          "Resolves ISO country from CDN headers or IP geolocation. Used by mobile when GPS is denied. Does not persist.",
+        security: [],
+        responses: {
+          "200": {
+            description: "Resolved geo",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/GeoMeResponse" },
+              },
+            },
+          },
+        },
       },
     },
     // ── Auth ────────────────────────────────────────────────────────────────────
@@ -1215,6 +1252,8 @@ export const openApiSpec = {
       get: {
         tags: ["Swipe"],
         summary: "Get a page of swipe deck cards",
+        description:
+          "Returns active listings in the viewer's country only (profile locationCountry, else inferred from request IP and persisted). Listings with empty location_country are excluded.",
         parameters: [
           {
             name: "excludeIds",

@@ -32,6 +32,15 @@ const updateProfileSchema = z.object({
   bio:          z.string().max(500).optional(),
   avatarUrl:    z.string().max(2048).optional(),
   locationCity: z.string().max(100).optional(),
+  /** ISO-3166-1 alpha-2 (e.g. SG, NZ). Empty string clears. */
+  locationCountry: z
+    .string()
+    .max(2)
+    .optional()
+    .transform((v) => (v == null ? undefined : v.trim().toUpperCase()))
+    .refine((v) => v === undefined || v === "" || /^[A-Z]{2}$/.test(v), {
+      message: "locationCountry must be a 2-letter ISO country code",
+    }),
   locationLat:  z.number().min(-90).max(90).optional(),
   locationLng:  z.number().min(-180).max(180).optional(),
 });
@@ -53,11 +62,12 @@ router.patch("/me", requireAuth, async (req, res) => {
     });
   }
 
-  const { locationLat, locationLng, ...rest } = parsed.data;
+  const { locationLat, locationLng, locationCountry, ...rest } = parsed.data;
   const [updated] = await db
     .update(userProfilesTable)
     .set({
       ...rest,
+      ...(locationCountry !== undefined ? { locationCountry } : {}),
       locationLat: toDecimalStr(locationLat),
       locationLng: toDecimalStr(locationLng),
       updatedAt: new Date(),

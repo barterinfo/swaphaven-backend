@@ -26,6 +26,10 @@ import {
   serializeListingBarter,
   type SellerSnapshot,
 } from "../lib/barter-listing.js";
+import {
+  normalizeCountryCode,
+  resolveRequestCountry,
+} from "../lib/geo-country.js";
 
 const router = Router();
 
@@ -170,6 +174,23 @@ router.post("/", requireAuth, async (req, res) => {
   const estimatedValueDollars = Math.floor(estimatedValueCents / 100);
   const details = normalizeDetails(data.details);
   const location = resolveLocation(data);
+
+  // Country is required for swipe scoping. Prefer payload → profile → request IP.
+  let country =
+    normalizeCountryCode(location.country) ??
+    normalizeCountryCode(
+      (
+        await db.query.userProfilesTable.findFirst({
+          where: eq(userProfilesTable.id, req.user!.sub),
+          columns: { locationCountry: true },
+        })
+      )?.locationCountry,
+    );
+  if (!country) {
+    country = resolveRequestCountry(req).country;
+  }
+  location.country = country;
+
   const reviewSnapshot = buildReviewSnapshot(
     data,
     category,

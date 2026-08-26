@@ -15,6 +15,10 @@ import { requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { computeMatchScore } from "../lib/match-score.js";
 import { hiddenOwnerIds, isBlockedEitherWay } from "../lib/user-blocks.js";
+import {
+  normalizeCountryCode,
+  resolveRequestCountry,
+} from "../lib/geo-country.js";
 
 const router = Router();
 
@@ -89,6 +93,20 @@ router.get("/deck", requireAuth, async (req, res) => {
   const clientExcludeIds = parsedQuery.data.excludeIds;
   const categorySlug = parsedQuery.data.category;
 
+  // Country scopes the deck. Prefer saved profile country; else infer + persist.
+  const profile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, userId),
+    columns: { locationCountry: true },
+  });
+  let viewerCountry = normalizeCountryCode(profile?.locationCountry);
+  if (!viewerCountry) {
+    viewerCountry = resolveRequestCountry(req).country;
+    await db
+      .update(userProfilesTable)
+      .set({ locationCountry: viewerCountry, updatedAt: new Date() })
+      .where(eq(userProfilesTable.id, userId));
+  }
+
   const alreadySwiped = await db
     .select({ listingId: swipesTable.listingId })
     .from(swipesTable)
@@ -107,6 +125,7 @@ router.get("/deck", requireAuth, async (req, res) => {
   const conditions: Parameters<typeof and>[0][] = [
     eq(listingsTable.status, "active"),
     sql`${listingsTable.userId} != ${userId}`,
+    eq(listingsTable.locationCountry, viewerCountry),
   ];
   if (excludeIds.length) conditions.push(notInArray(listingsTable.id, excludeIds));
 
