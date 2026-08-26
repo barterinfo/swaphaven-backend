@@ -152,6 +152,81 @@ describe("sendPushToUser", () => {
     expect(remaining).toHaveLength(0);
   });
 
+  it("sends announcement with BARTER_ANNOUNCEMENT APNS category", async () => {
+    const user = await registerUser();
+    const { sendPushToUser } = await loadPushModule(VALID_SA);
+
+    await testDb.insert(deviceTokensTable).values({
+      userId: user.user.id,
+      token: "fcm-token-announce",
+      platform: "ios",
+    });
+
+    sendEachForMulticast.mockResolvedValueOnce({
+      responses: [{ success: true }],
+    });
+
+    await sendPushToUser(user.user.id, {
+      title: "Scheduled maintenance",
+      body: "We'll be down 2–4am UTC.",
+      data: {
+        type: "announcement",
+        title: "Scheduled maintenance",
+        body: "We'll be down 2–4am UTC.",
+        timestampLabel: "now",
+        screen: "listings",
+      },
+    });
+
+    expect(sendEachForMulticast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokens: ["fcm-token-announce"],
+        data: expect.objectContaining({
+          type: "announcement",
+          title: "Scheduled maintenance",
+          body: "We'll be down 2–4am UTC.",
+          screen: "listings",
+        }),
+        apns: expect.objectContaining({
+          payload: expect.objectContaining({
+            aps: expect.objectContaining({
+              category: "BARTER_ANNOUNCEMENT",
+              mutableContent: true,
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("sendPushBroadcast sends to every registered token", async () => {
+    const a = await registerUser();
+    const b = await registerUser();
+    const { sendPushBroadcast } = await loadPushModule(VALID_SA);
+
+    await testDb.insert(deviceTokensTable).values([
+      { userId: a.user.id, token: "token-a", platform: "android" },
+      { userId: b.user.id, token: "token-b", platform: "ios" },
+    ]);
+
+    sendEachForMulticast.mockImplementation(async (msg: { tokens: string[] }) => ({
+      responses: msg.tokens.map(() => ({ success: true })),
+    }));
+
+    const result = await sendPushBroadcast({
+      title: "Hello everyone",
+      body: "A general announcement.",
+      data: { type: "announcement" },
+    });
+
+    expect(result.tokenCount).toBeGreaterThanOrEqual(2);
+    expect(result.delivered).toBe(result.tokenCount);
+    const sentTokens = sendEachForMulticast.mock.calls.flatMap(
+      (call) => (call[0] as { tokens: string[] }).tokens,
+    );
+    expect(sentTokens).toEqual(expect.arrayContaining(["token-a", "token-b"]));
+  });
+
   it("deletes tokens with invalid-registration-token error", async () => {
     const user = await registerUser();
     const { sendPushToUser } = await loadPushModule(VALID_SA);

@@ -15,6 +15,7 @@
 | [EC2_MIGRATION.md](./EC2_MIGRATION.md) | Railway → EC2 migration (DNS, env, Nginx, TLS, cutover) |
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
+| [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md) | General announcement push — `npm run push:announce` / `push:announce:prod` |
 | [REPORT_AND_BLOCK.md](./REPORT_AND_BLOCK.md) | Report / Block listings & users, no auto-ban, `npm run moderate` ops CLI |
 | [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, streaks, mobile UI, make-offer |
 | [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Rewind (undo left pass) and category catalog / browse / wanted / match-score |

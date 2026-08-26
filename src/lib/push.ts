@@ -42,14 +42,23 @@ async function getMessagingInstance() {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export type PushDataType = "offer" | "counter_offer" | "offer_accepted" | "new_message";
+export type PushDataType =
+  | "offer"
+  | "counter_offer"
+  | "offer_accepted"
+  | "new_message"
+  | "announcement";
 
 const APNS_CATEGORY: Record<PushDataType, string> = {
   offer: "BARTER_OFFER",
   counter_offer: "BARTER_COUNTER",
   offer_accepted: "BARTER_ACCEPTED",
   new_message: "BARTER_MESSAGE",
+  announcement: "BARTER_ANNOUNCEMENT",
 };
+
+/** FCM `sendEachForMulticast` accepts at most 500 tokens per call. */
+const FCM_MULTICAST_LIMIT = 500;
 
 /**
  * Payload for FCM data-only pushes (native custom cards + deep links).
@@ -76,6 +85,8 @@ export interface PushPayload {
     timestampLabel?: string;
     tradeTitle?: string;
     senderAvatarUrl?: string;
+    /** Announcement tap destination; mobile defaults to listings. */
+    screen?: string;
   };
 }
 
@@ -109,8 +120,47 @@ export async function sendPushToUser(
   }
 
   console.log(`[push] sending type=${payload.data.type} to userId=${userId} (${rows.length} device(s))`);
+  const delivered = await sendToTokenRows(messaging, rows, payload);
+  console.log(`[push] delivered ${delivered}/${rows.length} (type=${payload.data.type} userId=${userId})`);
+}
 
-  // Always put title/body in data; callers may also set them explicitly.
+export interface PushBroadcastResult {
+  tokenCount: number;
+  delivered: number;
+}
+
+/**
+ * Sends a push to every registered device token (ops announcements).
+ *
+ * Batches FCM multicast at 500 tokens. No-op when Firebase is unset.
+ */
+export async function sendPushBroadcast(
+  payload: PushPayload,
+): Promise<PushBroadcastResult> {
+  const messaging = await getMessagingInstance();
+  if (!messaging) {
+    console.log(`[push] skipped — FIREBASE_SERVICE_ACCOUNT_JSON not set (type=${payload.data.type} broadcast)`);
+    return { tokenCount: 0, delivered: 0 };
+  }
+
+  const rows = await db
+    .select({ id: deviceTokensTable.id, token: deviceTokensTable.token })
+    .from(deviceTokensTable);
+
+  if (rows.length === 0) {
+    console.log(`[push] no device tokens registered (type=${payload.data.type} broadcast)`);
+    return { tokenCount: 0, delivered: 0 };
+  }
+
+  console.log(`[push] broadcasting type=${payload.data.type} to ${rows.length} device(s)`);
+  const delivered = await sendToTokenRows(messaging, rows, payload);
+  console.log(`[push] broadcast delivered ${delivered}/${rows.length} (type=${payload.data.type})`);
+  return { tokenCount: rows.length, delivered };
+}
+
+type DeviceTokenRow = { id: string; token: string };
+
+function buildStringData(payload: PushPayload): Record<string, string> {
   const stringData: Record<string, string> = {
     title: payload.title,
     body: payload.body,
@@ -118,51 +168,65 @@ export async function sendPushToUser(
   for (const [k, v] of Object.entries(payload.data)) {
     if (v !== undefined) stringData[k] = v;
   }
+  return stringData;
+}
 
-  const response = await messaging.sendEachForMulticast({
-    tokens: rows.map((r) => r.token),
-    data: stringData,
-    apns: {
-      headers: {
-        "apns-priority": "10",
-        "apns-push-type": "alert",
-      },
-      payload: {
-        aps: {
-          alert: {
-            title: payload.title,
-            body: payload.body,
+async function sendToTokenRows(
+  messaging: import("firebase-admin/messaging").Messaging,
+  rows: DeviceTokenRow[],
+  payload: PushPayload,
+): Promise<number> {
+  const stringData = buildStringData(payload);
+  let delivered = 0;
+  const staleIds: string[] = [];
+
+  for (let offset = 0; offset < rows.length; offset += FCM_MULTICAST_LIMIT) {
+    const batch = rows.slice(offset, offset + FCM_MULTICAST_LIMIT);
+    const response = await messaging.sendEachForMulticast({
+      tokens: batch.map((r) => r.token),
+      data: stringData,
+      apns: {
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
+        payload: {
+          aps: {
+            alert: {
+              title: payload.title,
+              body: payload.body,
+            },
+            sound: "default",
+            mutableContent: true,
+            category: APNS_CATEGORY[payload.data.type],
           },
-          sound: "default",
-          mutableContent: true,
-          category: APNS_CATEGORY[payload.data.type],
         },
       },
-    },
-    android: { priority: "high" },
-  });
+      android: { priority: "high" },
+    });
 
-  const successCount = response.responses.filter((r) => r.success).length;
-  console.log(`[push] delivered ${successCount}/${rows.length} (type=${payload.data.type} userId=${userId})`);
-
-  // Remove tokens that FCM no longer recognises.
-  const staleIds: string[] = [];
-  response.responses.forEach((r, i) => {
-    if (
-      !r.success &&
-      (r.error?.code === "messaging/registration-token-not-registered" ||
-        r.error?.code === "messaging/invalid-registration-token")
-    ) {
-      staleIds.push(rows[i]!.id);
-    } else if (!r.success) {
-      console.warn(`[push] failed for token index ${i}: ${r.error?.code} — ${r.error?.message}`);
-    }
-  });
+    response.responses.forEach((r, i) => {
+      if (r.success) {
+        delivered += 1;
+        return;
+      }
+      if (
+        r.error?.code === "messaging/registration-token-not-registered" ||
+        r.error?.code === "messaging/invalid-registration-token"
+      ) {
+        staleIds.push(batch[i]!.id);
+      } else {
+        console.warn(`[push] failed for token index ${offset + i}: ${r.error?.code} — ${r.error?.message}`);
+      }
+    });
+  }
 
   if (staleIds.length > 0) {
-    console.log(`[push] removing ${staleIds.length} stale token(s) for userId=${userId}`);
+    console.log(`[push] removing ${staleIds.length} stale token(s)`);
     await db
       .delete(deviceTokensTable)
       .where(inArray(deviceTokensTable.id, staleIds));
   }
+
+  return delivered;
 }

@@ -13,6 +13,8 @@ These are **independent**. Many events do both. Some events write a DB notificat
 
 The API sends push via Firebase Cloud Messaging (FCM) when a handler calls `sendPushToUser`. Each FCM message carries a structured `data` payload that the mobile app parses to deep-link into the relevant Inbox item.
 
+Full type/state inventory (including native cards): `barter-stack/mobile/docs/PUSH_NOTIFICATIONS.md`.
+
 ---
 
 ## In-app vs push — important distinction
@@ -65,13 +67,14 @@ Related listing docs: [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md), [DELETE_LI
 
 | File | Purpose |
 |---|---|
-| `src/lib/push.ts` | Core push helper — lazy Firebase init, data-only `sendPushToUser`, APNS categories, stale-token cleanup |
+| `src/lib/push.ts` | Core push helper — lazy Firebase init, data-only `sendPushToUser` / `sendPushBroadcast`, APNS categories, stale-token cleanup |
 | `src/lib/push-card-context.ts` | Builds rich card fields (names, images, fairTrade, valueLabel, copy) |
 | `src/db/schema/` | `deviceTokensTable` — stores FCM tokens per user/platform; `notifications` — in-app feed |
 | `src/routes/auth.ts` | `POST /api/auth/device-token` — registers a device token |
 | `src/routes/offers.ts` | Fires `offer`, `counter_offer`, `offer_accepted` **push**; deny/withdraw are DB-only |
 | `src/routes/listings.ts` | `cancelPendingOffersAndNotify` — **DB `offer_denied` only, no push** |
 | `src/routes/conversations.ts` | Fires `new_message` push |
+| `scripts/push-announce.ts` | Ops CLI for `announcement` broadcasts |
 | `src/config/env.ts` | `FIREBASE_SERVICE_ACCOUNT_JSON` env var |
 
 ---
@@ -95,7 +98,7 @@ When this variable is absent (CI, dev without Firebase), all `sendPushToUser` ca
 
 ## FCM Data Payload Contract
 
-Pushes are **data-only** — there is **no** top-level FCM `notification` block. A top-level `notification` causes Android/iOS to show a plain system tray item and prevents native custom cards (`PushNotifOffer` / Counter / Accepted / Message).
+Pushes are **data-only** — there is **no** top-level FCM `notification` block. A top-level `notification` causes Android/iOS to show a plain system tray item and prevents native custom cards (Offer / Counter / Accepted / Message / Announcement).
 
 **Golden rules**
 
@@ -110,13 +113,14 @@ Pushes are **data-only** — there is **no** top-level FCM `notification` block.
 | `counter_offer` | `BARTER_COUNTER` |
 | `offer_accepted` | `BARTER_ACCEPTED` |
 | `new_message` | `BARTER_MESSAGE` |
+| `announcement` | `BARTER_ANNOUNCEMENT` |
 
 ```typescript
 export interface PushPayload {
   title: string;
   body: string;
   data: {
-    type: "offer" | "counter_offer" | "offer_accepted" | "new_message";
+    type: "offer" | "counter_offer" | "offer_accepted" | "new_message" | "announcement";
     offerId?: string;
     conversationId?: string;
     senderName?: string;
@@ -131,6 +135,7 @@ export interface PushPayload {
     timestampLabel?: string;  // usually "now"
     tradeTitle?: string;      // chat cards
     senderAvatarUrl?: string;
+    screen?: string;          // announcement tap destination (default listings)
   };
 }
 ```
@@ -147,8 +152,9 @@ Card field builders live in `src/lib/push-card-context.ts`.
 | `counter_offer` | `offerId` | Inbox → Offers tab, offer highlighted |
 | `offer_accepted` | `conversationId` (also sends `offerId`) | Inbox → Chats tab, conversation auto-opened |
 | `new_message` | `conversationId` | Inbox → Chats tab, conversation auto-opened |
+| `announcement` | optional `screen` | Listings home |
 
-There is **no** FCM `data.type` today for `offer_denied` / listing sold-or-deleted auto-decline, because those paths do not call `sendPushToUser`.
+There is **no** FCM `data.type` for `offer_denied` / listing sold-or-deleted auto-decline, because those paths do not call `sendPushToUser`. Announcements are sent only from the ops CLI (`scripts/push-announce.ts`), not from user-facing routes.
 
 ---
 
@@ -433,9 +439,20 @@ curl -X POST http://localhost:3000/api/offers \
 
 ---
 
+## Sending a general announcement
+
+Ops-only. Full walkthrough (env, dry-run, one user, `--all --yes`, troubleshooting): **[ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md)**.
+
+```bash
+npm run push:announce:prod -- --title "Scheduled maintenance" --body "We'll be down 2–4am UTC." --user you@example.com --dry-run
+npm run push:announce:prod -- --title "Scheduled maintenance" --body "We'll be down 2–4am UTC." --all --yes
+```
+
+---
+
 ## Adding a New Notification Type
 
-1. Add the new `type` string to the `PushPayload.data.type` union in `src/lib/push.ts`
-2. Call `sendPushToUser` in the appropriate route handler with the new type and relevant ID
+1. Add the new `type` string to the `PushPayload.data.type` union in `src/lib/push.ts` and `APNS_CATEGORY`
+2. Call `sendPushToUser` (or `sendPushBroadcast` for ops-wide types) with the new type and relevant ID
 3. Update `InboxDeepLinkType` in the mobile app's `notification_deep_link.dart`
-4. Add the routing logic in `InboxDeepLink.fromPayload()` and `isOfferTab` if a new tab is involved
+4. Add the routing logic in `InboxDeepLink.fromPayload()` and native Android/iOS cards + APNS category

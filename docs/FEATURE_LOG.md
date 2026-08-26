@@ -36,6 +36,8 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-08-26 | Announcement push ops doc | docs/ANNOUNCEMENTS.md, push:announce CLI | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
+| 2026-08-26 | Announcement push CLI | src/lib/push.ts sendPushBroadcast, scripts/push-announce.ts | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
 | 2026-08-24 | Rewind and category docs | docs/REWIND_AND_CATEGORY.md, SWIPE_FEATURE, API_GUIDE, README | [Rewind and category docs](46691518-3bb4-428f-be2a-d969420b8de5) |
 | 2026-07-28 | Save-for-later listings feature | saved_listings, /api/saved, listing stats, mobile saved feature/Saved tab | [Save-for-later listings feature](5525bf4c-7c05-4039-92ac-d5d498906676) |
 | 2026-05-03 | Initial Barter workspace setup | early barter-app Node + Flutter scaffold | [Initial Barter workspace setup](30d3959d-818c-4272-99a2-ffade0df7e7f) |

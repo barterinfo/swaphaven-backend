@@ -28,6 +28,7 @@ npm run dev
 | [docs/API_GUIDE.md](docs/API_GUIDE.md) | Every endpoint + curl examples |
 | [docs/SWAGGER.md](docs/SWAGGER.md) | OpenAPI / Swagger UI |
 | [docs/ADS.md](docs/ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
+| [docs/ANNOUNCEMENTS.md](docs/ANNOUNCEMENTS.md) | Announcement push — `npm run push:announce:prod` CLI |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Railway deploy |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PRs, harness, agent review |
 
