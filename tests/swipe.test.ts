@@ -166,6 +166,30 @@ describe("GET /api/swipe/deck", () => {
     expect(second.body.cards.length).toBeLessThanOrEqual(20);
   });
 
+  it("does not return left-passed listings until they are recycled", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const passed = await createListing(owner.accessToken);
+    const unseen = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: passed.id, direction: "left" })
+      .expect(201);
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    expect(ids).toContain(unseen.id);
+    expect(ids).not.toContain(passed.id);
+  });
+
   it("decrements remainingSwipesToday after recording swipes", async () => {
     const viewer = await registerUser();
     const owner = await registerUser();
@@ -253,6 +277,92 @@ describe("GET /api/swipe/deck", () => {
     // Dropped buyer items are not in the pending round, but may still be
     // linked via legacy offer_items — only assert they aren't the included one.
     expect(cardIds).not.toContain(sellerListing.id);
+  });
+});
+
+// ─── POST /api/swipe/recycle-left ─────────────────────────────────────────────
+describe("POST /api/swipe/recycle-left", () => {
+  it("resets left-passes so those listings reappear, leaving right-swipes hidden", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const passed = await createListing(owner.accessToken);
+    const liked = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: passed.id, direction: "left" })
+      .expect(201);
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: liked.id, direction: "right" })
+      .expect(201);
+
+    const before = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    const beforeIds = before.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    expect(beforeIds).not.toContain(passed.id);
+    expect(beforeIds).not.toContain(liked.id);
+
+    const recycle = await request(app)
+      .post("/api/swipe/recycle-left")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(recycle.status).toBe(200);
+    expect(recycle.body.recycledCount).toBe(1);
+
+    const after = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    const afterIds = after.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    expect(afterIds).toContain(passed.id);
+    expect(afterIds).not.toContain(liked.id);
+  });
+
+  it("is idempotent when there are no left-passes", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .post("/api/swipe/recycle-left")
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.recycledCount).toBe(0);
+  });
+
+  it("lets a recycled left pass be swiped right as a new like", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listing.id, direction: "left" })
+      .expect(201);
+
+    await request(app)
+      .post("/api/swipe/recycle-left")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .expect(200);
+
+    const rightRes = await request(app)
+      .post("/api/swipe")
+      .set("Authorization", `Bearer ${viewer.accessToken}`)
+      .send({ listingId: listing.id, direction: "right" });
+    expect(rightRes.status).toBe(201);
+    expect(rightRes.body.direction).toBe("right");
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    const ids = res.body.cards.map(
+      (c: { listing: { id: string } }) => c.listing.id,
+    );
+    expect(ids).not.toContain(listing.id);
   });
 });
 

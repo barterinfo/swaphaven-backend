@@ -223,6 +223,18 @@ router.get("/deck", requireAuth, async (req, res) => {
   });
 });
 
+// ─── POST /api/swipe/recycle-left ─────────────────────────────────────────────
+// Reset this viewer's left-passes so those listings are unseen again.
+// Right/super rows are not touched.
+router.post("/recycle-left", requireAuth, async (req, res) => {
+  const userId = req.user!.sub;
+  const deleted = await db
+    .delete(swipesTable)
+    .where(and(eq(swipesTable.swiperId, userId), eq(swipesTable.direction, "left")))
+    .returning({ id: swipesTable.id });
+  return res.json({ recycledCount: deleted.length });
+});
+
 // ─── POST /api/swipe ──────────────────────────────────────────────────────────
 const swipeSchema = z.object({
   listingId: z.string().uuid(),

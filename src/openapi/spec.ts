@@ -1244,7 +1244,30 @@ export const openApiSpec = {
             description: "Swipe cards",
             content: { "application/json": { schema: { $ref: "#/components/schemas/SwipeDeckResponse" } } },
           },
-          "400": { description: "Invalid excludeIds" },
+          "400": { description: "Invalid excludeIds"           },
+        },
+      },
+    },
+    "/api/swipe/recycle-left": {
+      post: {
+        tags: ["Swipe"],
+        summary: "Reset left-pass swipes so those listings reappear in the deck",
+        description:
+          "Deletes the caller's left (pass) swipe rows only. Right and super swipes are unchanged. The next GET /api/swipe/deck treats those listings as unseen.",
+        responses: {
+          "200": {
+            description: "Left passes recycled",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    recycledCount: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
