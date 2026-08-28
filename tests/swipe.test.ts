@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
+import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer } from "./helpers/fixtures.js";
+import { testDb } from "./helpers/db.js";
+import { listingsTable } from "../src/db/schema/index.js";
 
 describe("GET /api/swipe/deck", () => {
   it("returns active listings not owned by the user", async () => {
@@ -758,6 +761,34 @@ describe("GET /api/swipe/deck country filter", () => {
     const ids = res.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
     expect(ids).toContain(sgListing.id);
     expect(ids).not.toContain(indiaListing.id);
+  });
+
+  it("includes listings with empty location_country for legacy nearby parity", async () => {
+    const sgViewer = await registerUser();
+    const seller = await registerUser();
+
+    await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${sgViewer.accessToken}`)
+      .send({ locationCountry: "SG" });
+
+    const emptyCountryListing = await createListing(seller.accessToken, {
+      title: "Legacy Empty Country Item",
+      location: { lat: 1.35, lng: 103.82, address: "Singapore", country: "SG" },
+    });
+    // Create API always stamps country; simulate pre-migration rows.
+    await testDb
+      .update(listingsTable)
+      .set({ locationCountry: "" })
+      .where(eq(listingsTable.id, emptyCountryListing.id));
+
+    const res = await request(app)
+      .get("/api/swipe/deck")
+      .set("Authorization", `Bearer ${sgViewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(ids).toContain(emptyCountryListing.id);
   });
 
   it("shows NZ listings to a viewer inferred from CF-IPCountry NZ", async () => {

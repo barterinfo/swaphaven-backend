@@ -122,10 +122,15 @@ router.get("/deck", requireAuth, async (req, res) => {
     ]),
   ];
 
+  // Legacy listings may have empty location_country; include them so they
+  // appear in swipe the same way they already appear in nearby/trending.
   const conditions: Parameters<typeof and>[0][] = [
     eq(listingsTable.status, "active"),
     sql`${listingsTable.userId} != ${userId}`,
-    eq(listingsTable.locationCountry, viewerCountry),
+    or(
+      eq(listingsTable.locationCountry, viewerCountry),
+      eq(listingsTable.locationCountry, ""),
+    ),
   ];
   if (excludeIds.length) conditions.push(notInArray(listingsTable.id, excludeIds));
 
