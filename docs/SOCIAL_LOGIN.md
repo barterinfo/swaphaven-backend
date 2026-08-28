@@ -1,8 +1,12 @@
 # Social login — `POST /api/auth/social`
 
-Sign in (or sign up) with a Google or Facebook account. The endpoint verifies the provider
-token server-side, then finds-or-creates the SwapHaven user by the verified email address
-and returns the same token pair as `POST /api/auth/login`.
+Sign in (or sign up) with a Google, Facebook, or Apple account. The endpoint verifies the
+provider token server-side, then finds-or-creates the SwapHaven user by the verified email
+address (Apple also stores the stable Apple user id) and returns the same token pair as
+`POST /api/auth/login`.
+
+**Google and Apple (setup, sequences, console, linking, troubleshooting):**
+[GOOGLE_AND_APPLE_LOGIN.md](./GOOGLE_AND_APPLE_LOGIN.md). This page is the compact HTTP contract for all three providers.
 
 ---
 
@@ -22,8 +26,11 @@ Content-Type: application/json
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `provider` | `"google" \| "facebook"` | Yes | |
-| `idToken` | string | Yes | Google ID token **or** Facebook user access token |
+| `provider` | `"google" \| "facebook" \| "apple"` | Yes | |
+| `idToken` | string | Yes | Google ID token, Facebook user access token, or Apple identity token |
+| `nonce` | string | Apple only | Raw nonce the app hashed with SHA-256 before sending to Apple |
+| `fullName` | string | No | Apple display name from the first authorization (not in the JWT) |
+| `email` | string | No | Ignored for identity; Apple email is taken from the identity token |
 
 ---
 
@@ -52,10 +59,10 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 
 | Status | `error` code | When |
 |--------|-------------|------|
-| 400 | `validation` | `provider` not `google`/`facebook`, or `idToken` missing |
-| 401 | `unauthorized` | Invalid or expired provider token, unverified Google email, or FB token not issued to this app |
-| 502 | `bad_gateway` | Google or Facebook is temporarily unreachable — client should retry |
-| 503 | `unavailable` | No Google client ID env vars are configured on the server |
+| 400 | `validation` | `provider` not `google`/`facebook`/`apple`, `idToken` missing, or Apple `nonce` missing |
+| 401 | `unauthorized` | Invalid or expired provider token, unverified Google/Apple email, Apple nonce mismatch, FB token not issued to this app, or a later Apple sign-in with no email and no stored Apple user id |
+| 502 | `bad_gateway` | Google, Facebook, or Apple is temporarily unreachable — client should retry |
+| 503 | `unavailable` | No Google client ID env vars are configured, or Facebook is unconfigured/misconfigured |
 
 ---
 
@@ -81,6 +88,20 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 3. The response must include an `email` field; Facebook accounts without a confirmed email
    return `401`.
 
+### Apple
+
+1. The identity token is verified against [Apple's JWKS](https://appleid.apple.com/auth/keys)
+   (`RS256`, `iss` = `https://appleid.apple.com`, `aud` in `IOS_BUNDLE_ID`, the `.uat`
+   flavour, and any extra ids in `APPLE_CLIENT_IDS`).
+2. The client sends the **raw** nonce; the server SHA-256-hashes it and compares it to the
+   token's `nonce` claim (timing-safe). A mismatch is `401`.
+3. Email, when present, must have `email_verified` true (`true` or `"true"`). Apple often
+   omits email after the first authorization — those sessions are looked up by stored
+   `users.apple_sub`. A first-time Apple user with no email in the JWT is `401` (revoke the
+   app in iOS Settings and sign in again).
+4. `fullName` is only used when creating an account (Apple does not put the name in the JWT).
+   Client-supplied `email` is ignored.
+
 ### Account creation / linking
 
 - If no SwapHaven account exists for the verified email, one is created automatically.  
@@ -91,7 +112,10 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 - Display name from the provider is trimmed and capped at 80 characters, matching the
   `POST /api/auth/register` limit.
 - Concurrent double-submits (common on mobile) are safe: the second request that hits the
-  unique-email constraint recovers by reading the row created by the first request.
+  unique-email or unique-`apple_sub` constraint recovers by reading the row created by the
+  first request.
+- Apple: `users.apple_sub` is set on create (and on first email-link). Later sign-ins that
+  omit email are resolved by that column.
 
 ---
 
@@ -104,6 +128,8 @@ Use `accessToken` as `Authorization: Bearer <token>` on protected routes.
 | `GOOGLE_ANDROID_CLIENT_ID` | For native Android without server client ID | Android OAuth client ID. Required when the Android app issues tokens with `aud` = the Android client ID. |
 | `FACEBOOK_APP_ID` | No | Facebook App ID. Both `FACEBOOK_APP_ID` + `FACEBOOK_APP_SECRET` must be set to enable app-token validation. |
 | `FACEBOOK_APP_SECRET` | No | Facebook App Secret. Omit for best-effort FB verification. |
+| `IOS_BUNDLE_ID` | Default `com.barter.app.barterMobile` | Identity-token `aud` for native iOS (plus `.uat`). |
+| `APPLE_CLIENT_IDS` | No | Comma-separated extra audiences (Android Services ID, etc.). |
 
 At least one Google client ID must be set for `provider: "google"`; otherwise the endpoint returns 503.
 
@@ -115,6 +141,7 @@ GOOGLE_IOS_CLIENT_ID=your-ios-client-id.apps.googleusercontent.com
 GOOGLE_ANDROID_CLIENT_ID=your-android-client-id.apps.googleusercontent.com
 FACEBOOK_APP_ID=your-facebook-app-id
 FACEBOOK_APP_SECRET=your-facebook-app-secret
+APPLE_CLIENT_IDS=com.example.service
 ```
 
 ### Getting a Google Client ID
@@ -141,7 +168,7 @@ FACEBOOK_APP_SECRET=your-facebook-app-secret
 ```bash
 npm test                          # run full suite (includes social login tests)
 npx vitest run tests/auth.test.ts # auth route tests only
-npx vitest run tests/social-auth.test.ts  # lib unit tests (Google + Facebook verification)
+npx vitest run tests/social-auth.test.ts  # lib unit tests (Google + Facebook + Apple verification)
 ```
 
 The route tests (`tests/auth.test.ts`) mock `verifySocialToken` to avoid live provider calls:
@@ -192,6 +219,16 @@ curl -s -X POST http://localhost:3001/api/auth/social \
     "provider": "facebook",
     "idToken": "<facebook-access-token>"
   }' | jq
+
+# Apple
+curl -s -X POST http://localhost:3001/api/auth/social \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider": "apple",
+    "idToken": "<apple-identity-token>",
+    "nonce": "<raw-nonce>",
+    "fullName": "Ada Lovelace"
+  }' | jq
 ```
 
 Expected: `200` with `accessToken`, `refreshToken`, and `user`.
@@ -212,4 +249,5 @@ curl -s http://localhost:3001/api/auth/me \
 | `401 unauthorized` (Google) | Token expired (they expire in ~1 hour), or token `aud` does not match any configured client ID |
 | `401 unauthorized` (Facebook) | Token expired, or `FACEBOOK_APP_ID` mismatch in debug_token check |
 | `401 Facebook account has no email` | FB account has no confirmed email; ask user to add one in Facebook settings |
-| `502 bad_gateway` | Transient network issue hitting Google or Facebook — retry |
+| `401 unauthorized` (Apple) | Token expired, `aud` mismatch, nonce mismatch, or later sign-in with no email and no stored `apple_sub` |
+| `502 bad_gateway` | Transient network issue hitting Google, Facebook, or Apple — retry |

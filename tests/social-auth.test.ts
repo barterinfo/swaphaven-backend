@@ -6,6 +6,8 @@
  * mocks — it races with per-test setupMocks() and can leave Facebook creds unset.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { createHash, generateKeyPairSync } from "crypto";
+import jwt from "jsonwebtoken";
 import type { SocialAuthError as SocialAuthErrorType, verifySocialToken as VerifyFn } from "../src/lib/social-auth.js";
 
 const verifyIdToken = vi.fn();
@@ -18,6 +20,8 @@ type EnvOverrides = {
   GOOGLE_ANDROID_CLIENT_ID?: string;
   FACEBOOK_APP_ID?: string;
   FACEBOOK_APP_SECRET?: string;
+  IOS_BUNDLE_ID?: string;
+  APPLE_CLIENT_IDS?: string;
 };
 
 function setupMocks(envOverrides: EnvOverrides = {}) {
@@ -36,6 +40,8 @@ function setupMocks(envOverrides: EnvOverrides = {}) {
       GOOGLE_ANDROID_CLIENT_ID: undefined,
       FACEBOOK_APP_ID: undefined,
       FACEBOOK_APP_SECRET: undefined,
+      IOS_BUNDLE_ID: "com.barter.app.barterMobile",
+      APPLE_CLIENT_IDS: undefined,
       ...envOverrides,
     },
   }));
@@ -304,5 +310,177 @@ describe("verifySocialToken — Facebook", () => {
     expect(err).toBeInstanceOf(SocialAuthError);
     expect(err.status).toBe(502);
     expect(err.code).toBe("bad_gateway");
+  });
+});
+
+const APPLE_KID = "test-kid";
+const APPLE_RAW_NONCE = "raw-nonce-value";
+const APPLE_HASHED_NONCE = createHash("sha256").update(APPLE_RAW_NONCE, "utf8").digest("hex");
+const appleKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const appleJwk = {
+  ...appleKeys.publicKey.export({ format: "jwk" }),
+  kid: APPLE_KID,
+  alg: "RS256",
+  use: "sig",
+  kty: "RSA",
+};
+
+function signAppleIdToken(payload: object, opts?: jwt.SignOptions) {
+  return jwt.sign(payload, appleKeys.privateKey, {
+    algorithm: "RS256",
+    issuer: "https://appleid.apple.com",
+    audience: "com.barter.app.barterMobile",
+    expiresIn: "1h",
+    keyid: APPLE_KID,
+    ...opts,
+  });
+}
+
+function mockAppleJwks(opts: { status?: number; throws?: boolean; keys?: unknown[] } = {}) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    if (!String(url).includes("appleid.apple.com/auth/keys")) {
+      throw new Error(`Unexpected fetch: ${url}`);
+    }
+    if (opts.throws) throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" });
+    if (opts.status !== undefined && opts.status !== 200) {
+      return new Response("{}", { status: opts.status });
+    }
+    return new Response(JSON.stringify({ keys: opts.keys ?? [appleJwk] }), { status: 200 });
+  });
+}
+
+describe("verifySocialToken — Apple", () => {
+  const validPayload = {
+    nonce: APPLE_HASHED_NONCE,
+    email: "ada@privaterelay.appleid.com",
+    email_verified: "true",
+    sub: "apple.sub.1",
+  };
+
+  it("returns the verified profile for a valid identity token", async () => {
+    mockAppleJwks();
+    const { verifySocialToken } = await loadLibWithEnv();
+    const idToken = signAppleIdToken(validPayload);
+
+    await expect(
+      verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE, fullName: "Ada Lovelace" }),
+    ).resolves.toEqual({
+      email: "ada@privaterelay.appleid.com",
+      name: "Ada Lovelace",
+      appleSub: "apple.sub.1",
+    });
+  });
+
+  it("falls back to the email local-part when fullName is omitted", async () => {
+    mockAppleJwks();
+    const { verifySocialToken } = await loadLibWithEnv();
+    const idToken = signAppleIdToken(validPayload);
+
+    await expect(verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE })).resolves.toMatchObject({
+      email: "ada@privaterelay.appleid.com",
+      name: "ada",
+      appleSub: "apple.sub.1",
+    });
+  });
+
+  it("returns appleSub without email when Apple omits the email claim", async () => {
+    mockAppleJwks();
+    const { verifySocialToken } = await loadLibWithEnv();
+    const idToken = signAppleIdToken({ nonce: APPLE_HASHED_NONCE, sub: "apple.sub.1" });
+
+    await expect(
+      verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE, fullName: "Ada" }),
+    ).resolves.toEqual({
+      name: "Ada",
+      appleSub: "apple.sub.1",
+    });
+  });
+
+  it("accepts the UAT bundle id as audience", async () => {
+    mockAppleJwks();
+    const { verifySocialToken } = await loadLibWithEnv();
+    const idToken = signAppleIdToken(validPayload, { audience: "com.barter.app.barterMobile.uat" });
+
+    await expect(
+      verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE }),
+    ).resolves.toMatchObject({ appleSub: "apple.sub.1" });
+  });
+
+  it("accepts an extra audience from APPLE_CLIENT_IDS", async () => {
+    mockAppleJwks();
+    const { verifySocialToken } = await loadLibWithEnv({
+      APPLE_CLIENT_IDS: "com.barter.app.service",
+    });
+    const idToken = signAppleIdToken(validPayload, { audience: "com.barter.app.service" });
+
+    await expect(
+      verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE }),
+    ).resolves.toMatchObject({ appleSub: "apple.sub.1" });
+  });
+
+  it("maps a nonce mismatch to 401 unauthorized", async () => {
+    mockAppleJwks();
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
+    const idToken = signAppleIdToken(validPayload);
+
+    const err = await verifySocialToken("apple", idToken, { nonce: "wrong-nonce" }).catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(401);
+    expect(err.code).toBe("unauthorized");
+    expect(err.message).toBe("Invalid Apple token nonce");
+  });
+
+  it("maps a missing nonce to 401 unauthorized", async () => {
+    mockAppleJwks();
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
+    const idToken = signAppleIdToken(validPayload);
+
+    const err = await verifySocialToken("apple", idToken).catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("Apple nonce is required");
+  });
+
+  it("maps an unverified email to 401 unauthorized", async () => {
+    mockAppleJwks();
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
+    const idToken = signAppleIdToken({ ...validPayload, email_verified: "false" });
+
+    const err = await verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE }).catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("Apple account email is missing or unverified");
+  });
+
+  it("maps a JWKS transport failure to 502 bad_gateway", async () => {
+    mockAppleJwks({ throws: true });
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
+    const idToken = signAppleIdToken(validPayload);
+
+    const err = await verifySocialToken("apple", idToken, { nonce: APPLE_RAW_NONCE }).catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(502);
+    expect(err.code).toBe("bad_gateway");
+  });
+
+  it("maps an invalid identity token to 401 unauthorized", async () => {
+    mockAppleJwks();
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv();
+
+    const err = await verifySocialToken("apple", "not-a-jwt", { nonce: APPLE_RAW_NONCE }).catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(401);
+  });
+
+  it("returns 503 when no Apple audiences are configured", async () => {
+    const { verifySocialToken, SocialAuthError } = await loadLibWithEnv({
+      IOS_BUNDLE_ID: undefined,
+    });
+
+    const err = await verifySocialToken("apple", "tok", { nonce: APPLE_RAW_NONCE }).catch((e) => e);
+    expect(err).toBeInstanceOf(SocialAuthError);
+    expect(err.status).toBe(503);
+    expect(err.code).toBe("unavailable");
+    expect(err.message).toBe("Apple sign-in is not configured");
   });
 });

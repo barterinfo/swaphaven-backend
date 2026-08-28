@@ -235,6 +235,7 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 | `GOOGLE_IOS_CLIENT_ID` | If needed |
 | `GOOGLE_ANDROID_CLIENT_ID` | If needed |
 | `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | Both required for Facebook |
+| `APPLE_CLIENT_IDS` | Extra Apple identity-token audiences (iOS uses `IOS_BUNDLE_ID`) |
 
 ### 6.4 S3 media (copy from Railway)
 

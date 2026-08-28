@@ -81,7 +81,7 @@ curl -s -X POST http://localhost:3001/api/auth/login \
   -d '{"email":"alice@example.com","password":"password123"}'
 ```
 
-### Social login (Google / Facebook)
+### Social login (Google / Facebook / Apple)
 
 ```bash
 # Google
@@ -93,10 +93,18 @@ curl -s -X POST http://localhost:3001/api/auth/social \
 curl -s -X POST http://localhost:3001/api/auth/social \
   -H 'Content-Type: application/json' \
   -d '{"provider":"facebook","idToken":"<facebook-access-token>"}'
+
+# Apple (nonce is the raw value the app hashed before sending to Apple)
+curl -s -X POST http://localhost:3001/api/auth/social \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"apple","idToken":"<apple-identity-token>","nonce":"<raw-nonce>","fullName":"Ada Lovelace"}'
 ```
 
 Returns the same `{ accessToken, refreshToken, user }` shape as login. Creates the account
-automatically if it does not exist yet. See [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md).
+automatically if it does not exist yet.
+
+- Google + Apple (detailed): [GOOGLE_AND_APPLE_LOGIN.md](./GOOGLE_AND_APPLE_LOGIN.md)
+- HTTP contract (incl. Facebook): [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md)
 
 ### Refresh
 

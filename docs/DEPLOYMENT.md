@@ -180,6 +180,7 @@ SQL files live in `drizzle/*.sql` and `**drizzle/meta/_journal.json**` must be i
 | `GOOGLE_ANDROID_CLIENT_ID` | For native Android without server client ID | Android OAuth client ID — set when Android tokens use the platform client as `aud` |
 | `FACEBOOK_APP_ID`    | For Facebook   | Both required for `provider=facebook` (app token binding) |
 | `FACEBOOK_APP_SECRET`| For Facebook   | Pair with `FACEBOOK_APP_ID`     |
+| `APPLE_CLIENT_IDS`   | For extra Apple audiences | Comma-separated Services IDs; iOS uses `IOS_BUNDLE_ID` |
 | `PORT`               | Auto           | Set by Railway                  |
 
 

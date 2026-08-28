@@ -13,6 +13,7 @@ import {
 } from "../db/schema/index.js";
 import { requireAuth, signTokens, verifyRefreshToken } from "../middleware/auth.js";
 import { SocialAuthError, verifySocialToken } from "../lib/social-auth.js";
+import type { SocialProfile } from "../lib/social-auth.js";
 import { containsProfanity } from "../lib/moderation.js";
 import { sendPasswordResetOtp, sendRegistrationOtp } from "../lib/mailer.js";
 import { decryptEmail, hashEmail, sealEmail } from "../lib/email-privacy.js";
@@ -243,10 +244,82 @@ router.post("/login", async (req, res) => {
 });
 
 // ─── POST /api/auth/social ────────────────────────────────────────────────────
-const socialSchema = z.object({
-  provider: z.enum(["google", "facebook"]),
-  idToken:  z.string().min(1),
-});
+const socialSchema = z.discriminatedUnion("provider", [
+  z.object({
+    provider: z.enum(["google", "facebook"]),
+    idToken: z.string().min(1),
+  }),
+  z.object({
+    provider: z.literal("apple"),
+    idToken: z.string().min(1),
+    nonce: z.string().min(1).max(256),
+    fullName: z.string().max(80).trim().optional(),
+    /** Accepted for mobile compatibility; identity always comes from the JWT. */
+    email: z.string().email().optional(),
+  }),
+]);
+
+async function findUserByAppleSub(appleSub: string) {
+  return db.query.usersTable.findFirst({ where: eq(usersTable.appleSub, appleSub) });
+}
+
+async function findOrCreateSocialUser(profile: SocialProfile) {
+  // Apple `sub` is stable across sessions; email is often omitted after first auth.
+  if (profile.appleSub) {
+    const bySub = await findUserByAppleSub(profile.appleSub);
+    if (bySub) return bySub;
+  }
+
+  if (!profile.email) {
+    throw new SocialAuthError(
+      profile.appleSub
+        ? "Apple account email is missing. Revoke the app in Settings and sign in again."
+        : "Social account email is missing",
+      401,
+      "unauthorized",
+    );
+  }
+
+  const sealed = sealEmail(profile.email);
+  const name = profile.name.trim().slice(0, 80);
+
+  let user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, sealed.emailHash) });
+
+  if (user) {
+    if (profile.appleSub && !user.appleSub) {
+      const [linked] = await db.update(usersTable)
+        .set({ appleSub: profile.appleSub, updatedAt: new Date() })
+        .where(eq(usersTable.id, user.id))
+        .returning();
+      if (linked) return linked;
+    }
+    return user;
+  }
+
+  // Social accounts have no local password — store an unguessable random hash so
+  // password login is effectively disabled until the user sets one via reset-password.
+  const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
+  try {
+    [user] = await db.insert(usersTable).values({
+      ...sealed,
+      passwordHash,
+      name,
+      appleSub: profile.appleSub,
+    }).returning();
+    await db.insert(userProfilesTable).values({ id: user.id, displayName: name });
+    await clearPendingRegistration(sealed.emailHash);
+    return user;
+  } catch (err) {
+    // Concurrent sign-up (mobile clients often double-submit): unique email or apple_sub.
+    if (err instanceof DatabaseError && err.code === "23505") {
+      user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, sealed.emailHash) });
+      if (!user && profile.appleSub) user = await findUserByAppleSub(profile.appleSub);
+      if (!user) throw err;
+      return user;
+    }
+    throw err;
+  }
+}
 
 router.post("/social", async (req, res) => {
   const parsed = socialSchema.safeParse(req.body);
@@ -258,7 +331,12 @@ router.post("/social", async (req, res) => {
 
   let profile;
   try {
-    profile = await verifySocialToken(provider, idToken);
+    profile = parsed.data.provider === "apple"
+      ? await verifySocialToken(provider, idToken, {
+          nonce: parsed.data.nonce,
+          fullName: parsed.data.fullName,
+        })
+      : await verifySocialToken(provider, idToken);
   } catch (err) {
     if (err instanceof SocialAuthError) {
       return res.status(err.status).json({ error: err.code, message: err.message });
@@ -266,31 +344,14 @@ router.post("/social", async (req, res) => {
     throw err;
   }
 
-  const sealed = sealEmail(profile.email);
-  // Keep the display name within the same bounds as /register so it can't diverge downstream.
-  const name = profile.name.trim().slice(0, 80);
-
-  let user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, sealed.emailHash) });
-
-  if (!user) {
-    // Social accounts have no local password — store an unguessable random hash so
-    // password login is effectively disabled until the user sets one via reset-password.
-    const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
-    try {
-      [user] = await db.insert(usersTable).values({ ...sealed, passwordHash, name }).returning();
-      await db.insert(userProfilesTable).values({ id: user.id, displayName: name });
-      // Drop any unfinished email/password signup for this address.
-      await clearPendingRegistration(sealed.emailHash);
-    } catch (err) {
-      // Concurrent sign-up (mobile clients often double-submit): the loser of the race hits the
-      // unique-email constraint — recover by reading the row the winning request just created.
-      if (err instanceof DatabaseError && err.code === "23505") {
-        user = await db.query.usersTable.findFirst({ where: eq(usersTable.emailHash, sealed.emailHash) });
-        if (!user) throw err;
-      } else {
-        throw err;
-      }
+  let user;
+  try {
+    user = await findOrCreateSocialUser(profile);
+  } catch (err) {
+    if (err instanceof SocialAuthError) {
+      return res.status(err.status).json({ error: err.code, message: err.message });
     }
+    throw err;
   }
 
   if (user.suspendedAt) {

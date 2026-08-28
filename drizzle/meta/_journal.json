@@ -204,6 +204,13 @@
       "when": 1785800000000,
       "tag": "0027_user_location_country",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785900000000,
+      "tag": "0028_user_apple_sub",
+      "breakpoints": true
     }
   ]
 }

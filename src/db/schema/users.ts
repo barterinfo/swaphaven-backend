@@ -13,6 +13,12 @@ export const usersTable = pgTable("users", {
   emailMasked:            text("email_masked").notNull(),
   passwordHash:           text("password_hash").notNull(),
   name:                   text("name").notNull(),
+  /**
+   * Stable Apple `sub` from the identity token. Unique when set so later Apple
+   * sign-ins can find the user even if the JWT omits email (Apple's default
+   * after the first authorization).
+   */
+  appleSub:               text("apple_sub").unique(),
   passwordResetTokenHash: text("password_reset_token_hash"),
   passwordResetExpires:   timestamp("password_reset_expires"),
   passwordResetAttempts:  integer("password_reset_attempts").notNull().default(0),

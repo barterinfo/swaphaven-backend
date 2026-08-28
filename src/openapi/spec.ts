@@ -674,11 +674,11 @@ export const openApiSpec = {
         tags: ["Auth"],
         summary: "Log in or sign up with a social provider",
         description:
-          "Verifies a Google ID token or Facebook access token. When the provider email matches an existing account (including email/password registration), tokens are issued for that account without a password check; the password remains valid until reset. Google requires a verified email.",
+          "Verifies a Google ID token, Facebook access token, or Apple identity token. When the provider email matches an existing account (including email/password registration), tokens are issued for that account without a password check; the password remains valid until reset. Google requires a verified email. Apple requires `nonce` (raw value whose SHA-256 matches the token claim); later Apple sign-ins are matched by the stored Apple user id when the JWT omits email.",
         security: [],
         requestBody: {
           required: true,
-          content: { "application/json": { schema: { type: "object", required: ["provider","idToken"], properties: { provider: { type: "string", enum: ["google","facebook"] }, idToken: { type: "string", description: "Google ID token or Facebook access token" } } } } },
+          content: { "application/json": { schema: { type: "object", required: ["provider","idToken"], properties: { provider: { type: "string", enum: ["google","facebook","apple"] }, idToken: { type: "string", description: "Google ID token, Facebook access token, or Apple identity token" }, nonce: { type: "string", description: "Required for Apple: raw nonce whose SHA-256 hex matches the identity token nonce claim" }, fullName: { type: "string", description: "Apple full name from the first authorization only" }, email: { type: "string", format: "email", description: "Ignored for identity; Apple email is taken from the identity token" } } } } },
         },
         responses: {
           "200": { description: "Tokens issued (existing or newly created account)", content: { "application/json": { schema: { properties: { accessToken: { type: "string" }, refreshToken: { type: "string" }, user: { $ref: "#/components/schemas/User" } } } } } },

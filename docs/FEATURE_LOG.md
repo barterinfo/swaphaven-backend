@@ -36,6 +36,8 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-08-28 | Google and Apple login docs | docs/GOOGLE_AND_APPLE_LOGIN.md, SOCIAL_LOGIN, API_GUIDE, README | [Sign in with Apple backend](ae8c35f4-00fa-4f01-9413-cc78ee975606) |
+| 2026-08-28 | Sign in with Apple on social auth | POST /api/auth/social provider=apple, users.apple_sub, social-auth Apple JWKS | [Sign in with Apple backend](ae8c35f4-00fa-4f01-9413-cc78ee975606) |
 | 2026-08-26 | Recycle left-passes behind remote config | POST /api/swipe/recycle-left, allowRepeatLefts, discovery _restartDeck, SWIPE_FEATURE.md | [Recycle left-pass swipe deck](3e80f36c-232c-4949-bfea-1c09ff8258f1) |
 | 2026-08-26 | Live chat over WebSocket | src/lib/ws.ts path/membership, conversations broadcast sender, tests/ws.test.ts | [Live chat over WebSocket](395220fa-cc37-4fc4-a6ed-8141a0af2b41) |
 | 2026-08-26 | Announcement push ops doc | docs/ANNOUNCEMENTS.md, push:announce CLI | [Announcement push and docs](bb398201-d846-495a-b47e-8bf759f27748) |
