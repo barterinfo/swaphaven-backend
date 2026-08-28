@@ -16,7 +16,7 @@ Companion mobile notes: see barter-stack repo `mobile/docs/CREATE_ACCOUNT_AND_ON
 | 2. Verify | User submits email + 6-digit code → API creates `users` + `user_profiles`, issues JWTs |
 | 3. Onboard | Mobile binds onboarding to JWT `sub`; new/different users see location/category onboarding |
 
-Social login (`POST /api/auth/social`) is unchanged (immediate find-or-create). See [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md).
+Social login (`POST /api/auth/social`) is unchanged (immediate find-or-create). See [GOOGLE_AND_APPLE_LOGIN.md](./GOOGLE_AND_APPLE_LOGIN.md) and [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md).
 
 ---
 

@@ -101,7 +101,10 @@ curl -s -X POST http://localhost:3001/api/auth/social \
 ```
 
 Returns the same `{ accessToken, refreshToken, user }` shape as login. Creates the account
-automatically if it does not exist yet. See [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md).
+automatically if it does not exist yet.
+
+- Google + Apple (detailed): [GOOGLE_AND_APPLE_LOGIN.md](./GOOGLE_AND_APPLE_LOGIN.md)
+- HTTP contract (incl. Facebook): [SOCIAL_LOGIN.md](./SOCIAL_LOGIN.md)
 
 ### Refresh
 

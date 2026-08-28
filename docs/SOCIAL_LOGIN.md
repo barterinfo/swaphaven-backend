@@ -5,6 +5,9 @@ provider token server-side, then finds-or-creates the SwapHaven user by the veri
 address (Apple also stores the stable Apple user id) and returns the same token pair as
 `POST /api/auth/login`.
 
+**Google and Apple (setup, sequences, console, linking, troubleshooting):**
+[GOOGLE_AND_APPLE_LOGIN.md](./GOOGLE_AND_APPLE_LOGIN.md). This page is the compact HTTP contract for all three providers.
+
 ---
 
 ## Request
