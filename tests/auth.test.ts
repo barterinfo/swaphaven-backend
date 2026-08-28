@@ -346,6 +346,109 @@ describe("POST /api/auth/social", () => {
     expect(res.status).toBe(503);
     expect(res.body.error).toBe("unavailable");
   });
+
+  it("rejects Apple without a nonce with 400", async () => {
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "apple", idToken: "apple-id-token" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation");
+    expect(mockVerify).not.toHaveBeenCalled();
+  });
+
+  it("creates a new Apple account and stores appleSub", async () => {
+    const email = `apple-${uid()}@privaterelay.appleid.com`;
+    mockVerify.mockResolvedValueOnce({
+      email,
+      name: "Ada Lovelace",
+      appleSub: "apple.sub.create",
+    });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({
+        provider: "apple",
+        idToken: "apple-id-token",
+        nonce: "raw-nonce",
+        fullName: "Ada Lovelace",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.accessToken).toBeTruthy();
+    expect(res.body.user.name).toBe("Ada Lovelace");
+    expect(mockVerify).toHaveBeenCalledWith("apple", "apple-id-token", {
+      nonce: "raw-nonce",
+      fullName: "Ada Lovelace",
+    });
+
+    const row = await testDb.query.usersTable.findFirst({
+      where: eq(usersTable.emailHash, hashEmail(email)),
+    });
+    expect(row?.appleSub).toBe("apple.sub.create");
+  });
+
+  it("logs in a later Apple session by appleSub when email is omitted", async () => {
+    const email = `apple-later-${uid()}@privaterelay.appleid.com`;
+    mockVerify.mockResolvedValueOnce({
+      email,
+      name: "Ada",
+      appleSub: "apple.sub.later",
+    });
+
+    const first = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "apple", idToken: "tok-1", nonce: "nonce-1" });
+
+    mockVerify.mockResolvedValueOnce({
+      name: "Ada",
+      appleSub: "apple.sub.later",
+    });
+
+    const second = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "apple", idToken: "tok-2", nonce: "nonce-2" });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.body.user.id).toBe(first.body.user.id);
+  });
+
+  it("links Apple to an existing password account and stores appleSub", async () => {
+    const email = `apple-link-${uid()}@test.com`;
+    await registerUser({ email });
+    mockVerify.mockResolvedValueOnce({
+      email,
+      name: "Linked Apple",
+      appleSub: "apple.sub.link",
+    });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "apple", idToken: "tok", nonce: "nonce" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe(maskEmail(email));
+
+    const row = await testDb.query.usersTable.findFirst({
+      where: eq(usersTable.emailHash, hashEmail(email)),
+    });
+    expect(row?.appleSub).toBe("apple.sub.link");
+  });
+
+  it("rejects a first-time Apple sign-in with no email", async () => {
+    mockVerify.mockResolvedValueOnce({
+      name: "Ada",
+      appleSub: "apple.sub.noemail",
+    });
+
+    const res = await request(app)
+      .post("/api/auth/social")
+      .send({ provider: "apple", idToken: "tok", nonce: "nonce" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("unauthorized");
+  });
 });
 
 // ─── POST /api/auth/refresh ───────────────────────────────────────────────────

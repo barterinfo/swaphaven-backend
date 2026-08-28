@@ -61,6 +61,11 @@ const envSchema = z.object({
   /** Facebook app credentials — when both set, social login confirms tokens were issued to this app. */
   FACEBOOK_APP_ID: z.string().optional(),
   FACEBOOK_APP_SECRET: z.string().optional(),
+  /**
+   * Extra Apple identity-token audiences (comma-separated), e.g. a Services ID
+   * for Android Sign in with Apple. iOS already uses `IOS_BUNDLE_ID` (+ `.uat`).
+   */
+  APPLE_CLIENT_IDS: z.string().optional(),
   // ─── S3 media (optional — presigned uploads at POST /api/media/presign) ───
   AWS_REGION: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
