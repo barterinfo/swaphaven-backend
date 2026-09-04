@@ -30,9 +30,15 @@ describe("GET /api/swipe/deck", () => {
     }
   });
 
-  it("returns 401 without auth", async () => {
+  it("returns a public deck without auth", async () => {
+    const { accessToken: sellerToken } = await registerUser();
+    await createListing(sellerToken);
+
     const res = await request(app).get("/api/swipe/deck");
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.cards)).toBe(true);
+    expect(res.body.cards.length).toBeGreaterThan(0);
+    expect(res.body.remainingSwipesToday).toBeGreaterThan(0);
   });
 
   it("hides a listing from the buyer who already has an active offer on it", async () => {

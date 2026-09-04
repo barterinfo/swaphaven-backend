@@ -1253,7 +1253,7 @@ export const openApiSpec = {
         tags: ["Swipe"],
         summary: "Get a page of swipe deck cards",
         description:
-          "Returns active listings in the viewer's country (profile locationCountry, else inferred from request IP and persisted). Listings with empty location_country are included for legacy parity with nearby; other-country codes are still excluded.",
+          "Returns active listings in the viewer's country. Auth is optional: signed-in viewers use profile locationCountry (inferred and persisted when missing) and exclude own/swiped/blocked listings. Guests infer country from the request IP and do not persist. Listings with empty location_country are included for legacy parity with nearby; other-country codes are still excluded. Recording a swipe still requires auth.",
         parameters: [
           {
             name: "excludeIds",

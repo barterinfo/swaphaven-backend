@@ -36,6 +36,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-09-04 | Public swipe deck for guests | GET /api/swipe/deck optionalAuth, tests/swipe.test.ts | [Guest browse for App Review](58fc8b9a-eb06-470d-8b49-a8450218180a) |
 | 2026-08-28 | Google and Apple login docs | docs/GOOGLE_AND_APPLE_LOGIN.md, SOCIAL_LOGIN, API_GUIDE, README | [Sign in with Apple backend](ae8c35f4-00fa-4f01-9413-cc78ee975606) |
 | 2026-08-28 | Sign in with Apple on social auth | POST /api/auth/social provider=apple, users.apple_sub, social-auth Apple JWKS | [Sign in with Apple backend](ae8c35f4-00fa-4f01-9413-cc78ee975606) |
 | 2026-08-26 | Recycle left-passes behind remote config | POST /api/swipe/recycle-left, allowRepeatLefts, discovery _restartDeck, SWIPE_FEATURE.md | [Recycle left-pass swipe deck](3e80f36c-232c-4949-bfea-1c09ff8258f1) |
@@ -430,6 +431,14 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 - **Chat:** [Save-for-later listings feature](5525bf4c-7c05-4039-92ac-d5d498906676)
 - **Areas:** saved_listings schema/migration, /api/saved, listing is_saved + /stats, mobile features/saved, Saved tab
 - **Summary:** Save-for-later independent of swipes; Me Saved tab; owner save_count via listing stats. See [SAVED_FEATURE.md](./SAVED_FEATURE.md).
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Public swipe deck for guests
+
+- **Date:** 2026-09-04
+- **Chat:** [Guest browse for App Review](58fc8b9a-eb06-470d-8b49-a8450218180a)
+- **Areas:** GET /api/swipe/deck optionalAuth, tests/swipe.test.ts
+- **Summary:** Guests can load the swipe deck without auth. Recording a swipe still requires a session. Country is inferred from the request and not persisted.
 - **Also tracked in:** barter-stack FEATURE_LOG
 
 ### Recycle left-passes behind remote config

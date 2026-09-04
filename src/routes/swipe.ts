@@ -11,7 +11,7 @@ import {
   savedListingsTable,
   userProfilesTable,
 } from "../db/schema/index.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { computeMatchScore } from "../lib/match-score.js";
 import { hiddenOwnerIds, isBlockedEitherWay } from "../lib/user-blocks.js";
@@ -80,7 +80,8 @@ const deckQuerySchema = z.object({
 });
 
 // ─── GET /api/swipe/deck ──────────────────────────────────────────────────────
-router.get("/deck", requireAuth, async (req, res) => {
+// Public browse (5.1.1). Recording a swipe still requires auth.
+router.get("/deck", optionalAuth, async (req, res) => {
   const parsedQuery = deckQuerySchema.safeParse(req.query);
   if (!parsedQuery.success) {
     return res.status(400).json({
@@ -89,53 +90,70 @@ router.get("/deck", requireAuth, async (req, res) => {
     });
   }
 
-  const userId = req.user!.sub;
+  const userId = req.user?.sub ?? null;
   const clientExcludeIds = parsedQuery.data.excludeIds;
   const categorySlug = parsedQuery.data.category;
 
-  // Country scopes the deck. Prefer saved profile country; else infer + persist.
-  const profile = await db.query.userProfilesTable.findFirst({
-    where: eq(userProfilesTable.id, userId),
-    columns: { locationCountry: true },
-  });
-  let viewerCountry = normalizeCountryCode(profile?.locationCountry);
+  // Country scopes the deck. Signed-in: saved profile, else infer + persist.
+  // Guests: infer from the request only — do not write a profile.
+  let viewerCountry = userId
+    ? normalizeCountryCode(
+        (
+          await db.query.userProfilesTable.findFirst({
+            where: eq(userProfilesTable.id, userId),
+            columns: { locationCountry: true },
+          })
+        )?.locationCountry,
+      )
+    : null;
   if (!viewerCountry) {
     viewerCountry = resolveRequestCountry(req).country;
-    await db
-      .update(userProfilesTable)
-      .set({ locationCountry: viewerCountry, updatedAt: new Date() })
-      .where(eq(userProfilesTable.id, userId));
+    if (userId) {
+      await db
+        .update(userProfilesTable)
+        .set({ locationCountry: viewerCountry, updatedAt: new Date() })
+        .where(eq(userProfilesTable.id, userId));
+    }
   }
 
-  const alreadySwiped = await db
-    .select({ listingId: swipesTable.listingId })
-    .from(swipesTable)
-    .where(eq(swipesTable.swiperId, userId));
+  const excludeIds = [...clientExcludeIds];
+  if (userId) {
+    const alreadySwiped = await db
+      .select({ listingId: swipesTable.listingId })
+      .from(swipesTable)
+      .where(eq(swipesTable.swiperId, userId));
 
-  const activeOfferListingIds = await getActiveNegotiationListingIds(userId);
-
-  const excludeIds = [
-    ...new Set([
+    const activeOfferListingIds = await getActiveNegotiationListingIds(userId);
+    excludeIds.push(
       ...alreadySwiped.map((s) => s.listingId),
       ...activeOfferListingIds,
-      ...clientExcludeIds,
-    ]),
-  ];
+    );
+  }
+
+  const uniqueExcludeIds = [...new Set(excludeIds)];
 
   // Legacy listings may have empty location_country; include them so they
   // appear in swipe the same way they already appear in nearby/trending.
   const conditions: Parameters<typeof and>[0][] = [
     eq(listingsTable.status, "active"),
-    sql`${listingsTable.userId} != ${userId}`,
     or(
       eq(listingsTable.locationCountry, viewerCountry),
       eq(listingsTable.locationCountry, ""),
     ),
   ];
-  if (excludeIds.length) conditions.push(notInArray(listingsTable.id, excludeIds));
+  if (userId) {
+    conditions.push(sql`${listingsTable.userId} != ${userId}`);
+  }
+  if (uniqueExcludeIds.length) {
+    conditions.push(notInArray(listingsTable.id, uniqueExcludeIds));
+  }
 
-  const hiddenOwners = await hiddenOwnerIds(userId);
-  if (hiddenOwners.length) conditions.push(notInArray(listingsTable.userId, hiddenOwners));
+  if (userId) {
+    const hiddenOwners = await hiddenOwnerIds(userId);
+    if (hiddenOwners.length) {
+      conditions.push(notInArray(listingsTable.userId, hiddenOwners));
+    }
+  }
 
   if (categorySlug) {
     // Browse bar sends slug (`electronics`); resolve once to categories.id.
@@ -168,60 +186,62 @@ router.get("/deck", requireAuth, async (req, res) => {
     orderBy: sql`RANDOM()`,
   });
 
-  // Fetch the viewer's own active listings so we can compute mutual-fit scores.
-  // We consider what the viewer *has* (their listing categories) as what they can offer.
-  const myListings = await db.query.listingsTable.findMany({
-    where: and(
-      eq(listingsTable.userId, userId),
-      eq(listingsTable.status, "active"),
-    ),
-    columns: { category: true, wantedCategories: true },
-  });
+  const myOfferCategories = new Set<string>();
+  let remainingSwipesToday = UNLIMITED_REMAINING;
+  let bonusSwipesAvailable = 0;
+  let superlikesRemaining = 0;
+  const savedIds = new Set<string>();
 
-  // Build a lowercase set of category labels the viewer can offer.
-  const myOfferCategories = new Set<string>(
-    myListings.map((l) => l.category.trim().toLowerCase()),
-  );
-
-  // Streak + daily count are required. Saved/superlike enrichment is best-effort so
-  // a missing migration (saved_listings / superlikes_remaining) cannot 500 the deck.
-  const [streak, swipesToday] = await Promise.all([
-    db.query.swipeStreaksTable.findFirst({
-      where: eq(swipeStreaksTable.userId, userId),
-    }),
-    countSwipesToday(userId),
-  ]);
-
-  let savedIds = new Set<string>();
-  try {
-    if (cards.length) {
-      const savedRows = await db
-        .select({ listingId: savedListingsTable.listingId })
-        .from(savedListingsTable)
-        .where(
-          and(
-            eq(savedListingsTable.userId, userId),
-            inArray(
-              savedListingsTable.listingId,
-              cards.map((c) => c.id),
-            ),
-          ),
-        );
-      savedIds = new Set(savedRows.map((r) => r.listingId));
-    }
-  } catch (err) {
-    console.error("[swipe/deck] saved_listings lookup failed:", err);
-  }
-
-  let superlikesRemaining = 2;
-  try {
-    const profile = await db.query.userProfilesTable.findFirst({
-      where: eq(userProfilesTable.id, userId),
-      columns: { superlikesRemaining: true },
+  if (userId) {
+    const myListings = await db.query.listingsTable.findMany({
+      where: and(
+        eq(listingsTable.userId, userId),
+        eq(listingsTable.status, "active"),
+      ),
+      columns: { category: true, wantedCategories: true },
     });
-    superlikesRemaining = profile?.superlikesRemaining ?? 2;
-  } catch (err) {
-    console.error("[swipe/deck] superlikesRemaining lookup failed:", err);
+    for (const listing of myListings) {
+      myOfferCategories.add(listing.category.trim().toLowerCase());
+    }
+
+    const [streak, swipesToday] = await Promise.all([
+      db.query.swipeStreaksTable.findFirst({
+        where: eq(swipeStreaksTable.userId, userId),
+      }),
+      countSwipesToday(userId),
+    ]);
+    remainingSwipesToday = remainingDailySwipes(swipesToday);
+    bonusSwipesAvailable = streak?.bonusSwipesRemaining ?? 0;
+
+    try {
+      if (cards.length) {
+        const savedRows = await db
+          .select({ listingId: savedListingsTable.listingId })
+          .from(savedListingsTable)
+          .where(
+            and(
+              eq(savedListingsTable.userId, userId),
+              inArray(
+                savedListingsTable.listingId,
+                cards.map((c) => c.id),
+              ),
+            ),
+          );
+        for (const row of savedRows) savedIds.add(row.listingId);
+      }
+    } catch (err) {
+      console.error("[swipe/deck] saved_listings lookup failed:", err);
+    }
+
+    try {
+      const profile = await db.query.userProfilesTable.findFirst({
+        where: eq(userProfilesTable.id, userId),
+        columns: { superlikesRemaining: true },
+      });
+      superlikesRemaining = profile?.superlikesRemaining ?? 2;
+    } catch (err) {
+      console.error("[swipe/deck] superlikesRemaining lookup failed:", err);
+    }
   }
 
   return res.json({
@@ -239,9 +259,8 @@ router.get("/deck", requireAuth, async (req, res) => {
         is_saved: savedIds.has(c.id),
       };
     }),
-    remainingSwipesToday: remainingDailySwipes(swipesToday),
-    bonusSwipesAvailable: streak?.bonusSwipesRemaining ?? 0,
-    /** Remaining lifetime free superlikes for this user. */
+    remainingSwipesToday,
+    bonusSwipesAvailable,
     superlikesRemaining,
     refreshesAt: refreshesAtIso(),
   });
