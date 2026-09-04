@@ -175,7 +175,7 @@ router.post("/", requireAuth, async (req, res) => {
   const details = normalizeDetails(data.details);
   const location = resolveLocation(data);
 
-  // Country is required for swipe scoping. Prefer payload → profile → request IP.
+  // Country is required for swipe scoping. Prefer payload → profile → CDN / SG.
   let country =
     normalizeCountryCode(location.country) ??
     normalizeCountryCode(

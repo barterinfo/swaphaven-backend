@@ -1,7 +1,6 @@
 import type { Request } from "express";
-import geoip from "geoip-lite";
 
-/** Singapore — last-resort home when GPS, IP, and locale all fail. */
+/** Singapore — last-resort home when CDN country headers are absent. */
 export const FALLBACK_COUNTRY = "SG";
 export const FALLBACK_LAT = 1.3521;
 export const FALLBACK_LNG = 103.8198;
@@ -11,7 +10,7 @@ export const FALLBACK_CITY = "Singapore";
 const INVALID_COUNTRY_CODES = new Set(["", "XX", "T1", "A1", "A2", "O1"]);
 
 /**
- * Approximate city centroids for common launch markets when IP city is unknown.
+ * Approximate city centroids for common launch markets.
  * Used by GET /api/geo/me so the client can seed prefs without GPS.
  */
 const COUNTRY_CENTROIDS: Record<
@@ -36,7 +35,7 @@ const COUNTRY_CENTROIDS: Record<
   VN: { city: "Ho Chi Minh City", lat: 10.8231, lng: 106.6297 },
 };
 
-export type GeoSource = "header" | "ip" | "fallback";
+export type GeoSource = "header" | "fallback";
 
 export type ResolvedGeo = {
   country: string;
@@ -71,28 +70,6 @@ function headerCountry(req: Request): string | null {
   return null;
 }
 
-function isPrivateOrLocalIp(ip: string): boolean {
-  const v = ip.replace(/^::ffff:/, "");
-  if (v === "127.0.0.1" || v === "::1" || v === "localhost") return true;
-  if (v.startsWith("10.")) return true;
-  if (v.startsWith("192.168.")) return true;
-  if (v.startsWith("172.")) {
-    const second = Number(v.split(".")[1]);
-    if (second >= 16 && second <= 31) return true;
-  }
-  return false;
-}
-
-function lookupIpCountry(ip: string): string | null {
-  if (!ip || isPrivateOrLocalIp(ip)) return null;
-  try {
-    const hit = geoip.lookup(ip.replace(/^::ffff:/, ""));
-    return normalizeCountryCode(hit?.country);
-  } catch {
-    return null;
-  }
-}
-
 export function countryCentroid(country: string): {
   city: string;
   lat: number;
@@ -107,18 +84,13 @@ export function countryCentroid(country: string): {
   );
 }
 
-/** Resolve ISO-2 from CDN headers, then IP DB, else Singapore. */
+/** Resolve ISO-2 from CDN country headers, else Singapore. */
 export function resolveRequestCountry(req: Request): {
   country: string;
   source: GeoSource;
 } {
   const fromHeader = headerCountry(req);
   if (fromHeader) return { country: fromHeader, source: "header" };
-
-  const ip = req.ip ?? "";
-  const fromIp = lookupIpCountry(ip);
-  if (fromIp) return { country: fromIp, source: "ip" };
-
   return { country: FALLBACK_COUNTRY, source: "fallback" };
 }
 

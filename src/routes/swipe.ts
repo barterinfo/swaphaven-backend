@@ -95,7 +95,7 @@ router.get("/deck", optionalAuth, async (req, res) => {
   const categorySlug = parsedQuery.data.category;
 
   // Country scopes the deck. Signed-in: saved profile, else infer + persist.
-  // Guests: infer from the request only — do not write a profile.
+  // Guests: CDN country header, else Singapore — do not write a profile.
   let viewerCountry = userId
     ? normalizeCountryCode(
         (

@@ -97,13 +97,13 @@ export const openApiSpec = {
       },
       GeoMeResponse: {
         type: "object",
-        description: "Approximate geo from the request IP — used when the client denies GPS.",
+        description: "Approximate geo from CDN country headers, else Singapore — used when the client denies GPS.",
         properties: {
           country: { type: "string", description: "ISO-3166-1 alpha-2" },
           city:    { type: "string" },
           lat:     { type: "number" },
           lng:     { type: "number" },
-          source:  { type: "string", enum: ["header", "ip", "fallback"] },
+          source:  { type: "string", enum: ["header", "fallback"] },
         },
         required: ["country", "city", "lat", "lng", "source"],
       },
@@ -582,7 +582,7 @@ export const openApiSpec = {
         tags: ["Geo"],
         summary: "Approximate country for this request",
         description:
-          "Resolves ISO country from CDN headers or IP geolocation. Used by mobile when GPS is denied. Does not persist.",
+          "Resolves ISO country from CDN headers (CF-IPCountry, etc.), else Singapore. Used by mobile when GPS is denied. Does not persist.",
         security: [],
         responses: {
           "200": {
@@ -1253,7 +1253,7 @@ export const openApiSpec = {
         tags: ["Swipe"],
         summary: "Get a page of swipe deck cards",
         description:
-          "Returns active listings in the viewer's country. Auth is optional: signed-in viewers use profile locationCountry (inferred and persisted when missing) and exclude own/swiped/blocked listings. Guests infer country from the request IP and do not persist. Listings with empty location_country are included for legacy parity with nearby; other-country codes are still excluded. Recording a swipe still requires auth.",
+          "Returns active listings in the viewer's country. Auth is optional: signed-in viewers use profile locationCountry (CDN header or Singapore when missing, then persisted) and exclude own/swiped/blocked listings. Guests use the CDN country header, else Singapore, and do not persist. Listings with empty location_country are included for legacy parity with nearby; other-country codes are still excluded. Recording a swipe still requires auth.",
         parameters: [
           {
             name: "excludeIds",
