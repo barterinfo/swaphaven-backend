@@ -30,9 +30,15 @@ describe("GET /api/swipe/deck", () => {
     }
   });
 
-  it("returns 401 without auth", async () => {
+  it("returns a public deck without auth", async () => {
+    const { accessToken: sellerToken } = await registerUser();
+    await createListing(sellerToken);
+
     const res = await request(app).get("/api/swipe/deck");
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.cards)).toBe(true);
+    expect(res.body.cards.length).toBeGreaterThan(0);
+    expect(res.body.remainingSwipesToday).toBeGreaterThan(0);
   });
 
   it("hides a listing from the buyer who already has an active offer on it", async () => {
@@ -826,7 +832,25 @@ describe("GET /api/swipe/deck country filter", () => {
     expect(me.body.locationCountry).toBe("NZ");
   });
 
-  it("stamps listing country from request IP when payload omits it", async () => {
+  it("guest deck without a CDN country header falls back to SG", async () => {
+    const seller = await registerUser();
+    const sgListing = await createListing(seller.accessToken, {
+      title: "SG Fallback Item",
+      location: { lat: 1.35, lng: 103.82, address: "Singapore", country: "SG" },
+    });
+    const inListing = await createListing(seller.accessToken, {
+      title: "India Hidden Item",
+      location: { lat: 28.61, lng: 77.2, address: "New Delhi", country: "IN" },
+    });
+
+    const res = await request(app).get("/api/swipe/deck");
+    expect(res.status).toBe(200);
+    const ids = res.body.cards.map((c: { listing: { id: string } }) => c.listing.id);
+    expect(ids).toContain(sgListing.id);
+    expect(ids).not.toContain(inListing.id);
+  });
+
+  it("stamps listing country from the CDN header when payload omits it", async () => {
     const seller = await registerUser();
     const res = await request(app)
       .post("/api/listings")

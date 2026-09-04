@@ -5,7 +5,7 @@ const router = Router();
 
 /**
  * GET /api/geo/me
- * Approximate country/city for the request IP — used when the client denies GPS.
+ * Approximate country/city from CDN headers, else Singapore — used when the client denies GPS.
  * No auth required; does not persist anything.
  */
 router.get("/me", (req, res) => {
