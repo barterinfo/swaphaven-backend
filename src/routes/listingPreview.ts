@@ -2,37 +2,18 @@ import { Router } from "express";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { listingsTable, listingImagesTable } from "../db/schema/index.js";
-import { env } from "../config/env.js";
 import { isUuid } from "../lib/barter-listing.js";
 import { p } from "../lib/route-helpers.js";
+import {
+  SHARE_PREVIEW_CSP,
+  androidAppIntentUrl,
+  escapeHtml,
+  isAndroidUserAgent,
+  isLinkPreviewBot,
+  storeUrlForUserAgent,
+} from "../lib/share-preview.js";
 
 const router = Router();
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function storeUrlForUserAgent(ua: string): string | null {
-  const lower = ua.toLowerCase();
-  if (/iphone|ipad|ipod/.test(lower)) {
-    return env.IOS_APP_STORE_URL ?? null;
-  }
-  if (/android/.test(lower)) {
-    return env.ANDROID_PLAY_STORE_URL ?? null;
-  }
-  return null;
-}
-
-function isLinkPreviewBot(ua: string): boolean {
-  return /bot|crawler|spider|facebookexternalhit|twitterbot|slackbot|whatsapp|telegram|discord|linkedin|preview/i.test(
-    ua,
-  );
-}
 
 function buildPreviewHtml(opts: {
   title: string;
@@ -40,6 +21,7 @@ function buildPreviewHtml(opts: {
   imageUrl: string | null;
   listingId: string;
   storeUrl: string | null;
+  openAppUrl: string | null;
 }): string {
   const title = escapeHtml(opts.title);
   const description = escapeHtml(opts.description || "Check out this item on Barter.");
@@ -47,10 +29,15 @@ function buildPreviewHtml(opts: {
     ? `<meta property="og:image" content="${escapeHtml(opts.imageUrl)}" />`
     : "";
   const canonical = `https://www.bartersg.com/listings/${escapeHtml(opts.listingId)}`;
-  const storeHref = opts.storeUrl ? escapeHtml(opts.storeUrl) : "#";
-  const storeLabel = opts.storeUrl ? "Get the app" : "Open in Barter";
-  const redirectScript = opts.storeUrl
-    ? `<script>window.location.replace(${JSON.stringify(opts.storeUrl)});</script>`
+  const primaryHref = opts.openAppUrl ?? opts.storeUrl ?? "#";
+  const primaryLabel = opts.openAppUrl ? "Open in Barter" : opts.storeUrl ? "Get the app" : "Open in Barter";
+  const autoTarget = opts.openAppUrl ?? null;
+  const autoOpen = autoTarget
+    ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(autoTarget)}" />
+<script>window.location.replace(${JSON.stringify(autoTarget)});</script>`
+    : "";
+  const storeLink = opts.openAppUrl && opts.storeUrl
+    ? `<p><a href="${escapeHtml(opts.storeUrl)}">Get the app</a></p>`
     : "";
 
   return `<!DOCTYPE html>
@@ -67,6 +54,7 @@ function buildPreviewHtml(opts: {
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${title}" />
   <meta name="twitter:description" content="${description}" />
+  ${autoOpen}
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
            margin: 0; padding: 2rem; background: #0f0f12; color: #f5f5f7; text-align: center; }
@@ -82,17 +70,17 @@ function buildPreviewHtml(opts: {
     <h1>${title}</h1>
     <p>${description}</p>
     ${opts.imageUrl ? `<img src="${escapeHtml(opts.imageUrl)}" alt="${title}" />` : ""}
-    <p><a class="btn" href="${storeHref}">${storeLabel}</a></p>
+    <p><a class="btn" href="${escapeHtml(primaryHref)}">${primaryLabel}</a></p>
+    ${storeLink}
   </div>
-  ${redirectScript}
 </body>
 </html>`;
 }
 
 // ─── GET /listings/:listingId ─────────────────────────────────────────────────
 // Public HTML preview for share links / Open Graph crawlers.
-// When the app is installed, the OS intercepts Universal/App Links before this.
-// Human mobile browsers are redirected to the App Store / Play Store.
+// When App Links verify, the OS intercepts before this. Android browsers that
+// reach us try an explicit intent:// handoff (installed app) before Play Store.
 router.get("/:listingId", async (req, res) => {
   const listingId = p(req.params["listingId"]);
   if (!isUuid(listingId)) {
@@ -118,13 +106,18 @@ router.get("/:listingId", async (req, res) => {
 
   const ua = String(req.headers["user-agent"] ?? "");
   const storeUrl = storeUrlForUserAgent(ua);
+  const android = isAndroidUserAgent(ua);
+  const openAppUrl = android && !isLinkPreviewBot(ua)
+    ? androidAppIntentUrl(`/listings/${listing.id}`, storeUrl)
+    : null;
 
-  // Redirect humans on mobile to the store when a URL is configured;
-  // leave bots and desktop on the HTML preview page for OG tags / fallback.
-  if (storeUrl && !isLinkPreviewBot(ua)) {
+  // iOS still goes to the App Store when Universal Links did not intercept.
+  // Android must not 302 to Play — that skips the installed app entirely.
+  if (storeUrl && !android && !isLinkPreviewBot(ua)) {
     return res.redirect(302, storeUrl);
   }
 
+  res.setHeader("Content-Security-Policy", SHARE_PREVIEW_CSP);
   return res.type("html").send(
     buildPreviewHtml({
       title: listing.title,
@@ -132,6 +125,7 @@ router.get("/:listingId", async (req, res) => {
       imageUrl,
       listingId: listing.id,
       storeUrl,
+      openAppUrl,
     }),
   );
 });

@@ -78,7 +78,7 @@ describe("GET /listings/:listingId", () => {
     expect(res.text).toContain("Listing not found");
   });
 
-  it("redirects Android browsers to the Play Store listing", async () => {
+  it("hands Android browsers an intent:// to the installed app before Play", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken, {
       title: "Android Store Redirect Listing",
@@ -91,10 +91,14 @@ describe("GET /listings/:listingId", () => {
         "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36",
       );
 
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe(
-      "https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile&hl=en_SG",
-    );
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/html/);
+    expect(res.headers.location).toBeUndefined();
+    expect(res.text).toContain(`intent://www.bartersg.com/listings/${listing.id}#Intent;`);
+    expect(res.text).toContain(`package=${env.ANDROID_PACKAGE_ID}`);
+    expect(res.text).toContain("Open in Barter");
+    expect(res.text).toContain("S.browser_fallback_url=");
+    expect(res.text).toContain("play.google.com");
   });
 });
 
@@ -123,5 +127,25 @@ describe("GET /users/:userId", () => {
 
     expect(res.status).toBe(404);
     expect(res.text).toContain("Profile not found");
+  });
+
+  it("hands Android browsers an intent:// to the installed app before Play", async () => {
+    const { accessToken, user } = await registerUser({ name: "Android Intent Profile" });
+    await request(app)
+      .get("/api/users/me")
+      .set("Authorization", `Bearer ${accessToken}`);
+
+    const res = await request(app)
+      .get(`/users/${user.id}`)
+      .set(
+        "User-Agent",
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36",
+      );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.location).toBeUndefined();
+    expect(res.text).toContain(`intent://www.bartersg.com/users/${user.id}#Intent;`);
+    expect(res.text).toContain(`package=${env.ANDROID_PACKAGE_ID}`);
+    expect(res.text).toContain("Open in Barter");
   });
 });
