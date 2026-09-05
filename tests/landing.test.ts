@@ -10,7 +10,9 @@ describe("GET /", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/html/);
+    expect(res.text).toContain("Don’t sell first. Swap first.");
     expect(res.text).toContain("Download the app");
+    expect(res.text).toContain("Download Barter and trade what you have.");
     expect(res.text).toContain("App Store");
     expect(res.text).toContain("Google Play");
     expect(res.text).toContain(
@@ -20,6 +22,26 @@ describe("GET /", () => {
     expect(res.text).toContain('href="/privacy"');
     expect(res.text).toContain('href="/terms"');
     expect(res.text).toContain('href="/delete-account"');
+    expect(res.text).toContain('href="/landing/landing.css"');
+    expect(res.text).toContain('src="/landing/landing.js"');
+    expect(res.text).toContain('id="swipe"');
+    expect(res.text).toContain('id="nearby"');
+    expect(res.text).toContain('id="offers"');
+    expect(res.text).toContain('id="chat"');
+    expect(res.text).toContain("Interested → make an offer");
+    expect(res.text).toContain("Bugis MRT");
+  });
+
+  it("serves landing CSS and JS as static assets", async () => {
+    const css = await request(app).get("/landing/landing.css");
+    expect(css.status).toBe(200);
+    expect(css.headers["content-type"]).toMatch(/text\/css/);
+    expect(css.text).toContain("--amber");
+
+    const js = await request(app).get("/landing/landing.js");
+    expect(js.status).toBe(200);
+    expect(js.headers["content-type"]).toMatch(/javascript|ecmascript/);
+    expect(js.text).toContain("IntersectionObserver");
   });
 
   it("returns JSON when the client explicitly requests application/json", async () => {

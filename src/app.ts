@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -31,6 +33,8 @@ import safetyRouter from "./routes/safety.js";
 import accountDeletionRouter from "./routes/account-deletion.js";
 import geoRouter from "./routes/geo.js";
 
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
+
 export function createApp(): express.Express {
   const app = express();
 
@@ -40,6 +44,7 @@ export function createApp(): express.Express {
   }
 
   // ─── Security headers ────────────────────────────────────────────────────────
+  // Landing page uses external /landing/*.css|js (script-src/style-src 'self').
   app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: env.NODE_ENV === "production" ? undefined : false,
@@ -75,6 +80,12 @@ export function createApp(): express.Express {
   // ─── Body parsing ─────────────────────────────────────────────────────────────
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
+  // ─── Static marketing assets (landing CSS/JS) ─────────────────────────────────
+  app.use("/landing", express.static(path.join(publicDir, "landing"), {
+    maxAge: env.NODE_ENV === "production" ? "1h" : 0,
+    index: false,
+  }));
 
   // ─── Health checks (before rate limits — Railway / probes must not throw) ─────
   app.use("/", landingRouter);
