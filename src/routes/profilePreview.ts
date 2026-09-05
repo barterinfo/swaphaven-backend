@@ -2,37 +2,18 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { userProfilesTable } from "../db/schema/index.js";
-import { env } from "../config/env.js";
 import { isUuid } from "../lib/barter-listing.js";
 import { p } from "../lib/route-helpers.js";
+import {
+  SHARE_PREVIEW_CSP,
+  androidAppIntentUrl,
+  escapeHtml,
+  isAndroidUserAgent,
+  isLinkPreviewBot,
+  storeUrlForUserAgent,
+} from "../lib/share-preview.js";
 
 const router = Router();
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function storeUrlForUserAgent(ua: string): string | null {
-  const lower = ua.toLowerCase();
-  if (/iphone|ipad|ipod/.test(lower)) {
-    return env.IOS_APP_STORE_URL ?? null;
-  }
-  if (/android/.test(lower)) {
-    return env.ANDROID_PLAY_STORE_URL ?? null;
-  }
-  return null;
-}
-
-function isLinkPreviewBot(ua: string): boolean {
-  return /bot|crawler|spider|facebookexternalhit|twitterbot|slackbot|whatsapp|telegram|discord|linkedin|preview/i.test(
-    ua,
-  );
-}
 
 function buildPreviewHtml(opts: {
   title: string;
@@ -40,6 +21,7 @@ function buildPreviewHtml(opts: {
   imageUrl: string | null;
   userId: string;
   storeUrl: string | null;
+  openAppUrl: string | null;
 }): string {
   const title = escapeHtml(opts.title);
   const description = escapeHtml(opts.description || "Check out this profile on Barter.");
@@ -47,10 +29,15 @@ function buildPreviewHtml(opts: {
     ? `<meta property="og:image" content="${escapeHtml(opts.imageUrl)}" />`
     : "";
   const canonical = `https://www.bartersg.com/users/${escapeHtml(opts.userId)}`;
-  const storeHref = opts.storeUrl ? escapeHtml(opts.storeUrl) : "#";
-  const storeLabel = opts.storeUrl ? "Get the app" : "Open in Barter";
-  const redirectScript = opts.storeUrl
-    ? `<script>window.location.replace(${JSON.stringify(opts.storeUrl)});</script>`
+  const primaryHref = opts.openAppUrl ?? opts.storeUrl ?? "#";
+  const primaryLabel = opts.openAppUrl ? "Open in Barter" : opts.storeUrl ? "Get the app" : "Open in Barter";
+  const autoTarget = opts.openAppUrl ?? null;
+  const autoOpen = autoTarget
+    ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(autoTarget)}" />
+<script>window.location.replace(${JSON.stringify(autoTarget)});</script>`
+    : "";
+  const storeLink = opts.openAppUrl && opts.storeUrl
+    ? `<p><a href="${escapeHtml(opts.storeUrl)}">Get the app</a></p>`
     : "";
 
   return `<!DOCTYPE html>
@@ -64,6 +51,7 @@ function buildPreviewHtml(opts: {
   <meta property="og:description" content="${description}" />
   <meta property="og:url" content="${canonical}" />
   ${imageMeta}
+  ${autoOpen}
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
            margin: 0; padding: 2rem; background: #0f0f12; color: #f5f5f7; text-align: center; }
@@ -79,9 +67,9 @@ function buildPreviewHtml(opts: {
     <h1>${title}</h1>
     <p>${description}</p>
     ${opts.imageUrl ? `<img src="${escapeHtml(opts.imageUrl)}" alt="${title}" />` : ""}
-    <p><a class="btn" href="${storeHref}">${storeLabel}</a></p>
+    <p><a class="btn" href="${escapeHtml(primaryHref)}">${primaryLabel}</a></p>
+    ${storeLink}
   </div>
-  ${redirectScript}
 </body>
 </html>`;
 }
@@ -110,12 +98,17 @@ router.get("/:userId", async (req, res) => {
 
   const ua = String(req.headers["user-agent"] ?? "");
   const storeUrl = storeUrlForUserAgent(ua);
+  const android = isAndroidUserAgent(ua);
+  const openAppUrl = android && !isLinkPreviewBot(ua)
+    ? androidAppIntentUrl(`/users/${profile.id}`, storeUrl)
+    : null;
 
-  if (storeUrl && !isLinkPreviewBot(ua)) {
+  if (storeUrl && !android && !isLinkPreviewBot(ua)) {
     return res.redirect(302, storeUrl);
   }
 
   const title = profile.displayName?.trim() || "Barter member";
+  res.setHeader("Content-Security-Policy", SHARE_PREVIEW_CSP);
   return res.type("html").send(
     buildPreviewHtml({
       title,
@@ -123,6 +116,7 @@ router.get("/:userId", async (req, res) => {
       imageUrl: profile.avatarUrl ?? null,
       userId: profile.id,
       storeUrl,
+      openAppUrl,
     }),
   );
 });
