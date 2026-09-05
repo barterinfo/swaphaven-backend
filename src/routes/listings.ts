@@ -36,6 +36,12 @@ const router = Router();
 // ─── GET /api/categories ──────────────────────────────────────────────────────
 export async function listCategories(_req: unknown, res: { json: (v: unknown) => void }): Promise<void> {
   const cats = await db.select().from(categoriesTable).orderBy(categoriesTable.name);
+  // Keep "Others" at the end regardless of alphabetical name order.
+  cats.sort((a, b) => {
+    if (a.slug === "others") return 1;
+    if (b.slug === "others") return -1;
+    return a.name.localeCompare(b.name);
+  });
   res.json(cats);
 }
 

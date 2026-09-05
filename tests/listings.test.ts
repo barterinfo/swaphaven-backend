@@ -20,6 +20,9 @@ describe("GET /api/categories", () => {
       true,
     );
     expect(res.body.some((c: { slug: string }) => c.slug === "others")).toBe(true);
+    const toys = res.body.find((c: { slug: string }) => c.slug === "other_toys");
+    expect(toys?.name).toBe("Toys");
+    expect(res.body.at(-1)?.slug).toBe("others");
   });
 });
 

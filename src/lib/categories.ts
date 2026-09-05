@@ -15,7 +15,7 @@ export const CANONICAL_CATEGORIES = [
   { id: "a0000000-0000-4000-8000-00000000000d", name: "Instruments", slug: "instruments", icon: "🎸" },
   { id: "a0000000-0000-4000-8000-00000000000e", name: "Baby & Kids", slug: "baby_kids", icon: "🍼" },
   { id: "a0000000-0000-4000-8000-00000000000f", name: "Vehicles & Parts", slug: "vehicles_parts", icon: "🚗" },
-  { id: "a0000000-0000-4000-8000-000000000010", name: "Other Toys", slug: "other_toys", icon: "🧩" },
+  { id: "a0000000-0000-4000-8000-000000000010", name: "Toys", slug: "other_toys", icon: "🧩" },
   { id: "a0000000-0000-4000-8000-000000000011", name: "Board Games", slug: "board_games", icon: "♟️" },
   { id: "a0000000-0000-4000-8000-000000000012", name: "Jewelry", slug: "jewelry", icon: "💍" },
   { id: "a0000000-0000-4000-8000-000000000013", name: "Others", slug: "others", icon: "📦" },
