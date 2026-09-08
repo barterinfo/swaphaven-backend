@@ -1,6 +1,6 @@
 import {
   pgTable, uuid, text, boolean, integer,
-  timestamp, pgEnum, decimal, date,
+  timestamp, pgEnum, decimal, date, jsonb,
 } from "drizzle-orm/pg-core";
 
 export const platformEnum = pgEnum("platform", ["ios", "android", "web"]);
@@ -68,6 +68,8 @@ export const userProfilesTable = pgTable("user_profiles", {
   avgResponseMinutes:  integer("avg_response_minutes"),
   /** Free superlike quota. Decremented on each super-swipe; 0 means quota spent. */
   superlikesRemaining: integer("superlikes_remaining").notNull().default(2),
+  /** Onboarding interest slugs (e.g. electronics) — cold-start recommendations. */
+  interestCategoryIds: jsonb("interest_category_ids").$type<string[]>().notNull().default([]),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
 });

@@ -218,6 +218,13 @@
       "when": 1786000000000,
       "tag": "0029_rename_other_toys_to_toys",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786100000000,
+      "tag": "0030_recommend_signals",
+      "breakpoints": true
     }
   ]
 }

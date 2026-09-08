@@ -43,6 +43,8 @@ const updateProfileSchema = z.object({
     }),
   locationLat:  z.number().min(-90).max(90).optional(),
   locationLng:  z.number().min(-180).max(180).optional(),
+  /** Onboarding interest slugs (e.g. electronics). */
+  interestCategoryIds: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
 });
 
 router.patch("/me", requireAuth, async (req, res) => {

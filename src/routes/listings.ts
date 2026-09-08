@@ -6,6 +6,7 @@ import { db } from "../db/client.js";
 import {
   listingsTable, listingImagesTable, listingWantsTable, categoriesTable,
   userProfilesTable, offersTable, notificationsTable, savedListingsTable,
+  listingViewsTable, swipesTable,
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
@@ -15,6 +16,8 @@ import { findProfaneField } from "../lib/moderation.js";
 import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-moderation.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
+import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
+import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
 import {
   buildReviewSnapshot,
   createListingBodySchema,
@@ -251,6 +254,7 @@ router.post("/", requireAuth, async (req, res) => {
   if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
 
   const serialized = serializeListingBarter(listing, { images: imageUrls });
+  scheduleListingEmbed(listing.id);
   return res.status(201).json({
     listing: serialized,
     // Legacy flat fields (tests + older clients)
@@ -351,6 +355,99 @@ router.get("/trending", optionalAuth, async (req, res) => {
   return res.json({ trending, others });
 });
 
+const relatedQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(30).optional().default(10),
+});
+
+// ─── GET /api/listings/:listingId/related ─────────────────────────────────────
+router.get("/:listingId/related", requireAuth, async (req, res) => {
+  const listingId = p(req.params["listingId"]);
+  const parsed = relatedQuerySchema.safeParse(req.query);
+  const limit = parsed.success ? parsed.data.limit : 10;
+  const viewerId = req.user!.sub;
+
+  try {
+    const seed = await db.query.listingsTable.findFirst({
+      where: and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")),
+      columns: {
+        id: true,
+        userId: true,
+        categoryId: true,
+        category: true,
+        estimatedValueCents: true,
+        locationCountry: true,
+      },
+    });
+    if (!seed) return res.status(404).json({ error: "not_found", message: "Listing not found" });
+
+    const [swiped, negotiations, hiddenOwners, sellerRows] = await Promise.all([
+      db
+        .select({ listingId: swipesTable.listingId })
+        .from(swipesTable)
+        .where(eq(swipesTable.swiperId, viewerId)),
+      getActiveNegotiationListingIds(viewerId),
+      hiddenOwnerIds(viewerId),
+      db
+        .select({ id: listingsTable.id })
+        .from(listingsTable)
+        .where(eq(listingsTable.userId, seed.userId)),
+    ]);
+
+    const excludeIds = [
+      ...new Set([
+        seed.id,
+        ...swiped.map((s) => s.listingId),
+        ...negotiations,
+        ...sellerRows.map((r) => r.id),
+      ]),
+    ];
+
+    let country =
+      normalizeCountryCode(
+        (
+          await db.query.userProfilesTable.findFirst({
+            where: eq(userProfilesTable.id, viewerId),
+            columns: { locationCountry: true },
+          })
+        )?.locationCountry,
+      ) ?? normalizeCountryCode(seed.locationCountry);
+    if (!country) country = resolveRequestCountry(req).country;
+
+    const ranked = await recommendRelated({
+      userId: viewerId,
+      listingId: seed.id,
+      excludeIds,
+      excludeOwnerIds: hiddenOwners,
+      country,
+      limit,
+    });
+
+    let ids: string[] = [];
+    if (!ranked.skipped && ranked.items.length) {
+      ids = ranked.items.map((i) => i.listingId);
+    } else {
+      ids = await fallbackRelatedIds({
+        seedId: seed.id,
+        seedUserId: seed.userId,
+        seedCategoryId: seed.categoryId,
+        seedCategory: seed.category,
+        seedValueCents: seed.estimatedValueCents,
+        country,
+        viewerId,
+        excludeIds,
+        excludeOwnerIds: hiddenOwners,
+        limit,
+      });
+    }
+
+    const listings = await serializeListingsByIds(ids);
+    return res.json({ listings });
+  } catch (err) {
+    console.error("[listings/related]", err);
+    return res.json({ listings: [] });
+  }
+});
+
 // ─── GET /api/listings/:listingId ─────────────────────────────────────────────
 router.get("/:listingId", optionalAuth, async (req, res) => {
   console.log("GET /api/listings/:listingId", req.params["listingId"]);
@@ -424,12 +521,29 @@ router.get("/:listingId", optionalAuth, async (req, res) => {
 // with 204; the DB write is fire-and-forget so the client is never blocked.
 router.post("/:listingId/view", requireAuth, (req, res) => {
   const listingId = p(req.params["listingId"]);
+  const viewerId = req.user!.sub;
   // Respond before the write so mobile scrolling is never delayed.
   res.status(204).send();
-  db.update(listingsTable)
-    .set({ viewCount: sql`${listingsTable.viewCount} + 1` })
-    .where(and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")))
-    .catch(console.error);
+  void (async () => {
+    await db
+      .update(listingsTable)
+      .set({ viewCount: sql`${listingsTable.viewCount} + 1` })
+      .where(and(eq(listingsTable.id, listingId), ne(listingsTable.status, "deleted")));
+
+    const listing = await db.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, listingId),
+      columns: { userId: true, status: true },
+    });
+    if (!listing || listing.status === "deleted" || listing.userId === viewerId) return;
+
+    await db
+      .insert(listingViewsTable)
+      .values({ userId: viewerId, listingId, lastViewedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [listingViewsTable.userId, listingViewsTable.listingId],
+        set: { lastViewedAt: new Date() },
+      });
+  })().catch(console.error);
 });
 
 // ─── PATCH /api/listings/:listingId ───────────────────────────────────────────
@@ -531,6 +645,7 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
 
   const images = await loadListingImages(updated.id);
   const serialized = serializeListingBarter(updated, { images });
+  scheduleListingEmbed(updated.id);
   return res.json({
     listing: serialized,
     id: updated.id,
