@@ -1590,6 +1590,92 @@ export const openApiSpec = {
     "/api/offers/{offerId}/counter/deny": {
       post: { tags: ["Offers"], summary: "Buyer declines counter-offer", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Declined" } } },
     },
+    "/api/cash-offers/quota": {
+      get: {
+        tags: ["Cash Offers"],
+        summary: "Cash-only offer quota for the caller",
+        description:
+          "max = freeOffers + activeListingCount + bonusOffers. remaining = max - used. Used counts lifetime cash-only creates (no items, cash > 0).",
+        responses: {
+          "200": {
+            description: "Quota snapshot",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    used: { type: "integer" },
+                    max: { type: "integer" },
+                    remaining: { type: "integer" },
+                    activeListingCount: { type: "integer" },
+                    freeOffers: { type: "integer" },
+                    bonusOffers: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/cash-offers": {
+      post: {
+        tags: ["Cash Offers"],
+        summary: "Create a cash-only offer (no buyer items)",
+        description:
+          "Creates a normal offer/round with empty buyer items. Enforces cash-only quota. Item swaps stay on POST /api/offers.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["listingId", "cashTopUpCents"],
+                properties: {
+                  listingId: { type: "string", format: "uuid" },
+                  cashTopUpCents: { type: "integer", minimum: 1 },
+                  swipeId: { type: "string", format: "uuid" },
+                  buyerNote: { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Cash-only offer created", content: { "application/json": { schema: { $ref: "#/components/schemas/Offer" } } } },
+          "403": { description: "Quota exhausted (cash_only_quota)" },
+        },
+      },
+    },
+    "/api/cash-offers/{offerId}/counter": {
+      post: {
+        tags: ["Cash Offers"],
+        summary: "Counter a cash-only offer with revised cash terms",
+        description:
+          "Buyer items stay empty. sellerListingIds defaults to the original target listing. Item counters stay on POST /api/offers/{offerId}/counter.",
+        parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  buyerCashTopUpCents: { type: "integer", minimum: 0 },
+                  sellerCashRequestedCents: { type: "integer", minimum: 0 },
+                  sellerListingIds: { type: "array", items: { type: "string", format: "uuid" } },
+                  note: { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Cash counter round created" },
+          "409": { description: "Wrong turn or round cap" },
+        },
+      },
+    },
     // ── Trades ───────────────────────────────────────────────────────────────────
     "/api/trades": {
       get: {
@@ -1926,6 +2012,7 @@ export const openApiSpec = {
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Saved",         description: "Save-for-later listings (independent of swipes)" },
     { name: "Offers",        description: "Swap offers and counter-offers" },
+    { name: "Cash Offers",   description: "Cash-only offers and quota (isolated from item swap APIs)" },
     { name: "Trades",        description: "Confirmed trades, meetup coordination, and sealed peer reviews (7-day reveal window)" },
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },
