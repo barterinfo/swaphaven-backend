@@ -5,7 +5,7 @@ import { categoryIdBySlug } from "../src/lib/categories.js";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
-import { categoriesTable, listingsTable } from "../src/db/schema/index.js";
+import { categoriesTable, listingsTable, listingViewsTable } from "../src/db/schema/index.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -353,6 +353,27 @@ describe("POST /api/listings/:id/view", () => {
     expect(row?.viewCount).toBe(1);
   });
 
+  it("upserts listing_views for the viewer, not the owner", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+
+    await request(app)
+      .post(`/api/listings/${listing.id}/view`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    await request(app)
+      .post(`/api/listings/${listing.id}/view`)
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    await sleep(80);
+
+    const views = await testDb
+      .select()
+      .from(listingViewsTable)
+      .where(eq(listingViewsTable.listingId, listing.id));
+    expect(views).toHaveLength(1);
+    expect(views[0]?.userId).toBe(viewer.user.id);
+  });
+
   it("returns 401 without auth", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken);
@@ -688,5 +709,48 @@ describe("GET /api/listings/trending", () => {
     expect(appearsInTrending || appearsInOthers).toBe(true);
     // And it should NOT appear in both.
     expect(appearsInTrending && appearsInOthers).toBe(false);
+  });
+});
+
+// ─── GET /api/listings/:id/related ────────────────────────────────────────────
+describe("GET /api/listings/:id/related", () => {
+  it("returns same-category listings from other sellers", async () => {
+    const viewer = await registerUser();
+    const sellerA = await registerUser();
+    const sellerB = await registerUser();
+    const seed = await createListing(sellerA.accessToken, {
+      title: "Canon camera",
+      category: "cameras",
+    });
+    const similar = await createListing(sellerB.accessToken, {
+      title: "Nikon camera",
+      category: "cameras",
+    });
+    await createListing(sellerB.accessToken, {
+      title: "Winter coat",
+      category: "clothing",
+    });
+    const closet = await createListing(sellerA.accessToken, {
+      title: "Seller closet item",
+      category: "cameras",
+    });
+
+    const res = await request(app)
+      .get(`/api/listings/${seed.id}/related`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+
+    expect(res.status).toBe(200);
+    const ids = (res.body.listings as { id: string }[]).map((l) => l.id);
+    expect(ids).toContain(similar.id);
+    expect(ids).not.toContain(seed.id);
+    expect(ids).not.toContain(closet.id);
+    expect(ids[0]).toBe(similar.id);
+  });
+
+  it("returns 401 without auth", async () => {
+    const owner = await registerUser();
+    const listing = await createListing(owner.accessToken);
+    const res = await request(app).get(`/api/listings/${listing.id}/related`);
+    expect(res.status).toBe(401);
   });
 });

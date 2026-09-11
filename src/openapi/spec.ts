@@ -54,6 +54,11 @@ export const openApiSpec = {
           isPhoneVerified:    { type: "boolean" },
           completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Percent of terminal trades completed. Null when none yet." },
           avgResponseMinutes: { type: "integer", nullable: true, description: "Rolling average reply time in minutes. Null until the user has replied." },
+          interestCategoryIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Onboarding interest slugs for personalized ranking.",
+          },
           createdAt:          { type: "string", format: "date-time" },
           updatedAt:          { type: "string", format: "date-time" },
         },
@@ -93,6 +98,12 @@ export const openApiSpec = {
           },
           locationLat:  { type: "number", minimum: -90, maximum: 90 },
           locationLng:  { type: "number", minimum: -180, maximum: 180 },
+          interestCategoryIds: {
+            type: "array",
+            maxItems: 50,
+            items: { type: "string" },
+            description: "Onboarding interest slugs (e.g. electronics) used for cold-start recommendations.",
+          },
         },
       },
       GeoMeResponse: {
@@ -1230,10 +1241,39 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/listings/{listingId}/related": {
+      get: {
+        tags: ["Listings"],
+        summary: "Related listings for a detail page",
+        description:
+          "Personalized similar listings based on the viewer's swipes, saves, views, and onboarding interests. Falls back to same category and similar value when ranking is unavailable. Never includes the seed listing or the seller's other items (those appear in closet).",
+        parameters: [
+          { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 30, default: 10 } },
+        ],
+        responses: {
+          "200": {
+            description: "Related listing cards.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listings: { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                  },
+                },
+              },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Listing not found." },
+        },
+      },
+    },
     "/api/listings/{listingId}/view": {
       post: {
         tags: ["Listings"], summary: "Increment view counter",
-        description: "Fire-and-forget view ping. Responds 204 immediately; the DB write is async. Requires auth to prevent anonymous view-count inflation. Clients should call this once per unique detail-page visit.",
+        description: "Fire-and-forget view ping. Responds 204 immediately; increments listings.view_count and upserts listing_views for the viewer (skipped for the owner). Requires auth.",
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "View counted (or silently ignored for deleted listings)." },
@@ -1590,6 +1630,92 @@ export const openApiSpec = {
     "/api/offers/{offerId}/counter/deny": {
       post: { tags: ["Offers"], summary: "Buyer declines counter-offer", parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Declined" } } },
     },
+    "/api/cash-offers/quota": {
+      get: {
+        tags: ["Cash Offers"],
+        summary: "Cash-only offer quota for the caller",
+        description:
+          "max = freeOffers + activeListingCount + bonusOffers. remaining = max - used. Used counts lifetime cash-only creates (no items, cash > 0).",
+        responses: {
+          "200": {
+            description: "Quota snapshot",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    used: { type: "integer" },
+                    max: { type: "integer" },
+                    remaining: { type: "integer" },
+                    activeListingCount: { type: "integer" },
+                    freeOffers: { type: "integer" },
+                    bonusOffers: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/cash-offers": {
+      post: {
+        tags: ["Cash Offers"],
+        summary: "Create a cash-only offer (no buyer items)",
+        description:
+          "Creates a normal offer/round with empty buyer items. Enforces cash-only quota. Item swaps stay on POST /api/offers.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["listingId", "cashTopUpCents"],
+                properties: {
+                  listingId: { type: "string", format: "uuid" },
+                  cashTopUpCents: { type: "integer", minimum: 1 },
+                  swipeId: { type: "string", format: "uuid" },
+                  buyerNote: { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Cash-only offer created", content: { "application/json": { schema: { $ref: "#/components/schemas/Offer" } } } },
+          "403": { description: "Quota exhausted (cash_only_quota)" },
+        },
+      },
+    },
+    "/api/cash-offers/{offerId}/counter": {
+      post: {
+        tags: ["Cash Offers"],
+        summary: "Counter a cash-only offer with revised cash terms",
+        description:
+          "Buyer items stay empty. sellerListingIds defaults to the original target listing. Item counters stay on POST /api/offers/{offerId}/counter.",
+        parameters: [{ name: "offerId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  buyerCashTopUpCents: { type: "integer", minimum: 0 },
+                  sellerCashRequestedCents: { type: "integer", minimum: 0 },
+                  sellerListingIds: { type: "array", items: { type: "string", format: "uuid" } },
+                  note: { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Cash counter round created" },
+          "409": { description: "Wrong turn or round cap" },
+        },
+      },
+    },
     // ── Trades ───────────────────────────────────────────────────────────────────
     "/api/trades": {
       get: {
@@ -1926,6 +2052,7 @@ export const openApiSpec = {
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Saved",         description: "Save-for-later listings (independent of swipes)" },
     { name: "Offers",        description: "Swap offers and counter-offers" },
+    { name: "Cash Offers",   description: "Cash-only offers and quota (isolated from item swap APIs)" },
     { name: "Trades",        description: "Confirmed trades, meetup coordination, and sealed peer reviews (7-day reveal window)" },
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },

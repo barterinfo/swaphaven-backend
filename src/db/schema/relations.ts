@@ -3,6 +3,8 @@ import { usersTable, userProfilesTable, deviceTokensTable, swipeStreaksTable } f
 import { categoriesTable, listingsTable, listingImagesTable, listingWantsTable } from "./listings.js";
 import { swipesTable } from "./swipes.js";
 import { savedListingsTable } from "./saved_listings.js";
+import { listingViewsTable } from "./listing_views.js";
+import { listingEmbeddingsTable } from "./listing_embeddings.js";
 import {
   offersTable, offerItemsTable, counterOffersTable, counterOfferItemsTable,
   offerRoundsTable, offerRoundItemsTable,
@@ -19,6 +21,7 @@ export const usersRelations = relations(usersTable, ({ one, many }) => ({
   listings:      many(listingsTable),
   swipes:        many(swipesTable, { relationName: "swiper" }),
   savedListings: many(savedListingsTable),
+  listingViews:  many(listingViewsTable),
   sentOffers:    many(offersTable, { relationName: "buyer" }),
   receivedOffers:many(offersTable, { relationName: "seller" }),
   notifications: many(notificationsTable),
@@ -49,7 +52,21 @@ export const listingsRelations = relations(listingsTable, ({ one, many }) => ({
   wants:     many(listingWantsTable),
   swipes:    many(swipesTable),
   savedBy:   many(savedListingsTable),
+  views:     many(listingViewsTable),
+  embedding: one(listingEmbeddingsTable, {
+    fields: [listingsTable.id],
+    references: [listingEmbeddingsTable.listingId],
+  }),
   offerItems:many(offerItemsTable),
+}));
+
+export const listingViewsRelations = relations(listingViewsTable, ({ one }) => ({
+  user:    one(usersTable, { fields: [listingViewsTable.userId], references: [usersTable.id] }),
+  listing: one(listingsTable, { fields: [listingViewsTable.listingId], references: [listingsTable.id] }),
+}));
+
+export const listingEmbeddingsRelations = relations(listingEmbeddingsTable, ({ one }) => ({
+  listing: one(listingsTable, { fields: [listingEmbeddingsTable.listingId], references: [listingsTable.id] }),
 }));
 
 export const listingImagesRelations = relations(listingImagesTable, ({ one }) => ({

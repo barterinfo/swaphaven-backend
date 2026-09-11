@@ -7,8 +7,9 @@
  *
  * Usage:
  *   npm run create:play-test-user
+ *   npm run create:play-test-user:uat
  *   npm run create:play-test-user:prod
- *   PLAY_TEST_EMAIL=playtest@bartersg.com PLAY_TEST_PASSWORD='...' npm run create:play-test-user:prod
+ *   PLAY_TEST_EMAIL=playtest@bartersg.com PLAY_TEST_PASSWORD='...' npm run create:play-test-user:uat
  */
 import bcrypt from "bcryptjs";
 import { DatabaseError } from "pg";
@@ -42,6 +43,7 @@ function printHelp(): void {
 
 Usage:
   npm run create:play-test-user
+  npm run create:play-test-user:uat
   npm run create:play-test-user:prod
 
 Options:
@@ -55,10 +57,11 @@ Environment:
   PLAY_TEST_EMAIL         Same as --email
   PLAY_TEST_PASSWORD      Same as --password (default: ${DEFAULT_PASSWORD})
   PLAY_TEST_NAME          Same as --name
-  DATABASE_URL            Required (.env local, .env.prod for production)
+  DATABASE_URL            Required (.env local, .env.uat for UAT, .env.prod for production)
 
 Examples:
   npm run create:play-test-user -- --email playtest --password 'PlayTest2026!'
+  PLAY_TEST_EMAIL=playtest@bartersg.com npm run create:play-test-user:uat
   PLAY_TEST_EMAIL=playtest@bartersg.com npm run create:play-test-user:prod
 `);
 }
@@ -231,7 +234,7 @@ async function main(): Promise<void> {
   }
 
   if (!process.env.DATABASE_URL?.trim()) {
-    throw new Error("DATABASE_URL is required (.env for local, .env.prod for production).");
+    throw new Error("DATABASE_URL is required (.env local, .env.uat for UAT, .env.prod for production).");
   }
 
   const details = await resolveDetails(options);

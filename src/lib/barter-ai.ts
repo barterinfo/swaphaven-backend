@@ -16,6 +16,19 @@ export type BarterAiPublicPingResult =
     };
 
 const DEFAULT_TIMEOUT_MS = 5_000;
+const RECOMMEND_TIMEOUT_MS = 800;
+const EMBED_TIMEOUT_MS = 15_000;
+
+export type BarterAiRankedItem = {
+  listingId: string;
+  score: number;
+  reason: string | null;
+};
+
+export type BarterAiRecommendResult =
+  | { skipped: true }
+  | { skipped: false; items: BarterAiRankedItem[] };
+
 
 function barterAiBaseUrl(): string | null {
   return env.BARTER_AI_URL?.replace(/\/$/, "") ?? null;
@@ -128,3 +141,88 @@ export async function ping(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<BarterAiPing
     timestamp: body.timestamp ?? new Date().toISOString(),
   };
 }
+
+type RecommendBody = {
+  userId?: string;
+  listingId?: string;
+  excludeIds: string[];
+  excludeOwnerIds: string[];
+  country: string;
+  category?: string;
+  limit: number;
+};
+
+async function recommend(
+  path: "/api/internal/recommend/related" | "/api/internal/recommend/deck",
+  body: RecommendBody,
+): Promise<BarterAiRecommendResult> {
+  let cfg: { baseUrl: string; secret: string } | null;
+  try {
+    cfg = configured();
+  } catch {
+    return { skipped: true };
+  }
+  if (!cfg) return { skipped: true };
+
+  try {
+    const json = await fetchBarterAi<{ items?: BarterAiRankedItem[] }>(
+      `${cfg.baseUrl}${path}`,
+      {
+        method: "POST",
+        headers: {
+          "X-Internal-Key": cfg.secret,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+      RECOMMEND_TIMEOUT_MS,
+      "barter-ai recommend",
+    );
+    return { skipped: false, items: json.items ?? [] };
+  } catch (err) {
+    console.error("[barter-ai recommend]", err);
+    return { skipped: true };
+  }
+}
+
+export function recommendRelated(body: RecommendBody): Promise<BarterAiRecommendResult> {
+  return recommend("/api/internal/recommend/related", body);
+}
+
+export function recommendDeck(body: RecommendBody): Promise<BarterAiRecommendResult> {
+  return recommend("/api/internal/recommend/deck", body);
+}
+
+/** Fire-and-forget listing embed. Never throws into listing create/update. */
+export function scheduleListingEmbed(listingId: string): void {
+  void embedListing(listingId).catch((err) => {
+    console.error("[barter-ai embed]", err);
+  });
+}
+
+async function embedListing(listingId: string): Promise<void> {
+  let cfg: { baseUrl: string; secret: string } | null;
+  try {
+    cfg = configured();
+  } catch {
+    return;
+  }
+  if (!cfg) return;
+
+  await fetchBarterAi(
+    `${cfg.baseUrl}/api/internal/embed/listing`,
+    {
+      method: "POST",
+      headers: {
+        "X-Internal-Key": cfg.secret,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ listingId }),
+    },
+    EMBED_TIMEOUT_MS,
+    "barter-ai embed",
+  );
+}
+

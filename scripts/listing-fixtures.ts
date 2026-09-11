@@ -80,14 +80,16 @@ type City = {
 };
 
 const CITIES: City[] = [
-  { city: "San Francisco", state: "CA", postalCode: "94103", lat: 37.7749, lng: -122.4194 },
-  { city: "Oakland", state: "CA", postalCode: "94607", lat: 37.8044, lng: -122.2712 },
-  { city: "San Jose", state: "CA", postalCode: "95113", lat: 37.3382, lng: -121.8863 },
-  { city: "Berkeley", state: "CA", postalCode: "94704", lat: 37.8715, lng: -122.273 },
-  { city: "Palo Alto", state: "CA", postalCode: "94301", lat: 37.4419, lng: -122.143 },
-  { city: "Fremont", state: "CA", postalCode: "94538", lat: 37.5485, lng: -121.9886 },
-  { city: "Concord", state: "CA", postalCode: "94520", lat: 37.9577, lng: -122.0348 },
-  { city: "Daly City", state: "CA", postalCode: "94015", lat: 37.6879, lng: -122.4702 },
+  { city: "Tampines", state: "Singapore", postalCode: "529510", lat: 1.3496, lng: 103.9568 },
+  { city: "Jurong East", state: "Singapore", postalCode: "609601", lat: 1.3329, lng: 103.7436 },
+  { city: "Woodlands", state: "Singapore", postalCode: "730900", lat: 1.4382, lng: 103.789 },
+  { city: "Bedok", state: "Singapore", postalCode: "460212", lat: 1.3236, lng: 103.9273 },
+  { city: "Clementi", state: "Singapore", postalCode: "120433", lat: 1.3151, lng: 103.7649 },
+  { city: "Toa Payoh", state: "Singapore", postalCode: "310100", lat: 1.3343, lng: 103.8563 },
+  { city: "Punggol", state: "Singapore", postalCode: "820166", lat: 1.4051, lng: 103.9024 },
+  { city: "Queenstown", state: "Singapore", postalCode: "140000", lat: 1.2942, lng: 103.7861 },
+  { city: "Ang Mo Kio", state: "Singapore", postalCode: "560000", lat: 1.3691, lng: 103.8454 },
+  { city: "Bukit Timah", state: "Singapore", postalCode: "269874", lat: 1.3294, lng: 103.8021 },
 ];
 
 type ProductTemplate = {
@@ -215,7 +217,8 @@ const PRODUCT_TEMPLATES: ProductTemplate[] = [
   },
 ];
 
-export const MAX_LISTING_FIXTURES = PRODUCT_TEMPLATES.length;
+/** Hard cap for `seed:listings --count`. Templates cycle so counts can exceed the catalog size. */
+export const MAX_LISTING_FIXTURES = 200;
 
 function categoryBySlug(slug: string): CategoryRef {
   return CATEGORIES.find((c) => c.slug === slug) ?? cat("electronics", "Electronics");
@@ -296,10 +299,10 @@ function buildFixture(template: ProductTemplate, index: number, rng: () => numbe
     location: {
       lat: jitterCoord(city.lat, rng),
       lng: jitterCoord(city.lng, rng),
-      address: `${streetNo} ${pick(["Market", "Broadway", "Mission", "University", "El Camino"], rng)} St`,
+      address: `${streetNo} ${pick(["Orchard", "Tanjong Pagar", "East Coast", "Serangoon", "Bukit Timah", "Holland"], rng)} Rd`,
       city: city.city,
       state: city.state,
-      country: "US",
+      country: "SG",
       postalCode: city.postalCode,
     },
     imageSeed: `seed-${runNonce}-${index}-${template.categorySlug}`,
@@ -308,7 +311,7 @@ function buildFixture(template: ProductTemplate, index: number, rng: () => numbe
 
 /** Builds fresh listing fixtures on every call (unique titles, copy, values, and locations). */
 export function generateListingFixtures(count: number): ListingFixture[] {
-  const safeCount = Math.max(1, Math.min(count, PRODUCT_TEMPLATES.length));
+  const safeCount = Math.max(1, Math.min(count, MAX_LISTING_FIXTURES));
   const seed = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
   let state = 0;
   const rng = () => {
@@ -317,6 +320,7 @@ export function generateListingFixtures(count: number): ListingFixture[] {
     return hash.readUInt32BE(0) / 0xffffffff;
   };
 
-  const templates = shuffle(PRODUCT_TEMPLATES, rng).slice(0, safeCount);
+  const rotated = shuffle(PRODUCT_TEMPLATES, rng);
+  const templates = Array.from({ length: safeCount }, (_, index) => rotated[index % rotated.length]!);
   return templates.map((template, index) => buildFixture(template, index, rng));
 }

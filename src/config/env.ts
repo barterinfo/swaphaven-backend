@@ -117,6 +117,17 @@ const envSchema = z.object({
   BARTER_AI_URL: z.string().url().optional(),
   /** Shared secret matching barter-ai INTERNAL_API_SECRET. Required when BARTER_AI_URL is set. */
   BARTER_AI_SECRET: z.string().min(32).optional(),
+  /**
+   * Cash-only offer quota: free starter slots (no items required).
+   * Keep in sync with Firebase Remote Config `cash_only_free_offers`.
+   * Formula: max = free + activeListings + bonus.
+   */
+  CASH_ONLY_FREE_OFFERS: z.coerce.number().int().min(0).default(1),
+  /**
+   * Extra cash-only slots controlled by operators (not shown to users as "bonus").
+   * Keep in sync with Firebase Remote Config `cash_only_bonus_offers`.
+   */
+  CASH_ONLY_BONUS_OFFERS: z.coerce.number().int().min(0).default(0),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));

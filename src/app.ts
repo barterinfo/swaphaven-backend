@@ -15,6 +15,7 @@ import usersRouter from "./routes/users.js";
 import listingsRouter from "./routes/listings.js";
 import swipeRouter from "./routes/swipe.js";
 import offersRouter from "./routes/offers.js";
+import cashOffersRouter from "./routes/cash-offers.js";
 import tradesRouter from "./routes/trades.js";
 import conversationsRouter from "./routes/conversations.js";
 import inboxRouter from "./routes/inbox.js";
@@ -177,6 +178,7 @@ export function createApp(): express.Express {
   app.use("/api/swipe",         swipeRouter);
   app.use("/api/saved",         savedRouter);
   app.use("/api/offers",        offersRouter);
+  app.use("/api/cash-offers",   cashOffersRouter);
   app.use("/api/trades",        tradesRouter);
   app.use("/api/conversations", conversationsRouter);
   app.use("/api/inbox",         inboxRouter);

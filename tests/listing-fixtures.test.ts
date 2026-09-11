@@ -10,9 +10,9 @@ import {
 
 describe("listing fixtures", () => {
   it("generates payloads that satisfy createListingBodySchema", () => {
-    const fixtures = generateListingFixtures(MAX_LISTING_FIXTURES);
+    const fixtures = generateListingFixtures(14);
 
-    expect(fixtures).toHaveLength(MAX_LISTING_FIXTURES);
+    expect(fixtures).toHaveLength(14);
 
     for (const fixture of fixtures) {
       const payload = buildListingPayload(fixture);
@@ -21,5 +21,13 @@ describe("listing fixtures", () => {
         true,
       );
     }
+  });
+
+  it("cycles templates when count exceeds the catalog size", () => {
+    const fixtures = generateListingFixtures(100);
+    expect(fixtures).toHaveLength(100);
+    expect(new Set(fixtures.map((f) => f.imageSeed)).size).toBe(100);
+    expect(fixtures.every((f) => f.location.country === "SG")).toBe(true);
+    expect(MAX_LISTING_FIXTURES).toBeGreaterThanOrEqual(100);
   });
 });
