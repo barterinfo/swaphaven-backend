@@ -19,6 +19,7 @@ import {
   normalizeCountryCode,
   resolveRequestCountry,
 } from "../lib/geo-country.js";
+import { recommendDeck } from "../lib/barter-ai.js";
 
 const router = Router();
 
@@ -148,8 +149,9 @@ router.get("/deck", optionalAuth, async (req, res) => {
     conditions.push(notInArray(listingsTable.id, uniqueExcludeIds));
   }
 
+  let hiddenOwners: string[] = [];
   if (userId) {
-    const hiddenOwners = await hiddenOwnerIds(userId);
+    hiddenOwners = await hiddenOwnerIds(userId);
     if (hiddenOwners.length) {
       conditions.push(notInArray(listingsTable.userId, hiddenOwners));
     }
@@ -171,20 +173,63 @@ router.get("/deck", optionalAuth, async (req, res) => {
     }
   }
 
-  const cards = await db.query.listingsTable.findMany({
-    where: and(...conditions),
-    with: {
-      images: true,
-      categoryRow: true,
-      wants: true,
-      user: {
-        columns: { id: true, name: true },
-        with: { profile: { columns: { displayName: true } } },
-      },
+  const listingWith = {
+    images: true,
+    categoryRow: true,
+    wants: true,
+    user: {
+      columns: { id: true, name: true },
+      with: { profile: { columns: { displayName: true } } },
     },
+  } as const;
+
+  const mlReasonById = new Map<string, string | null>();
+  let cards = await db.query.listingsTable.findMany({
+    where: and(...conditions),
+    with: listingWith,
     limit: DECK_PAGE_SIZE,
     orderBy: sql`RANDOM()`,
   });
+
+  if (userId && viewerCountry) {
+    const ranked = await recommendDeck({
+      userId,
+      excludeIds: uniqueExcludeIds,
+      excludeOwnerIds: hiddenOwners,
+      country: viewerCountry,
+      category: categorySlug,
+      limit: DECK_PAGE_SIZE,
+    });
+    if (!ranked.skipped && ranked.items.length) {
+      const rankedIds = ranked.items.map((i) => i.listingId);
+      for (const item of ranked.items) mlReasonById.set(item.listingId, item.reason);
+      const rankedRows = await db.query.listingsTable.findMany({
+        where: and(...conditions, inArray(listingsTable.id, rankedIds)),
+        with: listingWith,
+      });
+      const byId = new Map(rankedRows.map((row) => [row.id, row]));
+      const ordered = rankedIds
+        .map((id) => byId.get(id))
+        .filter((row): row is NonNullable<typeof row> => Boolean(row));
+      if (ordered.length < DECK_PAGE_SIZE) {
+        const fill = await db.query.listingsTable.findMany({
+          where: and(
+            ...conditions,
+            notInArray(
+              listingsTable.id,
+              ordered.length ? ordered.map((c) => c.id) : rankedIds,
+            ),
+          ),
+          with: listingWith,
+          limit: DECK_PAGE_SIZE - ordered.length,
+          orderBy: sql`RANDOM()`,
+        });
+        cards = [...ordered, ...fill];
+      } else {
+        cards = ordered;
+      }
+    }
+  }
 
   const myOfferCategories = new Set<string>();
   let remainingSwipesToday = UNLIMITED_REMAINING;
@@ -250,9 +295,10 @@ router.get("/deck", optionalAuth, async (req, res) => {
         computeMatchScore(c.wantedCategories ?? [], myOfferCategories);
       const { user, ...listing } = c;
       const ownerName = user?.profile?.displayName?.trim() || user?.name?.trim() || "";
+      const mlReason = mlReasonById.get(c.id);
       return {
         listing: { ...listing, ownerName, is_saved: savedIds.has(c.id) },
-        matchReason,
+        matchReason: mlReason || matchReason,
         mutualFitScore,
         matchedWantedLabels,
         hotCount: c.rightSwipeCount,

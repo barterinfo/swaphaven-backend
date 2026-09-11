@@ -54,6 +54,11 @@ export const openApiSpec = {
           isPhoneVerified:    { type: "boolean" },
           completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Percent of terminal trades completed. Null when none yet." },
           avgResponseMinutes: { type: "integer", nullable: true, description: "Rolling average reply time in minutes. Null until the user has replied." },
+          interestCategoryIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Onboarding interest slugs for personalized ranking.",
+          },
           createdAt:          { type: "string", format: "date-time" },
           updatedAt:          { type: "string", format: "date-time" },
         },
@@ -93,6 +98,12 @@ export const openApiSpec = {
           },
           locationLat:  { type: "number", minimum: -90, maximum: 90 },
           locationLng:  { type: "number", minimum: -180, maximum: 180 },
+          interestCategoryIds: {
+            type: "array",
+            maxItems: 50,
+            items: { type: "string" },
+            description: "Onboarding interest slugs (e.g. electronics) used for cold-start recommendations.",
+          },
         },
       },
       GeoMeResponse: {
@@ -1230,10 +1241,39 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/listings/{listingId}/related": {
+      get: {
+        tags: ["Listings"],
+        summary: "Related listings for a detail page",
+        description:
+          "Personalized similar listings based on the viewer's swipes, saves, views, and onboarding interests. Falls back to same category and similar value when ranking is unavailable. Never includes the seed listing or the seller's other items (those appear in closet).",
+        parameters: [
+          { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 30, default: 10 } },
+        ],
+        responses: {
+          "200": {
+            description: "Related listing cards.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    listings: { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                  },
+                },
+              },
+            },
+          },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Listing not found." },
+        },
+      },
+    },
     "/api/listings/{listingId}/view": {
       post: {
         tags: ["Listings"], summary: "Increment view counter",
-        description: "Fire-and-forget view ping. Responds 204 immediately; the DB write is async. Requires auth to prevent anonymous view-count inflation. Clients should call this once per unique detail-page visit.",
+        description: "Fire-and-forget view ping. Responds 204 immediately; increments listings.view_count and upserts listing_views for the viewer (skipped for the owner). Requires auth.",
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "View counted (or silently ignored for deleted listings)." },

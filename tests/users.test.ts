@@ -50,6 +50,17 @@ describe("PATCH /api/users/me", () => {
     expect(res.body.locationCity).toBe("NYC");
   });
 
+  it("saves onboarding interest slugs", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ interestCategoryIds: ["electronics", "cameras"] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.interestCategoryIds).toEqual(["electronics", "cameras"]);
+  });
+
   it("ignores server-managed stats when sent in the body", async () => {
     const { accessToken, user } = await registerUser();
     const res = await request(app)
