@@ -4,6 +4,8 @@
  *
  * Usage:
  *   npm run seed:user
+ *   npm run seed:user:uat
+ *   npm run seed:user:prod
  *   npm run seed:user -- --random
  *   npm run seed:user -- --base-url https://swaphaven-backend-production.up.railway.app
  */

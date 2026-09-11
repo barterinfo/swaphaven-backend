@@ -4,6 +4,8 @@
  *
  * Usage:
  *   npm run seed:listings
+ *   npm run seed:listings:uat
+ *   npm run seed:listings:prod
  *   npm run seed:listings -- --base-url https://swaphaven-backend-production.up.railway.app
  *   API_BASE=http://127.0.0.1:3001 npm run seed:listings
  */
@@ -47,6 +49,8 @@ Creates unique sample listings for an existing user account.
 
 Usage:
   npm run seed:listings
+  npm run seed:listings:uat
+  npm run seed:listings:prod
   npm run seed:listings -- --base-url <url> [--count <n>]
 
 Options:
@@ -62,6 +66,8 @@ Environment:
 
 Examples:
   npm run seed:listings
+  npm run seed:listings:uat
+  npm run seed:listings:prod
   npm run seed:listings -- --base-url https://swaphaven-backend-production.up.railway.app
 `);
 }
