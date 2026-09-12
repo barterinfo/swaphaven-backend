@@ -243,6 +243,16 @@ describe("GET /api/conversations/:conversationId/messages", () => {
 
     expect(res.status).toBe(403);
   });
+
+  it("rejects a non-uuid conversation id with 400", async () => {
+    const { accessToken } = await registerUser();
+    const res = await request(app)
+      .get("/api/conversations/new/messages")
+      .set("Authorization", `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("validation");
+  });
 });
 
 // ─── GET /api/conversations/:conversationId/meetup-suggestions ────────────────
@@ -596,5 +606,94 @@ describe("POST /api/conversations/:conversationId/messages", () => {
       .send({ body: "Anon message" });
 
     expect(res.status).toBe(401);
+  });
+});
+
+// ─── POST /api/conversations (profile Message) ────────────────────────────────
+describe("POST /api/conversations", () => {
+  it("creates a direct conversation and lists it for both users", async () => {
+    const alice = await registerUser();
+    const bob = await registerUser();
+
+    const created = await request(app)
+      .post("/api/conversations")
+      .set("Authorization", `Bearer ${alice.accessToken}`)
+      .send({ otherUserId: bob.user.id });
+
+    expect(created.status).toBe(201);
+    expect(created.body.conversationId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    const again = await request(app)
+      .post("/api/conversations")
+      .set("Authorization", `Bearer ${bob.accessToken}`)
+      .send({ otherUserId: alice.user.id });
+
+    expect(again.status).toBe(200);
+    expect(again.body.conversationId).toBe(created.body.conversationId);
+
+    const messages = await request(app)
+      .get(`/api/conversations/${created.body.conversationId}/messages`)
+      .set("Authorization", `Bearer ${alice.accessToken}`);
+    expect(messages.status).toBe(200);
+    expect(messages.body.items).toHaveLength(0);
+
+    const list = await request(app)
+      .get("/api/conversations")
+      .set("Authorization", `Bearer ${bob.accessToken}`);
+    expect(list.status).toBe(200);
+    expect(list.body.items).toHaveLength(1);
+    expect(list.body.items[0].id).toBe(created.body.conversationId);
+    expect(list.body.items[0].offer).toBeNull();
+    expect(list.body.items[0].otherUser.id).toBe(alice.user.id);
+  });
+
+  it("reuses an existing offer conversation instead of opening a second thread", async () => {
+    const { seller, buyer, trade } = await fullTradeSetup();
+
+    const res = await request(app)
+      .post("/api/conversations")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({ otherUserId: seller.user.id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.conversationId).toBe(trade.conversationId);
+  });
+
+  it("prefers an existing profile DM over a later offer conversation", async () => {
+    const alice = await registerUser();
+    const bob = await registerUser();
+
+    const dm = await request(app)
+      .post("/api/conversations")
+      .set("Authorization", `Bearer ${alice.accessToken}`)
+      .send({ otherUserId: bob.user.id });
+    expect(dm.status).toBe(201);
+    const dmId = dm.body.conversationId as string;
+
+    const aliceListing = await createListing(alice.accessToken);
+    const bobListing = await createListing(bob.accessToken);
+    const offer = await createOffer(bob.accessToken, aliceListing.id, bobListing.id);
+    const trade = await acceptOffer(alice.accessToken, offer.id);
+    expect(trade.conversationId).not.toBe(dmId);
+
+    const again = await request(app)
+      .post("/api/conversations")
+      .set("Authorization", `Bearer ${alice.accessToken}`)
+      .send({ otherUserId: bob.user.id });
+
+    expect(again.status).toBe(200);
+    expect(again.body.conversationId).toBe(dmId);
+  });
+
+  it("rejects messaging yourself", async () => {
+    const { accessToken, user } = await registerUser();
+    const res = await request(app)
+      .post("/api/conversations")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ otherUserId: user.id });
+
+    expect(res.status).toBe(400);
   });
 });

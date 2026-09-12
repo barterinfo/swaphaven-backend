@@ -24,6 +24,8 @@ export const usersRelations = relations(usersTable, ({ one, many }) => ({
   listingViews:  many(listingViewsTable),
   sentOffers:    many(offersTable, { relationName: "buyer" }),
   receivedOffers:many(offersTable, { relationName: "seller" }),
+  initiatedConversations: many(conversationsTable, { relationName: "conversationInitiator" }),
+  receivedConversations:  many(conversationsTable, { relationName: "conversationRecipient" }),
   notifications: many(notificationsTable),
 }));
 
@@ -146,8 +148,18 @@ export const tradeReviewsRelations = relations(tradeReviewsTable, ({ one }) => (
 
 // ─── Conversations & Messages ─────────────────────────────────────────────────
 export const conversationsRelations = relations(conversationsTable, ({ one, many }) => ({
-  offer:    one(offersTable, { fields: [conversationsTable.offerId], references: [offersTable.id] }),
-  messages: many(messagesTable),
+  offer:      one(offersTable, { fields: [conversationsTable.offerId], references: [offersTable.id] }),
+  initiator:  one(usersTable, {
+    fields: [conversationsTable.initiatorId],
+    references: [usersTable.id],
+    relationName: "conversationInitiator",
+  }),
+  recipient:  one(usersTable, {
+    fields: [conversationsTable.recipientId],
+    references: [usersTable.id],
+    relationName: "conversationRecipient",
+  }),
+  messages:   many(messagesTable),
 }));
 
 export const messagesRelations = relations(messagesTable, ({ one }) => ({

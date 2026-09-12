@@ -8,9 +8,12 @@ export const messageTypeEnum = pgEnum("message_type", ["text", "image", "system"
 
 // ─── conversations ────────────────────────────────────────────────────────────
 export const conversationsTable = pgTable("conversations", {
-  id:        uuid("id").primaryKey().defaultRandom(),
-  offerId:   uuid("offer_id").notNull().unique().references(() => offersTable.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  id:          uuid("id").primaryKey().defaultRandom(),
+  // Offer threads: set. Direct (profile) threads: null + initiator/recipient.
+  offerId:     uuid("offer_id").unique().references(() => offersTable.id, { onDelete: "cascade" }),
+  initiatorId: uuid("initiator_id").references(() => usersTable.id),
+  recipientId: uuid("recipient_id").references(() => usersTable.id),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
 });
 
 // ─── messages ─────────────────────────────────────────────────────────────────

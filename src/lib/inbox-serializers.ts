@@ -175,7 +175,11 @@ interface ConversationOfferInput {
 interface ConversationListInput {
   id: string;
   createdAt: Date;
-  offer: ConversationOfferInput;
+  offer?: ConversationOfferInput | null;
+  initiatorId?: string | null;
+  recipientId?: string | null;
+  initiator?: UserSummaryInput | null;
+  recipient?: UserSummaryInput | null;
   messages?: MessageInput[];
 }
 
@@ -185,20 +189,26 @@ export function serializeConversationListItem(
   currentUserId: string,
   unreadCount: number,
 ) {
-  const { offer } = conversation;
-  const otherUserRaw = offer.buyerId === currentUserId ? offer.seller : offer.buyer;
+  const offer = conversation.offer ?? null;
+  const otherUserRaw = offer
+    ? (offer.buyerId === currentUserId ? offer.seller : offer.buyer)
+    : (conversation.initiatorId === currentUserId
+      ? conversation.recipient
+      : conversation.initiator);
   const lastMessage = conversation.messages?.[0] ?? null;
   const updatedAt = lastMessage?.createdAt ?? conversation.createdAt;
 
   return {
     id: conversation.id,
-    offer: {
-      id: offer.id,
-      status: offer.status,
-      listing: serializeListingSummary(offer.listing),
-      offeredItems: (offer.items ?? []).map(serializeOfferItem),
-    },
-    trade: offer.trade
+    offer: offer
+      ? {
+          id: offer.id,
+          status: offer.status,
+          listing: serializeListingSummary(offer.listing),
+          offeredItems: (offer.items ?? []).map(serializeOfferItem),
+        }
+      : null,
+    trade: offer?.trade
       ? {
           id: offer.trade.id,
           status: offer.trade.status,
