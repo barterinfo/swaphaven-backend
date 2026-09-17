@@ -219,3 +219,65 @@ describe("GET /api/search/listings", () => {
     expect(Array.isArray(res.body.listings)).toBe(true);
   });
 });
+
+describe("GET /api/search/recommended", () => {
+  it("requires auth", async () => {
+    const res = await request(app).get("/api/search/recommended?limit=5");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns a paginated page and a nextOffset when more remain", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    await createListing(owner.accessToken, { title: `RecA-${uid()}` });
+    await createListing(owner.accessToken, { title: `RecB-${uid()}` });
+    await createListing(owner.accessToken, { title: `RecC-${uid()}` });
+
+    const page1 = await request(app)
+      .get("/api/search/recommended?limit=2&offset=0")
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(page1.status).toBe(200);
+    expect(page1.body.listings).toHaveLength(2);
+    expect(page1.body.total).toBeGreaterThanOrEqual(3);
+    expect(page1.body.nextOffset).toBe(2);
+
+    const page2 = await request(app)
+      .get(`/api/search/recommended?limit=2&offset=${page1.body.nextOffset}`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(page2.status).toBe(200);
+    expect(page2.body.listings.length).toBeGreaterThan(0);
+    const ids1 = page1.body.listings.map((l: { id: string }) => l.id);
+    const ids2 = page2.body.listings.map((l: { id: string }) => l.id);
+    expect(ids1.some((id: string) => ids2.includes(id))).toBe(false);
+  });
+});
+
+describe("GET /api/search/related", () => {
+  it("requires auth and listingId", async () => {
+    const res = await request(app).get("/api/search/related");
+    expect(res.status).toBe(401);
+
+    const { accessToken } = await registerUser();
+    const missing = await request(app)
+      .get("/api/search/related")
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(missing.status).toBe(400);
+  });
+
+  it("pages related listings for a seed item", async () => {
+    const viewer = await registerUser();
+    const owner = await registerUser();
+    const seed = await createListing(owner.accessToken, { title: `RelSeed-${uid()}` });
+    await createListing(owner.accessToken, { title: `RelOther-${uid()}` });
+    const otherOwner = await registerUser();
+    await createListing(otherOwner.accessToken, { title: `RelPeer-${uid()}` });
+
+    const res = await request(app)
+      .get(`/api/search/related?listingId=${seed.id}&limit=2&offset=0`)
+      .set("Authorization", `Bearer ${viewer.accessToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.listings)).toBe(true);
+    expect(res.body.listings.map((l: { id: string }) => l.id)).not.toContain(seed.id);
+    expect(typeof res.body.total).toBe("number");
+  });
+});

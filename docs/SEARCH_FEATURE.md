@@ -41,7 +41,7 @@ Dedicated listing search across **swaphaven-api** and **barter-stack mobile**. S
 
 - Elasticsearch / Meilisearch / embeddings
 - Server-side search keyword history or trending keywords
-- Affinity ranking from swipe/detail signals (`seed_ids` accepted, **ignored**)
+- Affinity ranking *inside* `GET /api/search/listings` (`seed_ids` accepted, **ignored**). Personalized collections live on **new** routes — see [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md)
 - Searching sold/traded/paused/deleted listings
 - Favorites/hearts on search cards (UI shows fire / right-swipe count)
 
@@ -120,12 +120,13 @@ stateDiagram-v2
 
 1. **Recent keywords** — local chips (add on submit, remove / clear)
 2. **Categories** — browse slugs → `category=` on search
-3. **Close to you** — `GET /api/search/listings` with `sort=nearest`, `limit=4`, radius from prefs (2‑minute in-memory cache)
-4. **Trending** — `GET /api/search/trending` → product grid (not keywords)
+3. **Recommended for you** (signed-in) — carousel + See all → [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md)
+4. **Close to you** — preview nearest; See all uses the shared nearby grid (`sort=nearest`, paged)
+5. **Trending** — `GET /api/search/trending` carousel (not keywords); See all uses `sort=most_saved`
 
 ### Results screen contents
 
-- Sort chips: best match / nearest / newest / value asc / most saved
+- Sort chips: best match / nearest / newest / value asc / most saved / **Recommended** (signed-in; opens the shared grid, not listings `sort=recommended`)
 - Filters sheet: conditions + max distance miles
 - Grid or list (`barter_ui` cards)
 - Infinite scroll when `nextOffset != null`
@@ -160,8 +161,12 @@ sequenceDiagram
     API->>DB: active + haversine filter/sort
     DB-->>API: rows
     API-->>N: { listings, total, nextOffset }
+  and Recommended (signed-in, best-effort)
+    N->>API: GET /recommended?limit=10
+    Note over API: See SEARCH_RECOMMENDATIONS.md
+    API-->>N: { listings, total, nextOffset } or empty on error
   end
-  N-->>UI: idle state (recent, trending, nearby)
+  N-->>UI: idle state (recent, trending, nearby, recommended)
 ```
 
 ### 4.2 Typed / submitted search
@@ -587,14 +592,15 @@ Wiring:
 
 ## 11. Phase 2 hooks
 
+Personalized search **did not** land as `sort=recommended` or client `seed_ids`. It is a sibling feature: filter a capped ID pool, rerank in barter-ai, paginate. Full spec: [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md).
+
 | Hook | Status |
 |------|--------|
-| `seed_ids` query param | Parsed (max 50), **ignored** in `searchListings` |
-| Local affinity (right-swipe + detail opens) | Not built |
-| Similar-item merge / embeddings | Deferred |
+| `seed_ids` query param | Parsed (max 50), **still ignored** in `searchListings` — not implemented |
+| Local affinity store | **Not built.** Taste is server-side (swipes, saves, views) in barter-ai |
+| Similar-item embeddings | **Shipped** for Recommended idle, Recommended sort, and related See all via `POST /api/internal/recommend/search` |
+| `GET /api/search/listings` sort enum | **Unchanged** (`best_match`, `nearest`, `newest`, `value_asc`, `most_saved`) |
 | External search engine | Deferred |
-
-Phase 2 intent: mobile builds a small local affinity store and passes `seed_ids`; API merges similar active listings into ranking without changing the public response envelope.
 
 ---
 
@@ -639,6 +645,7 @@ flutter test   # include barter_ui search card tests if present
 
 ### Related docs
 
+- [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md) — Recommended / related collections and shared See all grid  
 - [API_GUIDE.md](./API_GUIDE.md) — full endpoint catalog  
 - [DB_SCHEMA.md](./DB_SCHEMA.md) — broader schema  
 - [SWAGGER.md](./SWAGGER.md) — OpenAPI UI  
@@ -649,6 +656,7 @@ flutter test   # include barter_ui search card tests if present
 |------|------|
 | Route | `src/routes/search.ts` |
 | Queries | `src/search/queries.ts` |
+| Personalized collections | `src/search/collections.ts` — see [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md) |
 | Hide helper | `src/lib/active-offer-listings.ts` |
 | Migration | `drizzle/0013_search_trgm_indexes.sql` |
 | Mobile screen | `barter-stack/mobile/lib/features/search/presentation/search_screen.dart` |

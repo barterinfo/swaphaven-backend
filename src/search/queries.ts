@@ -271,3 +271,41 @@ export async function searchListings(params: SearchListingParams): Promise<{
 
   return { listings, total, nextOffset };
 }
+
+const SEARCH_CANDIDATE_CAP = 200;
+
+/** IDs only — used by recommended/related ranking. Caps the pool so we never scan the table. */
+export async function fetchSearchCandidateIds(
+  params: Omit<SearchListingParams, "sort" | "limit" | "offset"> & {
+    cap?: number;
+    country?: string;
+  },
+): Promise<string[]> {
+  let excludeListingIds = params.excludeListingIds ?? [];
+  if (params.excludeUserId && excludeListingIds.length === 0) {
+    excludeListingIds = await getActiveNegotiationListingIds(params.excludeUserId);
+  }
+  const filterConditions = buildFilterConditions({
+    ...params,
+    excludeListingIds,
+    sort: "newest",
+    limit: 1,
+    offset: 0,
+  });
+  if (params.country) {
+    filterConditions.push(
+      or(
+        eq(listingsTable.locationCountry, params.country),
+        eq(listingsTable.locationCountry, ""),
+      )!,
+    );
+  }
+  const cap = Math.min(Math.max(params.cap ?? SEARCH_CANDIDATE_CAP, 1), SEARCH_CANDIDATE_CAP);
+  const rows = await db
+    .select({ id: listingsTable.id })
+    .from(listingsTable)
+    .where(and(...filterConditions))
+    .orderBy(desc(listingsTable.createdAt))
+    .limit(cap);
+  return rows.map((r) => r.id);
+}

@@ -2018,6 +2018,55 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/search/recommended": {
+      get: {
+        tags: ["Search"],
+        summary: "Personalized recommended listings (paginated)",
+        description:
+          "Taste-ranked active listings for the signed-in viewer. Ranks a capped candidate pool, then slices by offset/limit.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "q", in: "query", schema: { type: "string" } },
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number", minimum: 1, maximum: 32 } },
+          { name: "condition", in: "query", schema: { type: "string" } },
+          { name: "category", in: "query", schema: { type: "string" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+        ],
+        responses: {
+          "200": {
+            description: "Recommended listings",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SearchListingsResponse" } } },
+          },
+          "401": { description: "Missing or invalid bearer token" },
+        },
+      },
+    },
+    "/api/search/related": {
+      get: {
+        tags: ["Search"],
+        summary: "Related listings for a seed item (paginated)",
+        description:
+          "See-all page for item-detail YOU MIGHT LIKE. Ranks a capped candidate pool around listingId.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "listingId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "q", in: "query", schema: { type: "string" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+        ],
+        responses: {
+          "200": {
+            description: "Related listings",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SearchListingsResponse" } } },
+          },
+          "400": { description: "listingId missing or invalid" },
+          "401": { description: "Missing or invalid bearer token" },
+        },
+      },
+    },
     // ── Ads ──────────────────────────────────────────────────────────────────────
     "/api/ads/active": {
       get: {

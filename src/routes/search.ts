@@ -1,9 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
-import { optionalAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { searchRecommendedPage, searchRelatedPage } from "../search/collections.js";
 import { searchListings } from "../search/queries.js";
 import type { SearchSort } from "../search/types.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
+import {
+  normalizeCountryCode,
+  resolveRequestCountry,
+} from "../lib/geo-country.js";
+import { db } from "../db/client.js";
+import { eq } from "drizzle-orm";
+import { userProfilesTable } from "../db/schema/index.js";
 
 const router = Router();
 
@@ -57,12 +65,93 @@ function parseSeedIds(raw: string | undefined): string[] {
     .slice(0, 50);
 }
 
+const collectionQuerySchema = z.object({
+  q: z.string().optional(),
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lng: z.coerce.number().min(-180).max(180).optional(),
+  radius: z.coerce.number().min(1).max(32).optional(),
+  condition: z.string().optional(),
+  category: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  listingId: z.string().uuid().optional(),
+});
+
+async function viewerCountry(req: Parameters<typeof resolveRequestCountry>[0], userId: string): Promise<string> {
+  const profile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, userId),
+    columns: { locationCountry: true },
+  });
+  return (
+    normalizeCountryCode(profile?.locationCountry) ??
+    resolveRequestCountry(req).country ??
+    "SG"
+  );
+}
+
 function defaultSort(q: string | undefined, lat?: number, lng?: number): SearchSort {
   const hasQ = Boolean(q && q.trim().replace(/\s+/g, " ").length >= 2);
   if (hasQ) return "best_match";
   if (lat != null && lng != null) return "nearest";
   return "newest";
 }
+
+// ─── GET /api/search/recommended ──────────────────────────────────────────────
+router.get("/recommended", requireAuth, async (req, res) => {
+  const parsed = collectionQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation_error",
+      message: parsed.error.issues[0]?.message ?? "Invalid query",
+    });
+  }
+  const q = parsed.data;
+  const viewerId = req.user!.sub;
+  const country = await viewerCountry(req, viewerId);
+  const result = await searchRecommendedPage({
+    q: q.q,
+    lat: q.lat,
+    lng: q.lng,
+    radius: q.radius,
+    conditions: parseConditions(q.condition),
+    category: q.category,
+    viewerId,
+    country,
+    limit: q.limit,
+    offset: q.offset,
+  });
+  return res.json(result);
+});
+
+// ─── GET /api/search/related ──────────────────────────────────────────────────
+router.get("/related", requireAuth, async (req, res) => {
+  const parsed = collectionQuerySchema.extend({
+    listingId: z.string().uuid(),
+  }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation_error",
+      message: parsed.error.issues[0]?.message ?? "listingId is required",
+    });
+  }
+  const q = parsed.data;
+  const viewerId = req.user!.sub;
+  const country = await viewerCountry(req, viewerId);
+  const result = await searchRelatedPage({
+    q: q.q,
+    lat: q.lat,
+    lng: q.lng,
+    radius: q.radius,
+    conditions: parseConditions(q.condition),
+    category: q.category,
+    viewerId,
+    country,
+    limit: q.limit,
+    offset: q.offset,
+    listingId: q.listingId,
+  });
+  return res.json(result);
+});
 
 // ─── GET /api/search/listings ─────────────────────────────────────────────────
 router.get("/listings", optionalAuth, async (req, res) => {
