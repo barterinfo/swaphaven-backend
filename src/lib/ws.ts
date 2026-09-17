@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import type { AuthPayload } from "../middleware/auth.js";
 import { db } from "../db/client.js";
 import { conversationsTable } from "../db/schema/index.js";
+import { isParticipant } from "./conversations.js";
 
 const rooms = new Map<string, Set<WebSocket>>();
 
@@ -53,7 +54,7 @@ async function authorizeUpgrade(req: IncomingMessage): Promise<
     where: eq(conversationsTable.id, conversationId),
     with: { offer: { columns: { buyerId: true, sellerId: true } } },
   });
-  if (!conv || (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId)) {
+  if (!conv || !isParticipant(conv, userId)) {
     return { status: 403, reason: "Forbidden" };
   }
 

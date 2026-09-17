@@ -168,8 +168,9 @@ router.post("/reports", requireAuth, async (req, res) => {
     if (!conv) {
       return res.status(404).json({ error: "not_found", message: "Conversation not found" });
     }
-    const { buyerId, sellerId } = conv.offer;
-    if (buyerId !== reporterId && sellerId !== reporterId) {
+    const buyerId = conv.offer?.buyerId ?? conv.initiatorId;
+    const sellerId = conv.offer?.sellerId ?? conv.recipientId;
+    if (!buyerId || !sellerId || (buyerId !== reporterId && sellerId !== reporterId)) {
       return res.status(403).json({ error: "forbidden", message: "Not a participant" });
     }
     reportedUserId = buyerId === reporterId ? sellerId : buyerId;

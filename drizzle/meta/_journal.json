@@ -225,6 +225,13 @@
       "when": 1786100000000,
       "tag": "0030_recommend_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786200000000,
+      "tag": "0031_direct_conversations",
+      "breakpoints": true
     }
   ]
 }

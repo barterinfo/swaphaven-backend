@@ -14,6 +14,13 @@ import { filterListingImageUrls } from "../lib/media.js";
 import { isImageObscene } from "../lib/image-moderation.js";
 import { blockedUserIds, isBlockedEitherWay } from "../lib/user-blocks.js";
 import { recordMessageResponse } from "../lib/profile-stats.js";
+import {
+  ensureDirectConversation,
+  isParticipant,
+  loadConversation,
+  otherParticipantId,
+  userExists,
+} from "../lib/conversations.js";
 
 const router = Router();
 
@@ -47,14 +54,19 @@ router.get("/", requireAuth, async (req, res) => {
   const sortAt = sql<Date>`COALESCE(${lastMsgSq.lastAt}, ${conversationsTable.createdAt})`;
 
   const conditions = [
-    or(eq(offersTable.buyerId, userId), eq(offersTable.sellerId, userId)),
+    or(
+      eq(offersTable.buyerId, userId),
+      eq(offersTable.sellerId, userId),
+      eq(conversationsTable.initiatorId, userId),
+      eq(conversationsTable.recipientId, userId),
+    ),
   ];
   if (cursor) conditions.push(lt(sortAt, cursor));
 
   const idRows = await db
     .select({ id: conversationsTable.id, sortAt })
     .from(conversationsTable)
-    .innerJoin(offersTable, eq(conversationsTable.offerId, offersTable.id))
+    .leftJoin(offersTable, eq(conversationsTable.offerId, offersTable.id))
     .leftJoin(lastMsgSq, eq(conversationsTable.id, lastMsgSq.conversationId))
     .where(and(...conditions))
     .orderBy(desc(sortAt))
@@ -87,6 +99,8 @@ router.get("/", requireAuth, async (req, res) => {
           },
         },
       },
+      initiator: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
+      recipient: { columns: { id: true, name: true }, with: { profile: { columns: { displayName: true, avatarUrl: true, isVerified: true } } } },
       messages: { limit: 1, orderBy: (t, { desc }) => [desc(t.createdAt)] },
     },
   });
@@ -95,9 +109,8 @@ router.get("/", requireAuth, async (req, res) => {
   const blocked = new Set(await blockedUserIds(userId));
   const visible = blocked.size
     ? items.filter((c) => {
-        const other =
-          c.offer.buyerId === userId ? c.offer.sellerId : c.offer.buyerId;
-        return !blocked.has(other);
+        const other = otherParticipantId(c, userId);
+        return other != null && !blocked.has(other);
       })
     : items;
 
@@ -123,33 +136,67 @@ router.get("/", requireAuth, async (req, res) => {
   return res.json({ items: serialized, nextCursor });
 });
 
+const startDirectSchema = z.object({
+  otherUserId: z.string().uuid(),
+});
+
+// ─── POST /api/conversations ──────────────────────────────────────────────────
+// Profile "Message": reuse the latest thread with this user, or open a direct one.
+router.post("/", requireAuth, async (req, res) => {
+  const parsed = startDirectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "validation", message: parsed.error.flatten().fieldErrors });
+  }
+
+  const userId = req.user!.sub;
+  const { otherUserId } = parsed.data;
+  if (otherUserId === userId) {
+    return res.status(400).json({ error: "validation", message: "Cannot message yourself" });
+  }
+  if (!(await userExists(otherUserId))) {
+    return res.status(404).json({ error: "not_found" });
+  }
+  if (await isBlockedEitherWay(userId, otherUserId)) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "Messaging is unavailable with this user",
+    });
+  }
+
+  const { conversationId, created } = await ensureDirectConversation(userId, otherUserId);
+  return res.status(created ? 201 : 200).json({ conversationId });
+});
+
 // ─── GET /api/conversations/:conversationId ───────────────────────────────────
 router.get("/:conversationId", requireAuth, async (req, res) => {
   const convId = req.params["conversationId"] as string;
+  const loaded = await loadConversation(convId);
+  if ("error" in loaded) {
+    return res.status(loaded.error === "invalid_id" ? 400 : 404).json({ error: loaded.error === "invalid_id" ? "validation" : "not_found" });
+  }
+
+  const userId = req.user!.sub;
+  if (!isParticipant(loaded.conv, userId)) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
   const conv = await db.query.conversationsTable.findFirst({
     where: eq(conversationsTable.id, convId),
     with: { offer: true },
   });
-  if (!conv) return res.status(404).json({ error: "not_found" });
-
-  const userId = req.user!.sub;
-  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
-    return res.status(403).json({ error: "forbidden" });
-  }
   return res.json(conv);
 });
 
 // ─── GET /api/conversations/:conversationId/messages ──────────────────────────
 router.get("/:conversationId/messages", requireAuth, async (req, res) => {
   const convId = req.params["conversationId"] as string;
-  const conv = await db.query.conversationsTable.findFirst({
-    where: eq(conversationsTable.id, convId),
-    with: { offer: { columns: { buyerId: true, sellerId: true } } },
-  });
-  if (!conv) return res.status(404).json({ error: "not_found" });
+  const loaded = await loadConversation(convId);
+  if ("error" in loaded) {
+    return res.status(loaded.error === "invalid_id" ? 400 : 404).json({ error: loaded.error === "invalid_id" ? "validation" : "not_found" });
+  }
 
   const userId = req.user!.sub;
-  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+  if (!isParticipant(loaded.conv, userId)) {
     return res.status(403).json({ error: "forbidden" });
   }
 
@@ -186,19 +233,20 @@ const sendMessageSchema = z
 
 router.post("/:conversationId/messages", requireAuth, async (req, res) => {
   const convId = req.params["conversationId"] as string;
-  const conv = await db.query.conversationsTable.findFirst({
-    where: eq(conversationsTable.id, convId),
-    with: { offer: { columns: { buyerId: true, sellerId: true } } },
-  });
-  if (!conv) return res.status(404).json({ error: "not_found" });
+  const loaded = await loadConversation(convId);
+  if ("error" in loaded) {
+    return res.status(loaded.error === "invalid_id" ? 400 : 404).json({ error: loaded.error === "invalid_id" ? "validation" : "not_found" });
+  }
 
   const userId = req.user!.sub;
-  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+  if (!isParticipant(loaded.conv, userId)) {
     return res.status(403).json({ error: "forbidden" });
   }
 
-  const otherUserId =
-    conv.offer.buyerId === userId ? conv.offer.sellerId : conv.offer.buyerId;
+  const otherUserId = otherParticipantId(loaded.conv, userId);
+  if (!otherUserId) {
+    return res.status(403).json({ error: "forbidden" });
+  }
   if (await isBlockedEitherWay(userId, otherUserId)) {
     return res.status(403).json({
       error: "forbidden",
@@ -278,7 +326,7 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
     });
 
     const senderName = senderProfile?.displayName ?? "Someone";
-    const listingTitle = convDetail?.offer.listing?.title;
+    const listingTitle = convDetail?.offer?.listing?.title;
     const tradeTitle = listingTitle ? `${listingTitle} Trade` : undefined;
 
     await sendPushToUser(otherUserId, {
@@ -303,14 +351,13 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
 // Marks all messages from the other participant as read, clearing the unread badge.
 router.patch("/:conversationId/read", requireAuth, async (req, res) => {
   const convId = req.params["conversationId"] as string;
-  const conv = await db.query.conversationsTable.findFirst({
-    where: eq(conversationsTable.id, convId),
-    with: { offer: { columns: { buyerId: true, sellerId: true } } },
-  });
-  if (!conv) return res.status(404).json({ error: "not_found" });
+  const loaded = await loadConversation(convId);
+  if ("error" in loaded) {
+    return res.status(loaded.error === "invalid_id" ? 400 : 404).json({ error: loaded.error === "invalid_id" ? "validation" : "not_found" });
+  }
 
   const userId = req.user!.sub;
-  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+  if (!isParticipant(loaded.conv, userId)) {
     return res.status(403).json({ error: "forbidden" });
   }
 
@@ -332,20 +379,22 @@ router.patch("/:conversationId/read", requireAuth, async (req, res) => {
 // set on their profiles; otherwise responds with reason:"location_unavailable".
 router.get("/:conversationId/meetup-suggestions", requireAuth, async (req, res) => {
   const convId = req.params["conversationId"] as string;
-  const conv = await db.query.conversationsTable.findFirst({
-    where: eq(conversationsTable.id, convId),
-    with: { offer: { columns: { buyerId: true, sellerId: true } } },
-  });
-  if (!conv) return res.status(404).json({ error: "not_found" });
+  const loaded = await loadConversation(convId);
+  if ("error" in loaded) {
+    return res.status(loaded.error === "invalid_id" ? 400 : 404).json({ error: loaded.error === "invalid_id" ? "validation" : "not_found" });
+  }
 
   const userId = req.user!.sub;
-  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+  if (!isParticipant(loaded.conv, userId)) {
     return res.status(403).json({ error: "forbidden" });
+  }
+  if (!loaded.conv.offer) {
+    return res.json({ midpoint: null, suggestions: [], reason: "location_unavailable" });
   }
 
   const [buyerProfile, sellerProfile] = await Promise.all([
-    db.query.userProfilesTable.findFirst({ where: eq(userProfilesTable.id, conv.offer.buyerId) }),
-    db.query.userProfilesTable.findFirst({ where: eq(userProfilesTable.id, conv.offer.sellerId) }),
+    db.query.userProfilesTable.findFirst({ where: eq(userProfilesTable.id, loaded.conv.offer.buyerId) }),
+    db.query.userProfilesTable.findFirst({ where: eq(userProfilesTable.id, loaded.conv.offer.sellerId) }),
   ]);
 
   const buyerLat  = buyerProfile?.locationLat  != null ? Number(buyerProfile.locationLat)  : null;
@@ -401,19 +450,21 @@ router.patch("/:conversationId/meetup", requireAuth, async (req, res) => {
     });
   }
 
-  const conv = await db.query.conversationsTable.findFirst({
-    where: eq(conversationsTable.id, convId),
-    with: { offer: { columns: { id: true, buyerId: true, sellerId: true } } },
-  });
-  if (!conv) return res.status(404).json({ error: "not_found" });
+  const loaded = await loadConversation(convId);
+  if ("error" in loaded) {
+    return res.status(loaded.error === "invalid_id" ? 400 : 404).json({ error: loaded.error === "invalid_id" ? "validation" : "not_found" });
+  }
 
   const userId = req.user!.sub;
-  if (conv.offer.buyerId !== userId && conv.offer.sellerId !== userId) {
+  if (!isParticipant(loaded.conv, userId)) {
     return res.status(403).json({ error: "forbidden" });
+  }
+  if (!loaded.conv.offer) {
+    return res.status(409).json({ error: "trade_not_found" });
   }
 
   const trade = await db.query.tradesTable.findFirst({
-    where: eq(tradesTable.offerId, conv.offer.id),
+    where: eq(tradesTable.offerId, loaded.conv.offer.id),
   });
   if (!trade) return res.status(409).json({ error: "trade_not_found" });
 

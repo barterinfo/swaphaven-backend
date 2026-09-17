@@ -442,6 +442,7 @@ export const openApiSpec = {
           id:    { type: "string", format: "uuid" },
           offer: {
             type: "object",
+            nullable: true,
             properties: {
               id:           { type: "string", format: "uuid" },
               status:       { type: "string" },
@@ -1878,6 +1879,19 @@ export const openApiSpec = {
     // ── Conversations ────────────────────────────────────────────────────────────
     "/api/conversations": {
       get: { tags: ["Chat"], summary: "All conversations", parameters: [{ $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/cursor" }], responses: { "200": { description: "Paginated conversations", content: { "application/json": { schema: { type: "object", properties: { items: { type: "array", items: { $ref: "#/components/schemas/Conversation" } }, nextCursor: { type: "string", nullable: true } } } } } } } },
+      post: {
+        tags: ["Chat"],
+        summary: "Get or create a conversation with another user",
+        description: "Used by profile Message. Reuses the latest existing thread with that user (offer or direct), or creates a direct conversation when none exists.",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["otherUserId"], properties: { otherUserId: { type: "string", format: "uuid" } } } } } },
+        responses: {
+          "200": { description: "Existing conversation", content: { "application/json": { schema: { type: "object", properties: { conversationId: { type: "string", format: "uuid" } } } } } },
+          "201": { description: "Direct conversation created", content: { "application/json": { schema: { type: "object", properties: { conversationId: { type: "string", format: "uuid" } } } } } },
+          "400": { description: "Validation (including messaging yourself)" },
+          "403": { description: "Blocked" },
+          "404": { description: "Other user not found" },
+        },
+      },
     },
     "/api/conversations/{conversationId}/read": {
       patch: { tags: ["Chat"], summary: "Mark conversation read (clears unread badge)", parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], responses: { "204": { description: "Marked read" }, "403": { description: "Forbidden" }, "404": { description: "Not found" } } },

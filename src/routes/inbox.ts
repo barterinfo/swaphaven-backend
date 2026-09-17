@@ -24,12 +24,17 @@ router.get("/summary", requireAuth, async (req, res) => {
       and(eq(offersTable.buyerId, userId), eq(offersTable.currentTurn, "buyer"), eq(offersTable.status, "countered")),
     ));
 
-  // Conversations the user participates in (as buyer or seller of the offer).
+  // Conversations the user participates in (offer thread or direct).
   const conversations = await db
     .select({ id: conversationsTable.id })
     .from(conversationsTable)
-    .innerJoin(offersTable, eq(conversationsTable.offerId, offersTable.id))
-    .where(or(eq(offersTable.buyerId, userId), eq(offersTable.sellerId, userId)));
+    .leftJoin(offersTable, eq(conversationsTable.offerId, offersTable.id))
+    .where(or(
+      eq(offersTable.buyerId, userId),
+      eq(offersTable.sellerId, userId),
+      eq(conversationsTable.initiatorId, userId),
+      eq(conversationsTable.recipientId, userId),
+    ));
 
   let unreadMessages = 0;
   if (conversations.length > 0) {
