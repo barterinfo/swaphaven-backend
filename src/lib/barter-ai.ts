@@ -150,10 +150,14 @@ type RecommendBody = {
   country: string;
   category?: string;
   limit: number;
+  candidateIds?: string[];
 };
 
 async function recommend(
-  path: "/api/internal/recommend/related" | "/api/internal/recommend/deck",
+  path:
+    | "/api/internal/recommend/related"
+    | "/api/internal/recommend/deck"
+    | "/api/internal/recommend/search",
   body: RecommendBody,
 ): Promise<BarterAiRecommendResult> {
   let cfg: { baseUrl: string; secret: string } | null;
@@ -192,6 +196,10 @@ export function recommendRelated(body: RecommendBody): Promise<BarterAiRecommend
 
 export function recommendDeck(body: RecommendBody): Promise<BarterAiRecommendResult> {
   return recommend("/api/internal/recommend/deck", body);
+}
+
+export function recommendSearch(body: RecommendBody & { candidateIds: string[] }): Promise<BarterAiRecommendResult> {
+  return recommend("/api/internal/recommend/search", body);
 }
 
 /** Fire-and-forget listing embed. Never throws into listing create/update. */

@@ -21,6 +21,7 @@
 | [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Rewind (undo left pass) and category catalog / browse / wanted / match-score |
 | [SAVED_FEATURE.md](./SAVED_FEATURE.md) | Save-for-later — schema, `/api/saved`, owner stats, mobile Saved tab |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Listing search — architecture, sequences, API, DB, mobile flows |
+| [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md) | Personalized Recommended / related See all — barter-ai rankSearch, new search routes, shared nearby grid |
 | [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md) | Profile closet owner actions — overview |
 | [LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md) | Listing status diagram, transition paths, backend sequences |
 | [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md) | Mark as Sold — API, offer cancel, open-offer SOLD UX |

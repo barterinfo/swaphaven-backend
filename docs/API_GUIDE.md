@@ -267,13 +267,21 @@ curl -s -X POST http://localhost:3001/api/listings/<listingId>/images \
 |--------|------|------|
 | GET | `/api/search/listings` | optional |
 | GET | `/api/search/trending` | optional |
+| GET | `/api/search/recommended` | ✓ |
+| GET | `/api/search/related` | ✓ |
 
-Full design: [SEARCH_FEATURE.md](./SEARCH_FEATURE.md).
+Keyword search: [SEARCH_FEATURE.md](./SEARCH_FEATURE.md). Personalized collections (filter → barter-ai rerank → paginated See all): [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md).
 
 ```bash
 curl -s 'http://localhost:3001/api/search/listings?q=camera&limit=20'
 curl -s http://localhost:3001/api/search/trending
+curl -s 'http://localhost:3001/api/search/recommended?limit=20' \
+  -H "Authorization: Bearer $TOKEN"
+curl -s "http://localhost:3001/api/search/related?listingId=$SEED&limit=20" \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+`GET /api/search/listings` sort enum is unchanged (`best_match`, `nearest`, `newest`, `value_asc`, `most_saved`). Recommended is a **separate route**, not a listings sort. Related See all is a **paged sibling** of `GET /api/listings/:id/related` (preview, max 30, no offset).
 
 ---
 

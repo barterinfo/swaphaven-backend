@@ -36,6 +36,8 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-09-17 | Search recommendations feature doc | docs/SEARCH_RECOMMENDATIONS.md, SEARCH_FEATURE, API_GUIDE | [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05) |
+| 2026-09-12 | Search recommendations and related See all | GET /api/search/recommended, GET /api/search/related, barter-ai rankSearch | [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05) |
 | 2026-09-04 | Public swipe deck for guests | GET /api/swipe/deck optionalAuth, tests/swipe.test.ts | [Guest browse for App Review](58fc8b9a-eb06-470d-8b49-a8450218180a) |
 | 2026-08-28 | Google and Apple login docs | docs/GOOGLE_AND_APPLE_LOGIN.md, SOCIAL_LOGIN, API_GUIDE, README | [Sign in with Apple backend](ae8c35f4-00fa-4f01-9413-cc78ee975606) |
 | 2026-08-28 | Sign in with Apple on social auth | POST /api/auth/social provider=apple, users.apple_sub, social-auth Apple JWKS | [Sign in with Apple backend](ae8c35f4-00fa-4f01-9413-cc78ee975606) |
@@ -439,6 +441,22 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 - **Chat:** [Guest browse for App Review](58fc8b9a-eb06-470d-8b49-a8450218180a)
 - **Areas:** GET /api/swipe/deck optionalAuth, tests/swipe.test.ts
 - **Summary:** Guests can load the swipe deck without auth. Recording a swipe still requires a session. Country is inferred from the request and not persisted.
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Search recommendations and related See all
+
+- **Date:** 2026-09-12
+- **Chat:** [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05)
+- **Areas:** `GET /api/search/recommended`, `GET /api/search/related`, `src/search/collections.ts`, barter-ai `POST /api/internal/recommend/search` (`rankSearch`)
+- **Summary:** Personalized collections without changing listings sort, trending, or `GET /listings/:id/related`. Filter a 200-ID pool, rerank in barter-ai (taste + embeddings), paginate `{ listings, total, nextOffset }`. 800ms skip falls back to newest. Mobile reuses Nearby Listings for every See all.
+- **Also tracked in:** barter-stack FEATURE_LOG
+
+### Search recommendations feature doc
+
+- **Date:** 2026-09-17
+- **Chat:** [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05)
+- **Areas:** docs/SEARCH_RECOMMENDATIONS.md, SEARCH_FEATURE Phase 2, API_GUIDE Search, README
+- **Summary:** Feature spec covering product surfaces, taste signals, new APIs, pagination/performance, shared nearby grid, and tests.
 - **Also tracked in:** barter-stack FEATURE_LOG
 
 ### Recycle left-passes behind remote config
