@@ -302,7 +302,7 @@ APPLE_TEAM_ID=4GK8WMS4PB
 IOS_BUNDLE_ID=com.barter.app.barterMobile
 ANDROID_PACKAGE_ID=com.barter.app.barter_mobile
 ANDROID_SHA256_CERT_FINGERPRINT=AA:BB:CC:...
-# IOS_APP_STORE_URL=https://apps.apple.com/app/idXXXXXXXX
+# IOS_APP_STORE_URL=https://apps.apple.com/sg/app/barter-exchange/id6801009687
 # ANDROID_PLAY_STORE_URL=https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile
 ```
 

@@ -100,7 +100,9 @@ const envSchema = z.object({
       return undefined;
     }
     return trimmed;
-  }, z.string().url().optional()),
+  }, z.string().url().default(
+    "https://apps.apple.com/sg/app/barter-exchange/id6801009687",
+  )),
   /** Play Store listing URL used when the app is not installed (Android). */
   ANDROID_PLAY_STORE_URL: z.preprocess((v) => {
     if (typeof v !== "string" || v.trim() === "") return undefined;

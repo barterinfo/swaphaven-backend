@@ -18,7 +18,10 @@ describe("GET /", () => {
     expect(res.text).toContain(
       "https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile&amp;hl=en_SG",
     );
-    expect(res.text).toContain("store-btn--apple store-btn--disabled");
+    expect(res.text).toContain(
+      "https://apps.apple.com/sg/app/barter-exchange/id6801009687",
+    );
+    expect(res.text).not.toContain("store-btn--apple store-btn--disabled");
     expect(res.text).toContain('href="/privacy"');
     expect(res.text).toContain('href="/terms"');
     expect(res.text).toContain('href="/delete-account"');

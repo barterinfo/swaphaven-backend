@@ -252,7 +252,7 @@ You may temporarily list **both** debug and release fingerprints in code/config 
 When listings exist:
 
 ```env
-IOS_APP_STORE_URL=https://apps.apple.com/app/idXXXXXXXX
+IOS_APP_STORE_URL=https://apps.apple.com/sg/app/barter-exchange/id6801009687
 ANDROID_PLAY_STORE_URL=https://play.google.com/store/apps/details?id=com.barter.app.barter_mobile
 ```
 
