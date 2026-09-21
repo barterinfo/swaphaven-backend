@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Listing, ListingDetails } from "../db/schema/listings.js";
+import { CANONICAL_CATEGORIES } from "./categories.js";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -203,6 +204,14 @@ export function buildReviewSnapshot(
   };
 }
 
+function categoryRowFromListing(listing: Listing) {
+  const id = listing.categoryId;
+  if (!id) return null;
+  const row = CANONICAL_CATEGORIES.find((c) => c.id === id);
+  if (!row) return null;
+  return { id: row.id, slug: row.slug, name: row.name, icon: row.icon };
+}
+
 /** barter-stack `serializeListing` wire shape (snake_case). */
 export function serializeListingBarter(
   listing: Listing,
@@ -216,14 +225,16 @@ export function serializeListingBarter(
   const wantedLabels = listing.wantedCategories ?? [];
   const details = listing.details ?? { ageRange: "", brand: "" };
   const cents = listingValueCents(listing);
+  const categoryRow = categoryRowFromListing(listing);
 
   return {
     id: listing.id,
     user_id: listing.userId,
     title: listing.title,
     description: listing.description ?? "",
-    category: listing.category,
+    category: listing.category || categoryRow?.name || "",
     category_id: listing.categoryId ?? null,
+    categoryRow,
     condition: listing.condition,
     // Canonical amount. Prefer this over estimated_value for display/math.
     estimatedValueCents: cents,

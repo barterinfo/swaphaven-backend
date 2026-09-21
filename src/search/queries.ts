@@ -5,6 +5,7 @@ import { listingImagesTable, listingsTable } from "../db/schema/index.js";
 import type { Listing } from "../db/schema/listings.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { serializeListingBarter } from "../lib/barter-listing.js";
+import { categoryIdBySlug } from "../lib/categories.js";
 import { normalizeQuery, tokenizeQuery } from "./normalize.js";
 import type { SearchListingParams, SearchSort } from "./types.js";
 
@@ -52,16 +53,17 @@ function buildFilterConditions(params: SearchListingParams): SQL<unknown>[] {
   }
 
   if (params.category && params.category.trim()) {
-    // Mobile sends browse ids/slugs (e.g. "books"); seeded listings often store
-    // display labels ("Books", "Home & Kitchen"). Match both.
+    // Mobile sends browse ids/slugs (e.g. "sports_fitness"); seeded listings
+    // often store display labels ("Sports & Fitness"). Match FK first, then
+    // denormalized labels including `&` / `and` variants.
     const slug = params.category.trim().toLowerCase();
-    conditions.push(
-      sql`(
+    const categoryId = categoryIdBySlug(slug);
+    const labelMatch = sql`(
         LOWER(${listingsTable.category}) = ${slug}
-        OR LOWER(REPLACE(REPLACE(${listingsTable.category}, ' & ', '_'), ' ', '_')) = ${slug}
+        OR LOWER(REPLACE(REPLACE(REPLACE(${listingsTable.category}, ' & ', '_'), ' and ', '_'), ' ', '_')) = ${slug}
         OR (
           ${slug} = 'sports_fitness'
-          AND LOWER(${listingsTable.category}) IN ('sports', 'sports & fitness')
+          AND LOWER(${listingsTable.category}) IN ('sports', 'sports & fitness', 'sports and fitness')
         )
         OR (
           ${slug} = 'toys_games'
@@ -71,7 +73,9 @@ function buildFilterConditions(params: SearchListingParams): SQL<unknown>[] {
           ${slug} = 'garden_outdoor'
           AND LOWER(${listingsTable.category}) = 'garden'
         )
-      )`,
+      )`;
+    conditions.push(
+      categoryId ? or(eq(listingsTable.categoryId, categoryId), labelMatch)! : labelMatch,
     );
   }
 
@@ -218,6 +222,7 @@ export async function searchListings(params: SearchListingParams): Promise<{
       title: listingsTable.title,
       description: listingsTable.description,
       category: listingsTable.category,
+      categoryId: listingsTable.categoryId,
       condition: listingsTable.condition,
       estimatedValueCents: listingsTable.estimatedValueCents,
       acceptCashTopUps: listingsTable.acceptCashTopUps,
@@ -250,7 +255,6 @@ export async function searchListings(params: SearchListingParams): Promise<{
   const listings = rows.map((row) => {
     const listingForSerialize = {
       ...row,
-      categoryId: null,
       isSwipeOnly: false,
       soldMethod: null,
       tradedWithUserId: null,

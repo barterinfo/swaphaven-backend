@@ -5,6 +5,7 @@ import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { listingsTable } from "../src/db/schema/index.js";
+import { categoryIdBySlug } from "../src/lib/categories.js";
 
 describe("GET /api/search/trending", () => {
   it("returns trending active listings (not search keywords)", async () => {
@@ -177,6 +178,29 @@ describe("GET /api/search/listings", () => {
     );
     expect(res.status).toBe(200);
     expect(res.body.total).toBeGreaterThanOrEqual(1);
+    expect(res.body.listings.some((l: { title: string }) => l.title === marker)).toBe(
+      true,
+    );
+  });
+
+  it("matches sports_fitness slug to Sports & Fitness listings", async () => {
+    const { accessToken } = await registerUser();
+    const marker = `SportsCat-${uid()}`;
+    await createListing(accessToken, {
+      title: marker,
+      category: "Sports & Fitness",
+      categoryId: categoryIdBySlug("sports_fitness"),
+      location: {
+        lat: 37.7873696,
+        lng: -122.4082339,
+        city: "San Francisco",
+      },
+    });
+
+    const res = await request(app).get(
+      `/api/search/listings?q=${encodeURIComponent(marker)}&category=sports_fitness`,
+    );
+    expect(res.status).toBe(200);
     expect(res.body.listings.some((l: { title: string }) => l.title === marker)).toBe(
       true,
     );
