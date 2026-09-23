@@ -403,6 +403,10 @@ function buildPreviewHtml(opts: {
     }
     .brand:hover { text-decoration: none; opacity: 0.92; }
     .brand__name { font-size: 1.05rem; }
+    @media (max-width: 640px) {
+      .brand__name { display: none; }
+      .topnav { gap: 0.5rem; padding: 0.9rem 0.75rem; }
+    }
     .logo-mark {
       display: inline-flex; align-items: center; justify-content: center;
       width: 2rem; height: 2rem; border-radius: 0.55rem;

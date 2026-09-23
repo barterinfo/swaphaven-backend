@@ -407,9 +407,9 @@ function buildLandingHtml(): string {
   </div>
 
   <header class="topnav">
-    <a class="topnav__brand" href="#top">
+    <a class="topnav__brand" href="#top" aria-label="Barter home">
       <span class="logo-mark" aria-hidden="true">B</span>
-      <span>Barter</span>
+      <span class="topnav__brand-name">Barter</span>
     </a>
     <nav class="topnav__links" aria-label="How it works">
       <a data-nav-link href="#swipe">Swipe</a>

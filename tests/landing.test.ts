@@ -27,6 +27,8 @@ describe("GET /", () => {
     expect(res.text).toContain('href="/delete-account"');
     expect(res.text).toContain('href="/landing/landing.css"');
     expect(res.text).toContain('src="/landing/landing.js"');
+    expect(res.text).toContain('aria-label="Barter home"');
+    expect(res.text).toContain("topnav__brand-name");
     expect(res.text).toContain('data-listing-mosaic');
     expect(res.text).toContain('data-spotlight-row');
     expect(res.text).toContain("On Barter now");

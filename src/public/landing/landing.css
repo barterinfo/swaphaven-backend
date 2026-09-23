@@ -158,6 +158,38 @@ a:hover { text-decoration: underline; }
 
 .topnav__brand:hover { text-decoration: none; }
 
+.topnav__brand-name {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .topnav {
+    gap: 0.5rem;
+    padding: 0 0.75rem;
+  }
+
+  .topnav__brand-name {
+    display: none;
+  }
+
+  .topnav__stores {
+    gap: 0.35rem;
+  }
+
+  .store-pill {
+    padding: 0.4rem 0.55rem;
+  }
+
+  .store-pill span {
+    display: none;
+  }
+
+  .nav-menu-btn {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.7rem;
+  }
+}
+
 .logo-mark {
   display: inline-flex;
   align-items: center;
