@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { androidAppIntentUrl } from "../src/lib/share-preview.js";
+import { androidAppIntentUrl, publicListingDescription } from "../src/lib/share-preview.js";
 import { env } from "../src/config/env.js";
 
 describe("androidAppIntentUrl", () => {
@@ -19,5 +19,21 @@ describe("androidAppIntentUrl", () => {
     const url = androidAppIntentUrl("/users/user-1", null);
     expect(url).not.toContain("browser_fallback_url");
     expect(url).toContain("package=");
+  });
+});
+
+describe("publicListingDescription", () => {
+  it("strips seed Listed date and Ref tails", () => {
+    expect(
+      publicListingDescription(
+        "Stored on bookshelf. Looking for comparable gear Listed 2026-09-08. Ref 520069.",
+      ),
+    ).toBe("Stored on bookshelf. Looking for comparable gear");
+  });
+
+  it("leaves normal descriptions unchanged", () => {
+    expect(publicListingDescription("A lovely film camera for trades.")).toBe(
+      "A lovely film camera for trades.",
+    );
   });
 });

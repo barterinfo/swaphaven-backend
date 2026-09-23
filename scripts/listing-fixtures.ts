@@ -281,7 +281,7 @@ function buildFixture(template: ProductTemplate, index: number, rng: () => numbe
 
   const title = `${brand} ${model} (${variant})`;
   const description =
-    `${note}. ${pick(WANTED_SNIPPETS, rng)} Listed ${new Date().toISOString().slice(0, 10)}. Ref ${serial}.`;
+    `${note}. ${pick(WANTED_SNIPPETS, rng)}`;
 
   return {
     title,

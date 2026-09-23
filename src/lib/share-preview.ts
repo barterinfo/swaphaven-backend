@@ -50,6 +50,15 @@ export function androidAppIntentUrl(path: string, fallbackUrl: string | null): s
   return `intent://www.bartersg.com${normalized}#Intent;${extras.join(";")};end`;
 }
 
+/** Drop seed-fixture "Listed … Ref …" tails from public marketing copy. */
+export function publicListingDescription(description: string): string {
+  return description
+    .replace(/\s*Listed\s+\d{4}-\d{2}-\d{2}\.?\s*Ref\s+\d+\.?\s*$/i, "")
+    .replace(/\s*Listed\s+\d{4}-\d{2}-\d{2}\.?\s*$/i, "")
+    .replace(/\s*Ref\s+\d+\.?\s*$/i, "")
+    .trim();
+}
+
 /** Helmet's production CSP blocks inline scripts; share pages need them to hand off. */
 export const SHARE_PREVIEW_CSP = [
   "default-src 'none'",

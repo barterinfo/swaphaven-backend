@@ -47,7 +47,7 @@ describe("GET /listings/:listingId", () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken, {
       title: "Vintage Camera Share Preview",
-      description: "A lovely film camera for trades.",
+      description: "A lovely film camera for trades. Listed 2026-09-08. Ref 520069.",
     });
 
     const res = await request(app)
@@ -59,6 +59,8 @@ describe("GET /listings/:listingId", () => {
     expect(res.text).toContain("Vintage Camera Share Preview");
     expect(res.text).toContain('property="og:title"');
     expect(res.text).toContain("A lovely film camera for trades.");
+    expect(res.text).not.toContain("Listed 2026-09-08");
+    expect(res.text).not.toContain("Ref 520069");
   });
 
   it("shows App Store and Google Play buttons for desktop browsers", async () => {
@@ -78,6 +80,43 @@ describe("GET /listings/:listingId", () => {
     expect(res.text).toContain("apps.apple.com/sg/app/barter-exchange");
     expect(res.text).toContain("play.google.com/store/apps/details");
     expect(res.text).not.toContain('href="#">Open in Barter');
+    expect(res.text).toContain("On Barter now");
+    expect(res.text).toContain('class="spotlight"');
+    expect(res.text).toContain('class="logo-mark"');
+    expect(res.text).toContain('aria-label="Barter home"');
+    expect(res.text).toMatch(/class="brand"[^>]*href="\/"/);
+    expect(res.text).toContain("store-btn--apple");
+    expect(res.text).toContain("store-btn--google");
+    expect(res.text).toContain("Download on the");
+    expect(res.text).toContain("Get it on");
+    expect(res.text).toContain('data-listing-mosaic');
+    expect(res.text).toContain("orb--amber");
+  });
+
+  it("shows other active listings in a More on Barter grid", async () => {
+    const owner = await registerUser();
+    const featured = await createListing(owner.accessToken, { title: "Featured Cheese Board" });
+    const other = await createListing(owner.accessToken, { title: "Other Acoustic Guitar" });
+
+    const { listingImagesTable } = await import("../src/db/schema/index.js");
+    const { testDb } = await import("./helpers/db.js");
+    await testDb.insert(listingImagesTable).values([
+      { listingId: featured.id, url: "https://cdn.example.com/cheese.jpg", position: 0 },
+      { listingId: other.id, url: "https://cdn.example.com/guitar.jpg", position: 0 },
+    ]);
+
+    const res = await request(app)
+      .get(`/listings/${featured.id}`)
+      .set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15");
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("More on Barter");
+    expect(res.text).toContain("Featured Cheese Board");
+    expect(res.text).toContain(`/listings/${other.id}`);
+    expect(res.text).toContain("Other Acoustic Guitar");
+    expect(res.text).toContain("https://cdn.example.com/guitar.jpg");
+    expect(res.text).toContain("bg-tile");
+    expect(res.text).toContain("https://cdn.example.com/cheese.jpg");
   });
 
   it("returns 404 HTML for an unknown listing id", async () => {
