@@ -61,6 +61,25 @@ describe("GET /listings/:listingId", () => {
     expect(res.text).toContain("A lovely film camera for trades.");
   });
 
+  it("shows App Store and Google Play buttons for desktop browsers", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      title: "Desktop Store Buttons Listing",
+    });
+
+    const res = await request(app)
+      .get(`/listings/${listing.id}`)
+      .set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.location).toBeUndefined();
+    expect(res.text).toContain("App Store");
+    expect(res.text).toContain("Google Play");
+    expect(res.text).toContain("apps.apple.com/sg/app/barter-exchange");
+    expect(res.text).toContain("play.google.com/store/apps/details");
+    expect(res.text).not.toContain('href="#">Open in Barter');
+  });
+
   it("returns 404 HTML for an unknown listing id", async () => {
     const res = await request(app).get(
       "/listings/00000000-0000-4000-8000-000000000000",

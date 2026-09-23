@@ -360,6 +360,109 @@ a:hover { text-decoration: underline; }
   .hero__copy { order: 1; }
 }
 
+/* ─── Spotlight row (clickable listings under hero) ───────────────────────── */
+
+.spotlight-row {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 clamp(2rem, 5vw, 3.5rem);
+  padding: 1.25rem 0 0.25rem;
+}
+
+.spotlight-row[hidden] {
+  display: none;
+}
+
+.spotlight-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.spotlight-row__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.spotlight-row__hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.spotlight-row__track {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.spotlight-card {
+  flex: 0 0 7.5rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 0.9rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.spotlight-card:hover,
+.spotlight-card:focus-visible {
+  text-decoration: none;
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.spotlight-card:focus-visible .spotlight-card__photo {
+  box-shadow: 0 0 0 2px var(--amber-bright), 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+.spotlight-card__photo {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 0.85rem;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.spotlight-card__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.spotlight-card__title {
+  margin: 0;
+  padding: 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (min-width: 720px) {
+  .spotlight-card {
+    flex-basis: 8.5rem;
+  }
+}
+
 .hero__copy {
   text-align: center;
 }

@@ -449,6 +449,14 @@ function buildLandingHtml(): string {
       </div>
     </section>
 
+    <section class="spotlight-row" data-spotlight-row hidden aria-labelledby="spotlight-heading">
+      <div class="spotlight-row__head">
+        <h2 id="spotlight-heading" class="spotlight-row__title">On Barter now</h2>
+        <p class="spotlight-row__hint">Tap an item to open it in the app</p>
+      </div>
+      <div class="spotlight-row__track" data-spotlight-track></div>
+    </section>
+
     <section class="section problem" aria-labelledby="problem-heading">
       <h2 id="problem-heading">Most apps are built to sell. Barter is built to trade.</h2>
       <p class="section__lead section__lead--center">Follow Alex’s camera and Sam’s guitar — one trade, four moments.</p>

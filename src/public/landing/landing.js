@@ -152,13 +152,19 @@
     });
   }
 
-  // Background mosaic of the most swiped and viewed listings.
+  // Background mosaic + clickable "On Barter now" row from one spotlight fetch.
   const mosaicRoot = document.querySelector("[data-listing-mosaic]");
-  if (mosaicRoot) {
-    const SWAP_MS = 3200;
+  const spotlightRow = document.querySelector("[data-spotlight-row]");
+  const spotlightTrack = document.querySelector("[data-spotlight-track]");
+  if (mosaicRoot || spotlightTrack) {
+    const MOSAIC_SWAP_MS = 3200;
+    const ROW_SWAP_MS = 5200;
+    const ROW_SIZE = 6;
     let pool = [];
     let tiles = [];
+    let rowSlots = [];
     let layoutKey = "";
+    let rowPaused = false;
 
     function layoutSpec() {
       if (window.innerWidth < 720) {
@@ -252,7 +258,7 @@
     }
 
     function show(tile, item) {
-      if (!item) return;
+      if (!item || !mosaicRoot) return;
       if (tile.item && tile.item.id === item.id) return;
       tile.pendingId = item.id;
       const incoming = tile.front.classList.contains("is-shown") ? tile.back : tile.front;
@@ -279,6 +285,7 @@
     }
 
     function fillEmpty() {
+      if (!mosaicRoot) return;
       tiles.forEach((tile) => {
         if (tile.item) return;
         if (tile.pendingId && pool.some((item) => item.id === tile.pendingId)) return;
@@ -288,6 +295,7 @@
     }
 
     function buildTiles(spec) {
+      if (!mosaicRoot) return;
       mosaicRoot.replaceChildren();
       mosaicRoot.style.gridTemplateColumns = `repeat(${spec.cols}, minmax(0, 1fr))`;
       mosaicRoot.style.gridTemplateRows = `repeat(${spec.rows}, minmax(0, 1fr))`;
@@ -309,6 +317,80 @@
       if (pool.length) mosaicRoot.classList.add("is-ready");
     }
 
+    function rowUsedIds(except) {
+      const ids = new Set();
+      rowSlots.forEach((slot) => {
+        if (slot !== except && slot.item) ids.add(slot.item.id);
+      });
+      return ids;
+    }
+
+    function pickRowSpare(except) {
+      const used = rowUsedIds(except);
+      const avoid = except && except.item && except.item.id;
+      let choices = pool.filter((item) => !used.has(item.id) && item.id !== avoid);
+      if (!choices.length) {
+        choices = pool.filter((item) => item.id !== avoid);
+      }
+      if (!choices.length) return null;
+      return choices[Math.floor(Math.random() * choices.length)];
+    }
+
+    function bindCard(slot, item) {
+      slot.item = item;
+      slot.link.href = `/listings/${encodeURIComponent(item.id)}`;
+      slot.link.title = item.title;
+      slot.img.alt = item.title;
+      slot.img.referrerPolicy = "no-referrer";
+      slot.img.src = item.imageUrl;
+      slot.title.textContent = item.title;
+    }
+
+    function fillSpotlightRow() {
+      if (!spotlightTrack || !spotlightRow) return;
+      if (!pool.length) {
+        spotlightRow.hidden = true;
+        spotlightTrack.replaceChildren();
+        rowSlots = [];
+        return;
+      }
+
+      const count = Math.min(ROW_SIZE, pool.length);
+      if (rowSlots.length !== count) {
+        spotlightTrack.replaceChildren();
+        rowSlots = [];
+        for (let i = 0; i < count; i += 1) {
+          const link = document.createElement("a");
+          link.className = "spotlight-card";
+          link.rel = "noopener noreferrer";
+          const photo = document.createElement("div");
+          photo.className = "spotlight-card__photo";
+          const img = document.createElement("img");
+          img.alt = "";
+          photo.append(img);
+          const title = document.createElement("p");
+          title.className = "spotlight-card__title";
+          link.append(photo, title);
+          spotlightTrack.append(link);
+          rowSlots.push({ link, img, title, item: null });
+        }
+      }
+
+      rowSlots.forEach((slot) => {
+        if (slot.item && pool.some((item) => item.id === slot.item.id)) return;
+        const item = pickRowSpare(slot) || pool[0];
+        if (item) bindCard(slot, item);
+      });
+      spotlightRow.hidden = false;
+    }
+
+    function swapRowOne() {
+      if (rowPaused || reduced || pool.length < 2 || rowSlots.length === 0) return;
+      const slot = rowSlots[Math.floor(Math.random() * rowSlots.length)];
+      const next = pickRowSpare(slot);
+      if (next) bindCard(slot, next);
+    }
+
     function applyPool(items) {
       pool = Array.isArray(items) ? items.filter((item) => item && item.id && item.imageUrl) : [];
       const live = new Set(pool.map((item) => item.id));
@@ -319,15 +401,18 @@
           tile.pendingId = null;
         }
       });
-      if (!tiles.length || layoutKey !== layoutSpec().key) {
-        buildTiles(layoutSpec());
-        return;
+      if (mosaicRoot) {
+        if (!tiles.length || layoutKey !== layoutSpec().key) {
+          buildTiles(layoutSpec());
+        } else {
+          fillEmpty();
+          if (pool.length) mosaicRoot.classList.add("is-ready");
+        }
       }
-      fillEmpty();
-      if (pool.length) mosaicRoot.classList.add("is-ready");
+      fillSpotlightRow();
     }
 
-    async function refresh() {
+    async function loadSpotlight() {
       try {
         const res = await fetch("/api/listings/spotlight", { headers: { Accept: "application/json" } });
         if (!res.ok) return;
@@ -338,24 +423,44 @@
       }
     }
 
-    function swapOne() {
-      if (pool.length < 2 || tiles.length === 0) return;
+    function swapMosaicOne() {
+      if (!mosaicRoot || pool.length < 2 || tiles.length === 0) return;
       const tile = tiles[Math.floor(Math.random() * tiles.length)];
       const next = pickSpare(tile);
       if (next) show(tile, next);
     }
 
-    refresh();
-    if (!reduced) window.setInterval(swapOne, SWAP_MS);
+    loadSpotlight();
+    if (!reduced) {
+      if (mosaicRoot) window.setInterval(swapMosaicOne, MOSAIC_SWAP_MS);
+      if (spotlightTrack) window.setInterval(swapRowOne, ROW_SWAP_MS);
+    }
 
-    let resizeTimer = 0;
-    window.addEventListener("resize", () => {
-      window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(() => {
-        const spec = layoutSpec();
-        if (spec.key !== layoutKey) buildTiles(spec);
-      }, 150);
-    });
+    if (spotlightRow) {
+      spotlightRow.addEventListener("pointerenter", () => {
+        rowPaused = true;
+      });
+      spotlightRow.addEventListener("pointerleave", () => {
+        rowPaused = false;
+      });
+      spotlightRow.addEventListener("focusin", () => {
+        rowPaused = true;
+      });
+      spotlightRow.addEventListener("focusout", (e) => {
+        if (!spotlightRow.contains(e.relatedTarget)) rowPaused = false;
+      });
+    }
+
+    if (mosaicRoot) {
+      let resizeTimer = 0;
+      window.addEventListener("resize", () => {
+        window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+          const spec = layoutSpec();
+          if (spec.key !== layoutKey) buildTiles(spec);
+        }, 150);
+      });
+    }
   }
 
   // Optional: light drag nudge on swipe front card

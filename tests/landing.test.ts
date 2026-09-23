@@ -28,6 +28,8 @@ describe("GET /", () => {
     expect(res.text).toContain('href="/landing/landing.css"');
     expect(res.text).toContain('src="/landing/landing.js"');
     expect(res.text).toContain('data-listing-mosaic');
+    expect(res.text).toContain('data-spotlight-row');
+    expect(res.text).toContain("On Barter now");
     expect(res.headers["content-security-policy"]).toContain("img-src 'self' https: data:");
     expect(res.text).toContain('id="swipe"');
     expect(res.text).toContain('id="nearby"');
@@ -48,6 +50,8 @@ describe("GET /", () => {
     expect(js.headers["content-type"]).toMatch(/javascript|ecmascript/);
     expect(js.text).toContain("IntersectionObserver");
     expect(js.text).toContain("/api/listings/spotlight");
+    expect(js.text).toContain("data-spotlight-track");
+    expect(js.text).toContain("/listings/");
   });
 
   it("returns JSON when the client explicitly requests application/json", async () => {
