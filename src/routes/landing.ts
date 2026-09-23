@@ -400,6 +400,8 @@ function buildLandingHtml(): string {
 </head>
 <body>
   <div class="bg" aria-hidden="true">
+    <div class="bg-mosaic" data-listing-mosaic></div>
+    <div class="bg-veil"></div>
     <div class="orb orb--amber"></div>
     <div class="orb orb--navy"></div>
   </div>
@@ -662,6 +664,21 @@ router.get("/", (req, res) => {
     });
   }
 
+  // CDN listing photos sit behind the page; default Helmet img-src is 'self' only.
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "connect-src 'self'",
+      "font-src 'self' https: data:",
+      "frame-ancestors 'self'",
+      "img-src 'self' https: data:",
+      "object-src 'none'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+    ].join("; "),
+  );
   return res.type("html").send(buildLandingHtml());
 });
 

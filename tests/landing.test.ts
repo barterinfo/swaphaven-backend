@@ -27,6 +27,8 @@ describe("GET /", () => {
     expect(res.text).toContain('href="/delete-account"');
     expect(res.text).toContain('href="/landing/landing.css"');
     expect(res.text).toContain('src="/landing/landing.js"');
+    expect(res.text).toContain('data-listing-mosaic');
+    expect(res.headers["content-security-policy"]).toContain("img-src 'self' https: data:");
     expect(res.text).toContain('id="swipe"');
     expect(res.text).toContain('id="nearby"');
     expect(res.text).toContain('id="offers"');
@@ -45,6 +47,7 @@ describe("GET /", () => {
     expect(js.status).toBe(200);
     expect(js.headers["content-type"]).toMatch(/javascript|ecmascript/);
     expect(js.text).toContain("IntersectionObserver");
+    expect(js.text).toContain("/api/listings/spotlight");
   });
 
   it("returns JSON when the client explicitly requests application/json", async () => {

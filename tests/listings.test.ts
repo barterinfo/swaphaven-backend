@@ -5,7 +5,7 @@ import { categoryIdBySlug } from "../src/lib/categories.js";
 import { app } from "./helpers/app.js";
 import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
-import { categoriesTable, listingsTable, listingViewsTable } from "../src/db/schema/index.js";
+import { categoriesTable, listingImagesTable, listingsTable, listingViewsTable } from "../src/db/schema/index.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -570,6 +570,69 @@ describe("DELETE /api/listings/:id/images/:imageId", () => {
       .delete(`/api/listings/${listing.id}/images/${addRes.body.id}`)
       .set("Authorization", `Bearer ${accessToken}`);
     expect(delRes.status).toBe(204);
+  });
+});
+
+// ─── GET /api/listings/spotlight ──────────────────────────────────────────────
+describe("GET /api/listings/spotlight", () => {
+  it("returns the most swiped, then most viewed, active listings that have a photo", async () => {
+    const owner = await registerUser();
+    const swiperA = await registerUser();
+    const swiperB = await registerUser();
+
+    const swiped = await createListing(owner.accessToken, { title: "Swiped guitar" });
+    const viewed = await createListing(owner.accessToken, { title: "Viewed camera" });
+    const plain = await createListing(owner.accessToken, { title: "Plain lamp" });
+    const imageless = await createListing(owner.accessToken, { title: "No photo" });
+    const paused = await createListing(owner.accessToken, { title: "Paused bike" });
+
+    await testDb.insert(listingImagesTable).values([
+      { listingId: swiped.id, url: "https://cdn.example.com/guitar-2.jpg", position: 1 },
+      { listingId: swiped.id, url: "https://cdn.example.com/guitar.jpg", position: 0 },
+      { listingId: viewed.id, url: "https://cdn.example.com/camera.jpg", position: 0 },
+      { listingId: plain.id, url: "https://cdn.example.com/lamp.jpg", position: 0 },
+      { listingId: paused.id, url: "https://cdn.example.com/bike.jpg", position: 0 },
+    ]);
+
+    for (const swiper of [swiperA, swiperB]) {
+      const swipe = await request(app)
+        .post("/api/swipe")
+        .set("Authorization", `Bearer ${swiper.accessToken}`)
+        .send({ listingId: swiped.id, direction: "right" });
+      expect(swipe.status).toBe(201);
+    }
+
+    await testDb
+      .update(listingsTable)
+      .set({ viewCount: 12 })
+      .where(eq(listingsTable.id, viewed.id));
+    await testDb
+      .update(listingsTable)
+      .set({ status: "paused", rightSwipeCount: 9 })
+      .where(eq(listingsTable.id, paused.id));
+
+    const res = await request(app).get("/api/listings/spotlight");
+
+    expect(res.status).toBe(200);
+    expect(res.body.items.map((item: { id: string }) => item.id)).toEqual([
+      swiped.id,
+      viewed.id,
+      plain.id,
+    ]);
+    expect(res.body.items[0]).toEqual({
+      id: swiped.id,
+      title: "Swiped guitar",
+      imageUrl: "https://cdn.example.com/guitar.jpg",
+    });
+    expect(JSON.stringify(res.body)).not.toContain(imageless.id);
+    expect(JSON.stringify(res.body)).not.toContain(paused.id);
+    expect(res.body.items[0].userId).toBeUndefined();
+  });
+
+  it("does not require authentication", async () => {
+    const res = await request(app).get("/api/listings/spotlight");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [] });
   });
 });
 

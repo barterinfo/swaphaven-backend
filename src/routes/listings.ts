@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, count, eq, ilike, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
@@ -263,6 +263,48 @@ router.post("/", requireAuth, async (req, res) => {
     status: listing.status,
     userId: listing.userId,
   });
+});
+
+const SPOTLIGHT_LIMIT = 100;
+
+// ─── GET /api/listings/spotlight ──────────────────────────────────────────────
+// Public cover photos for the bartersg.com background. The 100 active listings
+// people have swiped or opened most, newest first when those counts tie.
+// Cover image only — no owner, location, or price.
+router.get("/spotlight", async (_req, res) => {
+  const cover = db
+    .selectDistinctOn([listingImagesTable.listingId], {
+      listingId: listingImagesTable.listingId,
+      url: listingImagesTable.url,
+    })
+    .from(listingImagesTable)
+    .orderBy(asc(listingImagesTable.listingId), asc(listingImagesTable.position))
+    .as("cover");
+
+  const rows = await db
+    .select({
+      id: listingsTable.id,
+      title: listingsTable.title,
+      imageUrl: cover.url,
+    })
+    .from(listingsTable)
+    .innerJoin(cover, eq(cover.listingId, listingsTable.id))
+    .where(eq(listingsTable.status, "active"))
+    .orderBy(
+      desc(listingsTable.rightSwipeCount),
+      desc(listingsTable.viewCount),
+      desc(listingsTable.createdAt),
+    )
+    .limit(SPOTLIGHT_LIMIT);
+
+  const items = rows.flatMap((row) => {
+    const imageUrl = filterListingImageUrls([row.imageUrl])[0];
+    if (!imageUrl) return [];
+    return [{ id: row.id, title: row.title, imageUrl }];
+  });
+
+  res.setHeader("Cache-Control", "public, max-age=30");
+  return res.json({ items });
 });
 
 // ─── GET /api/listings/trending ───────────────────────────────────────────────

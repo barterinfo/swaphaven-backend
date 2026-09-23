@@ -998,6 +998,45 @@ export const openApiSpec = {
         responses: { "201": { description: "Listing created", content: { "application/json": { schema: { type: "object", properties: { listing: { $ref: "#/components/schemas/BarterListing" } } } } } } },
       },
     },
+    "/api/listings/spotlight": {
+      get: {
+        tags: ["Listings"],
+        summary: "Most swiped and viewed listing photos",
+        description:
+          "Public. Returns up to 100 active listings that have a photo, ordered by " +
+          "right-swipe count, then view count, then newest. Each item is an id, title, " +
+          "and cover image URL for the marketing-site background. No auth.",
+        security: [],
+        responses: {
+          "200": {
+            description: "Spotlight photos",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["items"],
+                  properties: {
+                    items: {
+                      type: "array",
+                      maxItems: 100,
+                      items: {
+                        type: "object",
+                        required: ["id", "title", "imageUrl"],
+                        properties: {
+                          id: { type: "string", format: "uuid" },
+                          title: { type: "string" },
+                          imageUrl: { type: "string", format: "uri" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/api/listings/trending": {
       get: {
         tags: ["Listings"],
