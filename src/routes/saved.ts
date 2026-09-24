@@ -11,6 +11,7 @@ import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p } from "../lib/route-helpers.js";
 import { serializeListingBarter } from "../lib/barter-listing.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
+import { notifyListingSaved } from "../lib/activity-email/notify.js";
 
 const router = Router();
 
@@ -124,6 +125,8 @@ router.post("/:listingId", requireAuth, async (req, res) => {
     .insert(savedListingsTable)
     .values({ userId, listingId })
     .returning();
+
+  void notifyListingSaved({ listingId, saverUserId: userId }).catch(console.error);
 
   return res.status(201).json({
     id: row!.id,

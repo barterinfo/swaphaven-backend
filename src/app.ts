@@ -33,6 +33,7 @@ import barterAiRouter from "./routes/barterAi.js";
 import safetyRouter from "./routes/safety.js";
 import accountDeletionRouter from "./routes/account-deletion.js";
 import geoRouter from "./routes/geo.js";
+import inboxEmailDeepLinkRouter from "./routes/inboxEmailDeepLink.js";
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
@@ -165,6 +166,7 @@ export function createApp(): express.Express {
 
   // ─── Public share / deep-link hosts (outside /api — no rate limit / auth) ─────
   app.use("/.well-known", wellKnownRouter);
+  app.use("/inbox", inboxEmailDeepLinkRouter);
   app.use("/listings", listingPreviewRouter);
   app.use("/users", profilePreviewRouter);
   app.use(legalRouter);
