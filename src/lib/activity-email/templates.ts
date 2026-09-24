@@ -258,26 +258,24 @@ export function renderChatMessage(input: {
 
 export function renderListingSaved(input: {
   listingTitle: string;
-  saveCount: number;
-  imageUrl?: string | null;
+  saverName: string;
+  listingImageUrl?: string | null;
+  saverAvatarUrl?: string | null;
   buttonUrl: string;
 }): ActivityEmailRendered {
-  const headline = `Someone bookmarked your ${input.listingTitle}.`;
-  const countLine =
-    input.saveCount === 1
-      ? "1 person has saved this listing."
-      : `${input.saveCount} people have saved this listing.`;
+  const headline = `${input.saverName} bookmarked your ${input.listingTitle}.`;
+  const detailLine = `See what else ${input.saverName} is trading.`;
   return renderShell({
-    subject: `Someone saved ${input.listingTitle}`,
+    subject: `${input.saverName} saved your ${input.listingTitle}`,
     eyebrow: "SAVED",
     headline,
-    buttonLabel: "View your listing",
+    buttonLabel: "View profile",
     buttonUrl: input.buttonUrl,
-    bodyTextLines: [countLine],
+    bodyTextLines: [detailLine],
     innerHtml: detailRow({
-      title: input.listingTitle,
-      subtitle: countLine,
-      imageUrl: input.imageUrl,
+      title: input.saverName,
+      subtitle: `Saved your ${input.listingTitle}. ${detailLine}`,
+      imageUrl: input.saverAvatarUrl ?? input.listingImageUrl,
     }),
   });
 }

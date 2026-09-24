@@ -12,4 +12,8 @@ export function inboxListingUrl(listingId: string): string {
   return `${BASE}/inbox/listings/${listingId}`;
 }
 
+export function profileUrl(userId: string): string {
+  return `${BASE}/users/${userId}`;
+}
+
 export const LANDING_REDIRECT = `${BASE}/`;

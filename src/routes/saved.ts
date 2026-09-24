@@ -126,7 +126,7 @@ router.post("/:listingId", requireAuth, async (req, res) => {
     .values({ userId, listingId })
     .returning();
 
-  void notifyListingSaved({ listingId }).catch(console.error);
+  void notifyListingSaved({ listingId, saverUserId: userId }).catch(console.error);
 
   return res.status(201).json({
     id: row!.id,

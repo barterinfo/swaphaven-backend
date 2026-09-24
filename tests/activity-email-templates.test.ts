@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { inboxChatUrl, inboxListingUrl, inboxOfferUrl } from "../src/lib/activity-email/links.js";
+import {
+  inboxChatUrl,
+  inboxOfferUrl,
+  profileUrl,
+} from "../src/lib/activity-email/links.js";
 import {
   renderCashCounter,
   renderChatMessage,
@@ -15,7 +19,7 @@ import {
 describe("activity email templates", () => {
   const offerUrl = inboxOfferUrl("offer-1");
   const chatUrl = inboxChatUrl("conv-1");
-  const listingUrl = inboxListingUrl("listing-1");
+  const profileLink = profileUrl("user-saver-1");
 
   it("new swap offer", () => {
     const r = renderNewSwapOffer({
@@ -110,12 +114,13 @@ describe("activity email templates", () => {
   it("listing saved", () => {
     const r = renderListingSaved({
       listingTitle: "Vintage Guitar",
-      saveCount: 4,
-      buttonUrl: listingUrl,
+      saverName: "Alex",
+      buttonUrl: profileLink,
     });
-    expect(r.subject).toBe("Someone saved Vintage Guitar");
-    expect(r.text).toContain("4 people have saved");
+    expect(r.subject).toBe("Alex saved your Vintage Guitar");
+    expect(r.text).toContain("Alex bookmarked your Vintage Guitar");
+    expect(r.html).toContain("View profile");
     expect(r.html).toContain("SAVED");
-    expect(r.html).toContain(listingUrl);
+    expect(r.html).toContain(profileLink);
   });
 });

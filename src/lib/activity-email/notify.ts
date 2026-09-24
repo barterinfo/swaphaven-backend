@@ -1,11 +1,11 @@
-import { asc, count, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "../../db/client.js";
 import {
   conversationsTable,
   listingsTable,
   listingImagesTable,
   offersTable,
-  savedListingsTable,
+  userProfilesTable,
   usersTable,
 } from "../../db/schema/index.js";
 import { decryptEmail } from "../email-privacy.js";
@@ -17,8 +17,8 @@ import {
 } from "../push-card-context.js";
 import {
   inboxChatUrl,
-  inboxListingUrl,
   inboxOfferUrl,
+  profileUrl,
 } from "./links.js";
 import { sendActivityEmail } from "./send.js";
 import {
@@ -315,18 +315,23 @@ export async function notifyChatMessage(args: {
   );
 }
 
-export async function notifyListingSaved(args: { listingId: string }): Promise<void> {
+export async function notifyListingSaved(args: {
+  listingId: string;
+  saverUserId: string;
+}): Promise<void> {
   const listing = await db.query.listingsTable.findFirst({
     where: eq(listingsTable.id, args.listingId),
     columns: { userId: true, title: true },
   });
   if (!listing) return;
+  if (listing.userId === args.saverUserId) return;
 
-  const [saveCountRow, img] = await Promise.all([
-    db
-      .select({ value: count() })
-      .from(savedListingsTable)
-      .where(eq(savedListingsTable.listingId, args.listingId)),
+  const [saverName, saverProfile, listingImg] = await Promise.all([
+    loadDisplayName(args.saverUserId),
+    db.query.userProfilesTable.findFirst({
+      where: eq(userProfilesTable.id, args.saverUserId),
+      columns: { avatarUrl: true },
+    }),
     db
       .select({ url: listingImagesTable.url })
       .from(listingImagesTable)
@@ -336,16 +341,16 @@ export async function notifyListingSaved(args: { listingId: string }): Promise<v
       .then((rows) => rows[0]),
   ]);
 
-  const saveCount = Number(saveCountRow[0]?.value ?? 0);
   const title = listing.title?.trim() || "your item";
 
   await sendToUser(
     listing.userId,
     renderListingSaved({
       listingTitle: title,
-      saveCount,
-      imageUrl: img?.url ?? null,
-      buttonUrl: inboxListingUrl(args.listingId),
+      saverName,
+      listingImageUrl: listingImg?.url ?? null,
+      saverAvatarUrl: saverProfile?.avatarUrl ?? null,
+      buttonUrl: profileUrl(args.saverUserId),
     }),
   );
 }
