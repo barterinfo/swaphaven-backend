@@ -33,6 +33,7 @@ import {
   normalizeCountryCode,
   resolveRequestCountry,
 } from "../lib/geo-country.js";
+import { notifyOfferDeclined } from "../lib/activity-email/notify.js";
 
 const router = Router();
 
@@ -88,6 +89,17 @@ async function cancelPendingOffersAndNotify(
       relatedOfferId: o.id,
     })),
   );
+
+  const emailReason =
+    reason === "listing_deleted" ? "listing_deleted" as const : "listing_sold" as const;
+  for (const o of pending) {
+    void notifyOfferDeclined({
+      offerId: o.id,
+      notifyUserId: o.buyerId,
+      listingTitle,
+      reason: emailReason,
+    }).catch(console.error);
+  }
 }
 
 // ─── GET /api/listings ────────────────────────────────────────────────────────

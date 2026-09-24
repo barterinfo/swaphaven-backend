@@ -9,6 +9,7 @@ import { broadcastToRoom } from "../lib/ws.js";
 import { serializeConversationListItem } from "../lib/inbox-serializers.js";
 import { fetchTransitSuggestions } from "../lib/overpass.js";
 import { sendPushToUser } from "../lib/push.js";
+import { notifyChatMessage } from "../lib/activity-email/notify.js";
 import { containsProfanity } from "../lib/moderation.js";
 import { filterListingImageUrls } from "../lib/media.js";
 import { isImageObscene } from "../lib/image-moderation.js";
@@ -343,6 +344,14 @@ router.post("/:conversationId/messages", requireAuth, async (req, res) => {
       },
     });
   })().catch(console.error);
+
+  const emailPreview =
+    parsed.data.type === "image" ? "Sent a photo" : preview;
+  void notifyChatMessage({
+    conversationId: convId,
+    senderUserId: userId,
+    preview: emailPreview,
+  }).catch(console.error);
 
   return res.status(201).json(message);
 });
