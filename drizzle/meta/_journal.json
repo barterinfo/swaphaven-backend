@@ -232,6 +232,20 @@
       "when": 1786200000000,
       "tag": "0031_direct_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786300000000,
+      "tag": "0032_user_follows",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0033_followed_listing_notification",
+      "breakpoints": true
     }
   ]
 }

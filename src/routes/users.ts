@@ -1,13 +1,22 @@
 import { Router } from "express";
-import { and, count, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { userProfilesTable, listingsTable, tradeReviewsTable, tradesTable, offersTable } from "../db/schema/index.js";
-import { requireAuth } from "../middleware/auth.js";
+import {
+  userProfilesTable,
+  listingsTable,
+  tradeReviewsTable,
+  tradesTable,
+  offersTable,
+  userFollowsTable,
+  usersTable,
+} from "../db/schema/index.js";
+import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { findProfaneField } from "../lib/moderation.js";
 import { refreshCompletionRate } from "../lib/profile-stats.js";
+import { isBlockedEitherWay } from "../lib/user-blocks.js";
 
 const router = Router();
 
@@ -20,7 +29,25 @@ router.get("/me", requireAuth, async (req, res) => {
     where: eq(userProfilesTable.id, userId),
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "Profile not found" });
-  return res.json(profile);
+
+  const [followerCountRow, followingCountRow] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(userFollowsTable)
+      .where(eq(userFollowsTable.followeeId, userId))
+      .then((r) => r[0]!),
+    db
+      .select({ total: count() })
+      .from(userFollowsTable)
+      .where(eq(userFollowsTable.followerId, userId))
+      .then((r) => r[0]!),
+  ]);
+
+  return res.json({
+    ...profile,
+    followerCount: Number(followerCountRow.total),
+    followingCount: Number(followingCountRow.total),
+  });
 });
 
 // ─── PATCH /api/users/me ──────────────────────────────────────────────────────
@@ -81,8 +108,118 @@ router.patch("/me", requireAuth, async (req, res) => {
   return res.json(updated);
 });
 
+// ─── GET /api/users/me/following ──────────────────────────────────────────────
+/** People the caller follows, newest first. */
+router.get("/me/following", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
+
+  const conditions = [eq(userFollowsTable.followerId, followerId)];
+  if (cursor) {
+    conditions.push(lt(userFollowsTable.createdAt, cursor));
+  }
+
+  const rows = await db
+    .select({
+      userId:      userFollowsTable.followeeId,
+      followedAt:  userFollowsTable.createdAt,
+      displayName: userProfilesTable.displayName,
+      avatarUrl:   userProfilesTable.avatarUrl,
+    })
+    .from(userFollowsTable)
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, userFollowsTable.followeeId))
+    .where(and(...conditions))
+    .orderBy(desc(userFollowsTable.createdAt))
+    .limit(limit);
+
+  const nextCursor =
+    rows.length === limit ? encodeCursor(rows.at(-1)!.followedAt) : null;
+
+  return res.json({
+    items: rows.map((r) => ({
+      userId: r.userId,
+      displayName: r.displayName,
+      avatarUrl: r.avatarUrl,
+      followedAt: r.followedAt,
+    })),
+    nextCursor,
+  });
+});
+
+// ─── POST /api/users/:userId/follow ───────────────────────────────────────────
+/** Follow another user. Idempotent. Rejects self-follow and block relationships. */
+router.post("/:userId/follow", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const followeeId = p(req.params["userId"]);
+
+  if (followerId === followeeId) {
+    return res.status(400).json({
+      error: "bad_request",
+      message: "Cannot follow yourself",
+    });
+  }
+
+  const target = await db.query.usersTable.findFirst({
+    where: eq(usersTable.id, followeeId),
+    columns: { id: true },
+  });
+  if (!target) {
+    return res.status(404).json({ error: "not_found", message: "User not found" });
+  }
+
+  if (await isBlockedEitherWay(followerId, followeeId)) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "Cannot follow this user",
+    });
+  }
+
+  const existing = await db.query.userFollowsTable.findFirst({
+    where: and(
+      eq(userFollowsTable.followerId, followerId),
+      eq(userFollowsTable.followeeId, followeeId),
+    ),
+  });
+  if (existing) {
+    return res.status(200).json({
+      id: existing.id,
+      followeeId,
+      following: true,
+    });
+  }
+
+  const [row] = await db
+    .insert(userFollowsTable)
+    .values({ followerId, followeeId })
+    .returning();
+
+  return res.status(201).json({
+    id: row!.id,
+    followeeId,
+    following: true,
+  });
+});
+
+// ─── DELETE /api/users/:userId/follow ─────────────────────────────────────────
+/** Unfollow. Idempotent — 204 even if not following. */
+router.delete("/:userId/follow", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const followeeId = p(req.params["userId"]);
+
+  await db
+    .delete(userFollowsTable)
+    .where(
+      and(
+        eq(userFollowsTable.followerId, followerId),
+        eq(userFollowsTable.followeeId, followeeId),
+      ),
+    );
+
+  return res.status(204).send();
+});
+
 // ─── GET /api/users/:userId ───────────────────────────────────────────────────
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", optionalAuth, async (req, res) => {
   const userId = p(req.params["userId"]);
   let profile = await db.query.userProfilesTable.findFirst({
     where: eq(userProfilesTable.id, userId),
@@ -93,6 +230,29 @@ router.get("/:userId", async (req, res) => {
   profile = (await db.query.userProfilesTable.findFirst({
     where: eq(userProfilesTable.id, userId),
   }))!;
+
+  const viewerId = req.user?.sub;
+  const [followerCountRow, followingCountRow, followRow] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(userFollowsTable)
+      .where(eq(userFollowsTable.followeeId, userId))
+      .then((r) => r[0]!),
+    db
+      .select({ total: count() })
+      .from(userFollowsTable)
+      .where(eq(userFollowsTable.followerId, userId))
+      .then((r) => r[0]!),
+    viewerId && viewerId !== userId
+      ? db.query.userFollowsTable.findFirst({
+          where: and(
+            eq(userFollowsTable.followerId, viewerId),
+            eq(userFollowsTable.followeeId, userId),
+          ),
+          columns: { id: true },
+        })
+      : Promise.resolve(null),
+  ]);
 
   const { locationLat } = profile;
   const rating =
@@ -114,6 +274,9 @@ router.get("/:userId", async (req, res) => {
     completionRate: profile.completionRate,
     avgResponseMinutes: profile.avgResponseMinutes,
     createdAt: profile.createdAt,
+    followerCount: Number(followerCountRow.total),
+    followingCount: Number(followingCountRow.total),
+    isFollowing: viewerId && viewerId !== userId ? Boolean(followRow) : false,
   });
 });
 

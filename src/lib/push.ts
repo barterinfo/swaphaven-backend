@@ -47,7 +47,8 @@ export type PushDataType =
   | "counter_offer"
   | "offer_accepted"
   | "new_message"
-  | "announcement";
+  | "announcement"
+  | "followed_listing";
 
 const APNS_CATEGORY: Record<PushDataType, string> = {
   offer: "BARTER_OFFER",
@@ -55,6 +56,7 @@ const APNS_CATEGORY: Record<PushDataType, string> = {
   offer_accepted: "BARTER_ACCEPTED",
   new_message: "BARTER_MESSAGE",
   announcement: "BARTER_ANNOUNCEMENT",
+  followed_listing: "BARTER_FOLLOWED_LISTING",
 };
 
 /** FCM `sendEachForMulticast` accepts at most 500 tokens per call. */
@@ -73,6 +75,7 @@ export interface PushPayload {
     type: PushDataType;
     offerId?: string;
     conversationId?: string;
+    listingId?: string;
     senderName?: string;
     title?: string;
     body?: string;

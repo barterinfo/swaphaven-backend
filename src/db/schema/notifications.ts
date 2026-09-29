@@ -19,6 +19,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "reviews_revealed",
   "swipe_match",
   "streak_milestone",
+  "followed_listing",
 ]);
 
 // ─── notifications ────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ export const notificationsTable = pgTable("notifications", {
   relatedOfferId:        uuid("related_offer_id"),
   relatedTradeId:        uuid("related_trade_id"),
   relatedConversationId: uuid("related_conversation_id"),
+  relatedListingId:      uuid("related_listing_id"),
   isRead:                boolean("is_read").notNull().default(false),
   createdAt:             timestamp("created_at").notNull().defaultNow(),
 }, (t) => [

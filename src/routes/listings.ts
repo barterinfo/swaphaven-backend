@@ -18,6 +18,7 @@ import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js"
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
 import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
 import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
+import { notifyFollowersOfNewListing } from "../lib/followed-listing-notify.js";
 import {
   buildReviewSnapshot,
   createListingBodySchema,
@@ -255,6 +256,11 @@ router.post("/", requireAuth, async (req, res) => {
 
   const serialized = serializeListingBarter(listing, { images: imageUrls });
   scheduleListingEmbed(listing.id);
+  void notifyFollowersOfNewListing({
+    sellerId: listing.userId,
+    listingId: listing.id,
+    listingTitle: listing.title,
+  }).catch(console.error);
   return res.status(201).json({
     listing: serialized,
     // Legacy flat fields (tests + older clients)

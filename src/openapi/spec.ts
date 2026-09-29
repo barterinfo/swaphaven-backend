@@ -81,6 +81,9 @@ export const openApiSpec = {
           completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Percent of terminal trades that completed (completed / (completed + cancelled + disputed)). Null when none yet." },
           avgResponseMinutes: { type: "integer", nullable: true, description: "Rolling average reply time in minutes (from chat replies). Null until the user has replied at least once." },
           createdAt:          { type: "string", format: "date-time" },
+          followerCount:      { type: "integer", description: "Number of users following this profile." },
+          followingCount:     { type: "integer", description: "Number of users this profile follows." },
+          isFollowing:        { type: "boolean", description: "True when the authenticated viewer follows this user. False for guests and when viewing own profile." },
         },
       },
       UpdateProfileRequest: {
@@ -811,14 +814,72 @@ export const openApiSpec = {
         responses: { "200": { description: "Updated profile", content: { "application/json": { schema: { $ref: "#/components/schemas/UserProfile" } } } } },
       },
     },
+    "/api/users/me/following": {
+      get: {
+        tags: ["Users"], summary: "List users the caller follows",
+        parameters: [
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated following list, newest first.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          userId:      { type: "string", format: "uuid" },
+                          displayName: { type: "string" },
+                          avatarUrl:   { type: "string", nullable: true },
+                          followedAt:  { type: "string", format: "date-time" },
+                        },
+                      },
+                    },
+                    nextCursor: { type: "string", nullable: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     "/api/users/{userId}": {
       get: {
         tags: ["Users"], summary: "Get public profile", security: [],
-        description: "Returns public fields only. lat/lng are stripped; a computed `rating` (ratingSum / ratingCount) and a `hasLocation` flag are added.",
+        description: "Returns public fields only. lat/lng are stripped; a computed `rating` (ratingSum / ratingCount) and a `hasLocation` flag are added. When authenticated, includes `isFollowing` plus follower/following counts.",
         parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Public profile", content: { "application/json": { schema: { $ref: "#/components/schemas/PublicUserProfile" } } } },
           "404": { description: "Not found" },
+        },
+      },
+    },
+    "/api/users/{userId}/follow": {
+      post: {
+        tags: ["Users"], summary: "Follow a user",
+        description: "Idempotent. Rejects self-follow and block relationships.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "201": { description: "Follow created" },
+          "200": { description: "Already following" },
+          "400": { description: "Cannot follow yourself" },
+          "403": { description: "Blocked either way" },
+          "404": { description: "User not found" },
+        },
+      },
+      delete: {
+        tags: ["Users"], summary: "Unfollow a user",
+        description: "Idempotent — 204 even if not following.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Unfollowed" },
         },
       },
     },
