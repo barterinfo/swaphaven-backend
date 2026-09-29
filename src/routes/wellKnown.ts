@@ -19,7 +19,13 @@ router.get("/apple-app-site-association", (_req, res) => {
       details: [
         {
           appID,
-          paths: ["/listings/*", "/users/*"],
+          paths: [
+            "/listings/*",
+            "/users/*",
+            "/inbox/offers/*",
+            "/inbox/chats/*",
+            "/inbox/listings/*",
+          ],
         },
       ],
     },
