@@ -20,11 +20,14 @@ import {
   resolveRequestCountry,
 } from "../lib/geo-country.js";
 import { recommendDeck } from "../lib/barter-ai.js";
+import { followedOwnerIds } from "../lib/user-follows.js";
 
 const router = Router();
 
 /** Cards returned per GET /api/swipe/deck request (independent of daily quota). */
 const DECK_PAGE_SIZE = 20;
+/** Soft-pin recent followed sellers when barter-ai is skipped. */
+const FOLLOW_FALLBACK_PIN = 5;
 
 /** Sentinel remaining count when DAILY_SWIPE_LIMIT is unset (unlimited). */
 const UNLIMITED_REMAINING = Number.MAX_SAFE_INTEGER;
@@ -192,10 +195,12 @@ router.get("/deck", optionalAuth, async (req, res) => {
   });
 
   if (userId && viewerCountry) {
+    const followeeIds = await followedOwnerIds(userId);
     const ranked = await recommendDeck({
       userId,
       excludeIds: uniqueExcludeIds,
       excludeOwnerIds: hiddenOwners,
+      followedOwnerIds: followeeIds,
       country: viewerCountry,
       category: categorySlug,
       limit: DECK_PAGE_SIZE,
@@ -228,6 +233,23 @@ router.get("/deck", optionalAuth, async (req, res) => {
       } else {
         cards = ordered;
       }
+    } else if (followeeIds.length) {
+      // barter-ai skipped — soft-pin a handful of recent listings from followed sellers.
+      const followedCards = await db.query.listingsTable.findMany({
+        where: and(
+          ...conditions,
+          inArray(listingsTable.userId, followeeIds),
+        ),
+        with: listingWith,
+        limit: FOLLOW_FALLBACK_PIN,
+        orderBy: (t, { desc }) => [desc(t.createdAt)],
+      });
+      for (const card of followedCards) {
+        mlReasonById.set(card.id, "From someone you follow");
+      }
+      const pinnedIds = new Set(followedCards.map((c) => c.id));
+      const rest = cards.filter((c) => !pinnedIds.has(c.id));
+      cards = [...followedCards, ...rest].slice(0, DECK_PAGE_SIZE);
     }
   }
 

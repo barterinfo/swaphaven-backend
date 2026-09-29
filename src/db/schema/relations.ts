@@ -3,6 +3,7 @@ import { usersTable, userProfilesTable, deviceTokensTable, swipeStreaksTable } f
 import { categoriesTable, listingsTable, listingImagesTable, listingWantsTable } from "./listings.js";
 import { swipesTable } from "./swipes.js";
 import { savedListingsTable } from "./saved_listings.js";
+import { userFollowsTable } from "./user_follows.js";
 import { listingViewsTable } from "./listing_views.js";
 import { listingEmbeddingsTable } from "./listing_embeddings.js";
 import {
@@ -21,6 +22,8 @@ export const usersRelations = relations(usersTable, ({ one, many }) => ({
   listings:      many(listingsTable),
   swipes:        many(swipesTable, { relationName: "swiper" }),
   savedListings: many(savedListingsTable),
+  following:     many(userFollowsTable, { relationName: "follower" }),
+  followers:     many(userFollowsTable, { relationName: "followee" }),
   listingViews:  many(listingViewsTable),
   sentOffers:    many(offersTable, { relationName: "buyer" }),
   receivedOffers:many(offersTable, { relationName: "seller" }),
@@ -90,6 +93,20 @@ export const swipesRelations = relations(swipesTable, ({ one }) => ({
 export const savedListingsRelations = relations(savedListingsTable, ({ one }) => ({
   user:    one(usersTable, { fields: [savedListingsTable.userId], references: [usersTable.id] }),
   listing: one(listingsTable, { fields: [savedListingsTable.listingId], references: [listingsTable.id] }),
+}));
+
+// ─── User follows ─────────────────────────────────────────────────────────────
+export const userFollowsRelations = relations(userFollowsTable, ({ one }) => ({
+  follower: one(usersTable, {
+    fields: [userFollowsTable.followerId],
+    references: [usersTable.id],
+    relationName: "follower",
+  }),
+  followee: one(usersTable, {
+    fields: [userFollowsTable.followeeId],
+    references: [usersTable.id],
+    relationName: "followee",
+  }),
 }));
 
 // ─── Offers ───────────────────────────────────────────────────────────────────

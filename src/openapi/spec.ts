@@ -59,6 +59,10 @@ export const openApiSpec = {
             items: { type: "string" },
             description: "Onboarding interest slugs for personalized ranking.",
           },
+          followListingAlerts: {
+            type: "boolean",
+            description: "When false, the user does not receive alerts about people they follow. Follows and ranking boosts stay.",
+          },
           createdAt:          { type: "string", format: "date-time" },
           updatedAt:          { type: "string", format: "date-time" },
         },
@@ -81,6 +85,9 @@ export const openApiSpec = {
           completionRate:     { type: "integer", minimum: 0, maximum: 100, nullable: true, description: "Percent of terminal trades that completed (completed / (completed + cancelled + disputed)). Null when none yet." },
           avgResponseMinutes: { type: "integer", nullable: true, description: "Rolling average reply time in minutes (from chat replies). Null until the user has replied at least once." },
           createdAt:          { type: "string", format: "date-time" },
+          followerCount:      { type: "integer", description: "Number of users following this profile." },
+          followingCount:     { type: "integer", description: "Number of users this profile follows." },
+          isFollowing:        { type: "boolean", description: "True when the authenticated viewer follows this user. False for guests and when viewing own profile." },
         },
       },
       UpdateProfileRequest: {
@@ -103,6 +110,10 @@ export const openApiSpec = {
             maxItems: 50,
             items: { type: "string" },
             description: "Onboarding interest slugs (e.g. electronics) used for cold-start recommendations.",
+          },
+          followListingAlerts: {
+            type: "boolean",
+            description: "Master switch for alerts about people you follow.",
           },
         },
       },
@@ -811,14 +822,114 @@ export const openApiSpec = {
         responses: { "200": { description: "Updated profile", content: { "application/json": { schema: { $ref: "#/components/schemas/UserProfile" } } } } },
       },
     },
+    "/api/users/me/following": {
+      get: {
+        tags: ["Users"], summary: "List users the caller follows",
+        parameters: [
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated following list, newest first.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          userId:      { type: "string", format: "uuid" },
+                          displayName: { type: "string" },
+                          avatarUrl:   { type: "string", nullable: true },
+                          followedAt:  { type: "string", format: "date-time" },
+                          alertsMuted: { type: "boolean", description: "True when listing alerts for this person are muted." },
+                        },
+                      },
+                    },
+                    nextCursor: { type: "string", nullable: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/users/me/followers": {
+      get: {
+        tags: ["Users"], summary: "List users who follow the caller",
+        parameters: [
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+        ],
+        responses: {
+          "200": { description: "Paginated followers, newest first." },
+        },
+      },
+    },
+    "/api/users/me/suggestions": {
+      get: {
+        tags: ["Users"], summary: "Suggest sellers in the caller's interest categories",
+        responses: {
+          "200": { description: "Up to 10 sellers the caller does not follow yet." },
+        },
+      },
+    },
     "/api/users/{userId}": {
       get: {
         tags: ["Users"], summary: "Get public profile", security: [],
-        description: "Returns public fields only. lat/lng are stripped; a computed `rating` (ratingSum / ratingCount) and a `hasLocation` flag are added.",
+        description: "Returns public fields only. lat/lng are stripped; a computed `rating` (ratingSum / ratingCount) and a `hasLocation` flag are added. When authenticated, includes `isFollowing` plus follower/following counts.",
         parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Public profile", content: { "application/json": { schema: { $ref: "#/components/schemas/PublicUserProfile" } } } },
           "404": { description: "Not found" },
+        },
+      },
+    },
+    "/api/users/{userId}/follow": {
+      post: {
+        tags: ["Users"], summary: "Follow a user",
+        description: "Idempotent. Rejects self-follow and block relationships.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "201": { description: "Follow created" },
+          "200": { description: "Already following" },
+          "400": { description: "Cannot follow yourself" },
+          "403": { description: "Blocked either way" },
+          "404": { description: "User not found" },
+        },
+      },
+      delete: {
+        tags: ["Users"], summary: "Unfollow a user",
+        description: "Idempotent — 204 even if not following.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Unfollowed" },
+        },
+      },
+      patch: {
+        tags: ["Users"], summary: "Mute or unmute alerts for one follow",
+        description: "Keeps the follow and discovery boost. Only suppresses activity alerts.",
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["alertsMuted"],
+                properties: { alertsMuted: { type: "boolean" } },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated mute flag" },
+          "404": { description: "Not following this user" },
         },
       },
     },
@@ -2054,6 +2165,21 @@ export const openApiSpec = {
               },
             },
           },
+        },
+      },
+    },
+    "/api/search/followed": {
+      get: {
+        tags: ["Search"],
+        summary: "Listings from people the caller follows",
+        description: "Newest active listings from followed sellers. Not taste-ranked, so follows stay visible when recommendations prefer other matches.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+        ],
+        responses: {
+          "200": { description: "Paginated listings, newest first." },
         },
       },
     },

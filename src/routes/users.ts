@@ -1,13 +1,26 @@
 import { Router } from "express";
-import { and, count, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { userProfilesTable, listingsTable, tradeReviewsTable, tradesTable, offersTable } from "../db/schema/index.js";
-import { requireAuth } from "../middleware/auth.js";
+import {
+  userProfilesTable,
+  listingsTable,
+  tradeReviewsTable,
+  tradesTable,
+  offersTable,
+  userFollowsTable,
+  usersTable,
+  categoriesTable,
+  userBlocksTable,
+} from "../db/schema/index.js";
+import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { findProfaneField } from "../lib/moderation.js";
 import { refreshCompletionRate } from "../lib/profile-stats.js";
+import { isBlockedEitherWay } from "../lib/user-blocks.js";
+import { adjustFollowCounts } from "../lib/user-follows.js";
+import { notifyNewFollower } from "../lib/follow-alerts.js";
 
 const router = Router();
 
@@ -20,7 +33,12 @@ router.get("/me", requireAuth, async (req, res) => {
     where: eq(userProfilesTable.id, userId),
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "Profile not found" });
-  return res.json(profile);
+
+  return res.json({
+    ...profile,
+    followerCount: profile.followerCount,
+    followingCount: profile.followingCount,
+  });
 });
 
 // ─── PATCH /api/users/me ──────────────────────────────────────────────────────
@@ -45,6 +63,8 @@ const updateProfileSchema = z.object({
   locationLng:  z.number().min(-180).max(180).optional(),
   /** Onboarding interest slugs (e.g. electronics). */
   interestCategoryIds: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+  /** Master switch for alerts about people you follow. */
+  followListingAlerts: z.boolean().optional(),
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
@@ -81,8 +101,261 @@ router.patch("/me", requireAuth, async (req, res) => {
   return res.json(updated);
 });
 
+// ─── GET /api/users/me/following ──────────────────────────────────────────────
+/** People the caller follows, newest first. */
+router.get("/me/following", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
+
+  const conditions = [eq(userFollowsTable.followerId, followerId)];
+  if (cursor) {
+    conditions.push(lt(userFollowsTable.createdAt, cursor));
+  }
+
+  const rows = await db
+    .select({
+      userId:      userFollowsTable.followeeId,
+      followedAt:  userFollowsTable.createdAt,
+      displayName: userProfilesTable.displayName,
+      avatarUrl:   userProfilesTable.avatarUrl,
+      alertsMuted: userFollowsTable.alertsMuted,
+    })
+    .from(userFollowsTable)
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, userFollowsTable.followeeId))
+    .where(and(...conditions))
+    .orderBy(desc(userFollowsTable.createdAt))
+    .limit(limit);
+
+  const nextCursor =
+    rows.length === limit ? encodeCursor(rows.at(-1)!.followedAt) : null;
+
+  return res.json({
+    items: rows.map((r) => ({
+      userId: r.userId,
+      displayName: r.displayName,
+      avatarUrl: r.avatarUrl,
+      followedAt: r.followedAt,
+      alertsMuted: r.alertsMuted,
+    })),
+    nextCursor,
+  });
+});
+
+// ─── GET /api/users/me/followers ──────────────────────────────────────────────
+/** People who follow the caller, newest first. Own list only. */
+router.get("/me/followers", requireAuth, async (req, res) => {
+  const followeeId = req.user!.sub;
+  const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
+
+  const conditions = [eq(userFollowsTable.followeeId, followeeId)];
+  if (cursor) {
+    conditions.push(lt(userFollowsTable.createdAt, cursor));
+  }
+
+  const rows = await db
+    .select({
+      userId:      userFollowsTable.followerId,
+      followedAt:  userFollowsTable.createdAt,
+      displayName: userProfilesTable.displayName,
+      avatarUrl:   userProfilesTable.avatarUrl,
+    })
+    .from(userFollowsTable)
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, userFollowsTable.followerId))
+    .where(and(...conditions))
+    .orderBy(desc(userFollowsTable.createdAt))
+    .limit(limit);
+
+  const nextCursor =
+    rows.length === limit ? encodeCursor(rows.at(-1)!.followedAt) : null;
+
+  return res.json({
+    items: rows.map((r) => ({
+      userId: r.userId,
+      displayName: r.displayName,
+      avatarUrl: r.avatarUrl,
+      followedAt: r.followedAt,
+    })),
+    nextCursor,
+  });
+});
+
+// ─── GET /api/users/me/suggestions ────────────────────────────────────────────
+/** Sellers with active listings in the viewer's interest categories, not yet followed. */
+router.get("/me/suggestions", requireAuth, async (req, res) => {
+  const viewerId = req.user!.sub;
+  const profile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, viewerId),
+    columns: { interestCategoryIds: true },
+  });
+  const interests = (profile?.interestCategoryIds ?? []).filter(Boolean);
+  if (!interests.length) return res.json({ items: [] });
+
+  const rows = await db
+    .selectDistinctOn([listingsTable.userId], {
+      userId: listingsTable.userId,
+      displayName: userProfilesTable.displayName,
+      avatarUrl: userProfilesTable.avatarUrl,
+      categoryLabel: categoriesTable.name,
+    })
+    .from(listingsTable)
+    .innerJoin(categoriesTable, eq(categoriesTable.id, listingsTable.categoryId))
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, listingsTable.userId))
+    .where(
+      and(
+        eq(listingsTable.status, "active"),
+        inArray(categoriesTable.slug, interests),
+        ne(listingsTable.userId, viewerId),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${userFollowsTable}
+          WHERE ${userFollowsTable.followerId} = ${viewerId}
+            AND ${userFollowsTable.followeeId} = ${listingsTable.userId}
+        )`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${userBlocksTable}
+          WHERE (
+            ${userBlocksTable.blockerId} = ${viewerId}
+            AND ${userBlocksTable.blockedId} = ${listingsTable.userId}
+          ) OR (
+            ${userBlocksTable.blockerId} = ${listingsTable.userId}
+            AND ${userBlocksTable.blockedId} = ${viewerId}
+          )
+        )`,
+      ),
+    )
+    .orderBy(listingsTable.userId, desc(listingsTable.createdAt))
+    .limit(10);
+
+  return res.json({
+    items: rows.map((row) => ({
+      userId: row.userId,
+      displayName: row.displayName,
+      avatarUrl: row.avatarUrl,
+      categoryLabel: row.categoryLabel,
+    })),
+  });
+});
+
+// ─── POST /api/users/:userId/follow ───────────────────────────────────────────
+/** Follow another user. Idempotent. Rejects self-follow and block relationships. */
+router.post("/:userId/follow", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const followeeId = p(req.params["userId"]);
+
+  if (followerId === followeeId) {
+    return res.status(400).json({
+      error: "bad_request",
+      message: "Cannot follow yourself",
+    });
+  }
+
+  const target = await db.query.usersTable.findFirst({
+    where: eq(usersTable.id, followeeId),
+    columns: { id: true },
+  });
+  if (!target) {
+    return res.status(404).json({ error: "not_found", message: "User not found" });
+  }
+
+  if (await isBlockedEitherWay(followerId, followeeId)) {
+    return res.status(403).json({
+      error: "forbidden",
+      message: "Cannot follow this user",
+    });
+  }
+
+  const existing = await db.query.userFollowsTable.findFirst({
+    where: and(
+      eq(userFollowsTable.followerId, followerId),
+      eq(userFollowsTable.followeeId, followeeId),
+    ),
+  });
+  if (existing) {
+    return res.status(200).json({
+      id: existing.id,
+      followeeId,
+      following: true,
+    });
+  }
+
+  const [row] = await db
+    .insert(userFollowsTable)
+    .values({ followerId, followeeId })
+    .returning();
+
+  await adjustFollowCounts({ followerId, followeeId, delta: 1 });
+
+  void notifyNewFollower({ followeeId, followerId }).catch(console.error);
+
+  return res.status(201).json({
+    id: row!.id,
+    followeeId,
+    following: true,
+  });
+});
+
+// ─── DELETE /api/users/:userId/follow ─────────────────────────────────────────
+/** Unfollow. Idempotent — 204 even if not following. */
+router.delete("/:userId/follow", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const followeeId = p(req.params["userId"]);
+
+  const deleted = await db
+    .delete(userFollowsTable)
+    .where(
+      and(
+        eq(userFollowsTable.followerId, followerId),
+        eq(userFollowsTable.followeeId, followeeId),
+      ),
+    )
+    .returning({ id: userFollowsTable.id });
+
+  if (deleted.length) {
+    await adjustFollowCounts({ followerId, followeeId, delta: -1 });
+  }
+
+  return res.status(204).send();
+});
+
+// ─── PATCH /api/users/:userId/follow ──────────────────────────────────────────
+/** Mute or unmute listing alerts for one follow. The follow itself stays. */
+router.patch("/:userId/follow", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const followeeId = p(req.params["userId"]);
+  const parsed = z.object({ alertsMuted: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation",
+      message: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const [row] = await db
+    .update(userFollowsTable)
+    .set({ alertsMuted: parsed.data.alertsMuted })
+    .where(
+      and(
+        eq(userFollowsTable.followerId, followerId),
+        eq(userFollowsTable.followeeId, followeeId),
+      ),
+    )
+    .returning();
+
+  if (!row) {
+    return res.status(404).json({
+      error: "not_found",
+      message: "Not following this user",
+    });
+  }
+
+  return res.json({
+    followeeId,
+    following: true,
+    alertsMuted: row.alertsMuted,
+  });
+});
+
 // ─── GET /api/users/:userId ───────────────────────────────────────────────────
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", optionalAuth, async (req, res) => {
   const userId = p(req.params["userId"]);
   let profile = await db.query.userProfilesTable.findFirst({
     where: eq(userProfilesTable.id, userId),
@@ -93,6 +366,18 @@ router.get("/:userId", async (req, res) => {
   profile = (await db.query.userProfilesTable.findFirst({
     where: eq(userProfilesTable.id, userId),
   }))!;
+
+  const viewerId = req.user?.sub;
+  const followRow =
+    viewerId && viewerId !== userId
+      ? await db.query.userFollowsTable.findFirst({
+          where: and(
+            eq(userFollowsTable.followerId, viewerId),
+            eq(userFollowsTable.followeeId, userId),
+          ),
+          columns: { id: true },
+        })
+      : null;
 
   const { locationLat } = profile;
   const rating =
@@ -114,6 +399,9 @@ router.get("/:userId", async (req, res) => {
     completionRate: profile.completionRate,
     avgResponseMinutes: profile.avgResponseMinutes,
     createdAt: profile.createdAt,
+    followerCount: profile.followerCount,
+    followingCount: profile.followingCount,
+    isFollowing: viewerId && viewerId !== userId ? Boolean(followRow) : false,
   });
 });
 

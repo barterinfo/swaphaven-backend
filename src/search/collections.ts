@@ -1,14 +1,21 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, notInArray, or } from "drizzle-orm";
 import { db } from "../db/client.js";
-import { listingsTable, swipesTable, userProfilesTable } from "../db/schema/index.js";
+import {
+  listingsTable,
+  swipesTable,
+  userFollowsTable,
+  userProfilesTable,
+} from "../db/schema/index.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { recommendSearch } from "../lib/barter-ai.js";
 import { serializeListingsByIds } from "../lib/related-listings.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
+import { followedOwnerIds } from "../lib/user-follows.js";
 import { fetchSearchCandidateIds } from "./queries.js";
 import type { SearchListingParams } from "./types.js";
 
 const POOL_CAP = 200;
+const FOLLOWED_SEARCH_SLOT = 40;
 
 export type CollectionPage = {
   listings: Awaited<ReturnType<typeof serializeListingsByIds>>;
@@ -48,6 +55,7 @@ async function rankOrKeepOrder(opts: {
   candidateIds: string[];
   excludeIds: string[];
   excludeOwnerIds: string[];
+  followedOwnerIds?: string[];
   listingId?: string;
 }): Promise<string[]> {
   if (!opts.candidateIds.length) return [];
@@ -57,6 +65,7 @@ async function rankOrKeepOrder(opts: {
     candidateIds: opts.candidateIds,
     excludeIds: opts.excludeIds,
     excludeOwnerIds: opts.excludeOwnerIds,
+    followedOwnerIds: opts.followedOwnerIds,
     country: opts.country,
     limit: Math.min(opts.candidateIds.length, POOL_CAP),
   });
@@ -66,10 +75,43 @@ async function rankOrKeepOrder(opts: {
   return opts.candidateIds;
 }
 
+/** Merge recent followed-seller listings into the search candidate pool. */
+async function injectFollowedListingIds(opts: {
+  viewerId: string;
+  followeeIds: string[];
+  existingIds: string[];
+}): Promise<string[]> {
+  if (!opts.followeeIds.length) return opts.existingIds;
+
+  const followedRows = await db
+    .select({ id: listingsTable.id })
+    .from(listingsTable)
+    .where(
+      and(
+        eq(listingsTable.status, "active"),
+        inArray(listingsTable.userId, opts.followeeIds),
+        ne(listingsTable.userId, opts.viewerId),
+      ),
+    )
+    .orderBy(desc(listingsTable.createdAt))
+    .limit(FOLLOWED_SEARCH_SLOT);
+
+  const followedIds = followedRows.map((r) => r.id);
+  if (!followedIds.length) return opts.existingIds;
+
+  const existing = new Set(opts.existingIds);
+  const injected = followedIds.filter((id) => !existing.has(id));
+  return [...injected, ...opts.existingIds].slice(0, POOL_CAP);
+}
+
 export async function searchRecommendedPage(
   filters: CollectionFilters,
 ): Promise<CollectionPage> {
-  const excludeOwnerIds = await hiddenOwnerIds(filters.viewerId);
+  const [excludeOwnerIds, followeeIds] = await Promise.all([
+    hiddenOwnerIds(filters.viewerId),
+    followedOwnerIds(filters.viewerId),
+  ]);
+  const excludeSet = new Set(excludeOwnerIds);
   const candidateIds = await fetchSearchCandidateIds({
     q: filters.q,
     lat: filters.lat,
@@ -82,18 +124,84 @@ export async function searchRecommendedPage(
     country: filters.country,
     cap: POOL_CAP,
   });
-  if (!candidateIds.length) return emptyPage();
+
+  const mergedIds = await injectFollowedListingIds({
+    viewerId: filters.viewerId,
+    followeeIds: followeeIds.filter((id) => !excludeSet.has(id)),
+    existingIds: candidateIds,
+  });
+  if (!mergedIds.length) return emptyPage();
 
   const ordered = await rankOrKeepOrder({
     viewerId: filters.viewerId,
     country: filters.country,
-    candidateIds,
+    candidateIds: mergedIds,
     excludeIds: [],
     excludeOwnerIds,
+    followedOwnerIds: followeeIds,
   });
   const { page, total, nextOffset } = slicePage(ordered, filters.offset, filters.limit);
   if (!page.length) return { listings: [], total, nextOffset };
   const listings = await serializeListingsByIds(page);
+  return { listings, total, nextOffset };
+}
+
+/** Newest active listings from people the viewer follows. Not taste-ranked. */
+export async function searchFollowedPage(opts: {
+  viewerId: string;
+  country: string;
+  limit: number;
+  offset: number;
+}): Promise<CollectionPage> {
+  const hidden = await hiddenOwnerIds(opts.viewerId);
+
+  const conditions = [
+    eq(listingsTable.status, "active"),
+    eq(userFollowsTable.followerId, opts.viewerId),
+    ne(listingsTable.userId, opts.viewerId),
+  ];
+  if (hidden.length) {
+    conditions.push(notInArray(listingsTable.userId, hidden));
+  }
+  if (opts.country) {
+    conditions.push(
+      or(
+        eq(listingsTable.locationCountry, opts.country),
+        eq(listingsTable.locationCountry, ""),
+      )!,
+    );
+  }
+
+  const whereClause = and(...conditions);
+
+  const [totalRow, rows] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(listingsTable)
+      .innerJoin(
+        userFollowsTable,
+        eq(userFollowsTable.followeeId, listingsTable.userId),
+      )
+      .where(whereClause)
+      .then((r) => r[0]!),
+    db
+      .select({ id: listingsTable.id })
+      .from(listingsTable)
+      .innerJoin(
+        userFollowsTable,
+        eq(userFollowsTable.followeeId, listingsTable.userId),
+      )
+      .where(whereClause)
+      .orderBy(desc(listingsTable.createdAt))
+      .limit(opts.limit)
+      .offset(opts.offset),
+  ]);
+
+  const total = Number(totalRow.total);
+  const nextOffset =
+    opts.offset + opts.limit < total ? opts.offset + opts.limit : null;
+  if (!rows.length) return { listings: [], total, nextOffset };
+  const listings = await serializeListingsByIds(rows.map((row) => row.id));
   return { listings, total, nextOffset };
 }
 

@@ -12,6 +12,7 @@ import {
 import { requireAuth } from "../middleware/auth.js";
 import { p } from "../lib/route-helpers.js";
 import { notifyContentReport } from "../lib/mailer.js";
+import { deleteFollowEdgesBetween } from "../lib/user-follows.js";
 
 const router = Router();
 
@@ -59,6 +60,7 @@ router.post("/blocks/:userId", requireAuth, async (req, res) => {
     ),
   });
   if (existing) {
+    await deleteFollowEdgesBetween(blockerId, blockedId);
     return res.status(200).json({
       id: existing.id,
       blockedUserId: blockedId,
@@ -70,6 +72,8 @@ router.post("/blocks/:userId", requireAuth, async (req, res) => {
     .insert(userBlocksTable)
     .values({ blockerId, blockedId })
     .returning();
+
+  await deleteFollowEdgesBetween(blockerId, blockedId);
 
   return res.status(201).json({
     id: row!.id,

@@ -19,6 +19,11 @@ import { hiddenOwnerIds } from "../lib/user-blocks.js";
 import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
 import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
 import {
+  notifyFollowersOfNewListing,
+  notifyFollowersOfPriceChange,
+  notifyFollowersOfRelist,
+} from "../lib/follow-alerts.js";
+import {
   buildReviewSnapshot,
   createListingBodySchema,
   isUuid,
@@ -267,6 +272,11 @@ router.post("/", requireAuth, async (req, res) => {
 
   const serialized = serializeListingBarter(listing, { images: imageUrls });
   scheduleListingEmbed(listing.id);
+  void notifyFollowersOfNewListing({
+    sellerId: listing.userId,
+    listingId: listing.id,
+    listingTitle: listing.title,
+  }).catch(console.error);
   return res.status(201).json({
     listing: serialized,
     // Legacy flat fields (tests + older clients)
@@ -613,6 +623,8 @@ const updateListingSchema = z.object({
   estimatedValueCents: z.number().int().nonnegative().optional(),
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
+  /** Owner can pause an active listing or bring a paused one back. */
+  status: z.enum(["active", "paused"]).optional(),
 });
 
 async function syncListingWants(
@@ -674,6 +686,23 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     patch.estimatedValue !== undefined || patch.estimatedValueCents !== undefined
       ? { estimatedValueCents: resolveEstimatedValueCents(patch) }
       : {};
+  const nextValueCents = valuePatch.estimatedValueCents;
+  const priceChanged =
+    nextValueCents !== undefined && nextValueCents !== listing.estimatedValueCents;
+
+  let nextStatus: "active" | "paused" | undefined;
+  if (patch.status !== undefined && patch.status !== listing.status) {
+    const allowed =
+      (listing.status === "active" && patch.status === "paused") ||
+      (listing.status === "paused" && patch.status === "active");
+    if (!allowed) {
+      return res.status(409).json({
+        error: "conflict",
+        message: `Cannot change status from ${listing.status} to ${patch.status}`,
+      });
+    }
+    nextStatus = patch.status;
+  }
 
   const [updated] = await db
     .update(listingsTable)
@@ -684,6 +713,7 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...valuePatch,
+      ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...(patch.wantedCategoryIds !== undefined
         ? { wantedCategoryIds: patch.wantedCategoryIds }
         : {}),
@@ -700,6 +730,19 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   const images = await loadListingImages(updated.id);
   const serialized = serializeListingBarter(updated, { images });
   scheduleListingEmbed(updated.id);
+  if (updated.status === "active" && listing.status === "paused") {
+    void notifyFollowersOfRelist({
+      sellerId: updated.userId,
+      listingId: updated.id,
+      listingTitle: updated.title,
+    }).catch(console.error);
+  } else if (priceChanged && updated.status === "active") {
+    void notifyFollowersOfPriceChange({
+      sellerId: updated.userId,
+      listingId: updated.id,
+      listingTitle: updated.title,
+    }).catch(console.error);
+  }
   return res.json({
     listing: serialized,
     id: updated.id,

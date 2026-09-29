@@ -147,6 +147,7 @@ type RecommendBody = {
   listingId?: string;
   excludeIds: string[];
   excludeOwnerIds: string[];
+  followedOwnerIds?: string[];
   country: string;
   category?: string;
   limit: number;

@@ -56,6 +56,8 @@ export const listingsTable = pgTable("listings", {
   index("listings_status_created_at_idx").on(t.status, t.createdAt),
   // closet query: WHERE user_id = ? + count
   index("listings_user_id_idx").on(t.userId),
+  // followed feeds: status + owner + newest
+  index("listings_status_user_id_created_at_idx").on(t.status, t.userId, t.createdAt),
 ]);
 
 // ─── listing_images ───────────────────────────────────────────────────────────
