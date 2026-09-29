@@ -20,6 +20,7 @@
 | [SWIPE_FEATURE.md](./SWIPE_FEATURE.md) | Discovery swipe deck — API, quota, prefetch, recycle-left / `allowRepeatLefts`, streaks, mobile UI, make-offer |
 | [REWIND_AND_CATEGORY.md](./REWIND_AND_CATEGORY.md) | Rewind (undo left pass) and category catalog / browse / wanted / match-score |
 | [SAVED_FEATURE.md](./SAVED_FEATURE.md) | Save-for-later — schema, `/api/saved`, owner stats, mobile Saved tab |
+| [FOLLOW_FEATURE.md](./FOLLOW_FEATURE.md) | Follow sellers — graph, mute/alerts, discovery boost, search row, mobile Follow screen |
 | [SEARCH_FEATURE.md](./SEARCH_FEATURE.md) | Listing search — architecture, sequences, API, DB, mobile flows |
 | [SEARCH_RECOMMENDATIONS.md](./SEARCH_RECOMMENDATIONS.md) | Personalized Recommended / related See all — barter-ai rankSearch, new search routes, shared nearby grid |
 | [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md) | Profile closet owner actions — overview |

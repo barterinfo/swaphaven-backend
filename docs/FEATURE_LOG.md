@@ -36,6 +36,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-09-29 | Follow feature end-to-end | user_follows, follow-alerts, search/followed, mute, suggestions, mobile follow + docs/FOLLOW_FEATURE.md | [Follow feature end-to-end](272151c5-0acc-40a4-93ec-80eabaa4e285) |
 | 2026-09-17 | Search recommendations feature doc | docs/SEARCH_RECOMMENDATIONS.md, SEARCH_FEATURE, API_GUIDE | [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05) |
 | 2026-09-12 | Search recommendations and related See all | GET /api/search/recommended, GET /api/search/related, barter-ai rankSearch | [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05) |
 | 2026-09-04 | Public swipe deck for guests | GET /api/swipe/deck optionalAuth, tests/swipe.test.ts | [Guest browse for App Review](58fc8b9a-eb06-470d-8b49-a8450218180a) |
