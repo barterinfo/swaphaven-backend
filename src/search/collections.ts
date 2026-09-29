@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { listingsTable, swipesTable, userProfilesTable } from "../db/schema/index.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
@@ -135,6 +135,52 @@ export async function searchRecommendedPage(
     followedOwnerIds: followeeIds,
   });
   const { page, total, nextOffset } = slicePage(ordered, filters.offset, filters.limit);
+  if (!page.length) return { listings: [], total, nextOffset };
+  const listings = await serializeListingsByIds(page);
+  return { listings, total, nextOffset };
+}
+
+/** Newest active listings from people the viewer follows. Not taste-ranked. */
+export async function searchFollowedPage(opts: {
+  viewerId: string;
+  country: string;
+  limit: number;
+  offset: number;
+}): Promise<CollectionPage> {
+  const [followees, hidden] = await Promise.all([
+    followedOwnerIds(opts.viewerId),
+    hiddenOwnerIds(opts.viewerId),
+  ]);
+  const hiddenSet = new Set(hidden);
+  const owners = followees.filter(
+    (id) => id !== opts.viewerId && !hiddenSet.has(id),
+  );
+  if (!owners.length) return emptyPage();
+
+  const conditions = [
+    eq(listingsTable.status, "active"),
+    inArray(listingsTable.userId, owners),
+  ];
+  if (opts.country) {
+    conditions.push(
+      or(
+        eq(listingsTable.locationCountry, opts.country),
+        eq(listingsTable.locationCountry, ""),
+      )!,
+    );
+  }
+
+  const rows = await db
+    .select({ id: listingsTable.id })
+    .from(listingsTable)
+    .where(and(...conditions))
+    .orderBy(desc(listingsTable.createdAt));
+
+  const { page, total, nextOffset } = slicePage(
+    rows.map((row) => row.id),
+    opts.offset,
+    opts.limit,
+  );
   if (!page.length) return { listings: [], total, nextOffset };
   const listings = await serializeListingsByIds(page);
   return { listings, total, nextOffset };

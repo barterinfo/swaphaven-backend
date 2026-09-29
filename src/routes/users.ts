@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, count, desc, eq, lt, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
@@ -10,13 +10,16 @@ import {
   offersTable,
   userFollowsTable,
   usersTable,
+  categoriesTable,
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { findProfaneField } from "../lib/moderation.js";
 import { refreshCompletionRate } from "../lib/profile-stats.js";
-import { isBlockedEitherWay } from "../lib/user-blocks.js";
+import { hiddenOwnerIds, isBlockedEitherWay } from "../lib/user-blocks.js";
+import { followedOwnerIds } from "../lib/user-follows.js";
+import { notifyNewFollower } from "../lib/follow-alerts.js";
 
 const router = Router();
 
@@ -72,6 +75,8 @@ const updateProfileSchema = z.object({
   locationLng:  z.number().min(-180).max(180).optional(),
   /** Onboarding interest slugs (e.g. electronics). */
   interestCategoryIds: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+  /** Master switch for alerts about people you follow. */
+  followListingAlerts: z.boolean().optional(),
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
@@ -125,6 +130,7 @@ router.get("/me/following", requireAuth, async (req, res) => {
       followedAt:  userFollowsTable.createdAt,
       displayName: userProfilesTable.displayName,
       avatarUrl:   userProfilesTable.avatarUrl,
+      alertsMuted: userFollowsTable.alertsMuted,
     })
     .from(userFollowsTable)
     .innerJoin(userProfilesTable, eq(userProfilesTable.id, userFollowsTable.followeeId))
@@ -141,9 +147,99 @@ router.get("/me/following", requireAuth, async (req, res) => {
       displayName: r.displayName,
       avatarUrl: r.avatarUrl,
       followedAt: r.followedAt,
+      alertsMuted: r.alertsMuted,
     })),
     nextCursor,
   });
+});
+
+// ─── GET /api/users/me/followers ──────────────────────────────────────────────
+/** People who follow the caller, newest first. Own list only. */
+router.get("/me/followers", requireAuth, async (req, res) => {
+  const followeeId = req.user!.sub;
+  const { limit, cursor } = parsePaginationQuery(req.query as Record<string, unknown>);
+
+  const conditions = [eq(userFollowsTable.followeeId, followeeId)];
+  if (cursor) {
+    conditions.push(lt(userFollowsTable.createdAt, cursor));
+  }
+
+  const rows = await db
+    .select({
+      userId:      userFollowsTable.followerId,
+      followedAt:  userFollowsTable.createdAt,
+      displayName: userProfilesTable.displayName,
+      avatarUrl:   userProfilesTable.avatarUrl,
+    })
+    .from(userFollowsTable)
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, userFollowsTable.followerId))
+    .where(and(...conditions))
+    .orderBy(desc(userFollowsTable.createdAt))
+    .limit(limit);
+
+  const nextCursor =
+    rows.length === limit ? encodeCursor(rows.at(-1)!.followedAt) : null;
+
+  return res.json({
+    items: rows.map((r) => ({
+      userId: r.userId,
+      displayName: r.displayName,
+      avatarUrl: r.avatarUrl,
+      followedAt: r.followedAt,
+    })),
+    nextCursor,
+  });
+});
+
+// ─── GET /api/users/me/suggestions ────────────────────────────────────────────
+/** Sellers with active listings in the viewer's interest categories, not yet followed. */
+router.get("/me/suggestions", requireAuth, async (req, res) => {
+  const viewerId = req.user!.sub;
+  const profile = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, viewerId),
+    columns: { interestCategoryIds: true },
+  });
+  const interests = (profile?.interestCategoryIds ?? []).filter(Boolean);
+  if (!interests.length) return res.json({ items: [] });
+
+  const [followees, hidden] = await Promise.all([
+    followedOwnerIds(viewerId),
+    hiddenOwnerIds(viewerId),
+  ]);
+  const exclude = new Set([viewerId, ...followees, ...hidden]);
+
+  const rows = await db
+    .selectDistinctOn([listingsTable.userId], {
+      userId: listingsTable.userId,
+      displayName: userProfilesTable.displayName,
+      avatarUrl: userProfilesTable.avatarUrl,
+      categoryLabel: categoriesTable.name,
+    })
+    .from(listingsTable)
+    .innerJoin(categoriesTable, eq(categoriesTable.id, listingsTable.categoryId))
+    .innerJoin(userProfilesTable, eq(userProfilesTable.id, listingsTable.userId))
+    .where(
+      and(
+        eq(listingsTable.status, "active"),
+        inArray(categoriesTable.slug, interests),
+      ),
+    )
+    .orderBy(listingsTable.userId, desc(listingsTable.createdAt))
+    .limit(40);
+
+  const items = [];
+  for (const row of rows) {
+    if (exclude.has(row.userId)) continue;
+    items.push({
+      userId: row.userId,
+      displayName: row.displayName,
+      avatarUrl: row.avatarUrl,
+      categoryLabel: row.categoryLabel,
+    });
+    if (items.length >= 10) break;
+  }
+
+  return res.json({ items });
 });
 
 // ─── POST /api/users/:userId/follow ───────────────────────────────────────────
@@ -193,6 +289,8 @@ router.post("/:userId/follow", requireAuth, async (req, res) => {
     .values({ followerId, followeeId })
     .returning();
 
+  await notifyNewFollower({ followeeId, followerId }).catch(console.error);
+
   return res.status(201).json({
     id: row!.id,
     followeeId,
@@ -216,6 +314,44 @@ router.delete("/:userId/follow", requireAuth, async (req, res) => {
     );
 
   return res.status(204).send();
+});
+
+// ─── PATCH /api/users/:userId/follow ──────────────────────────────────────────
+/** Mute or unmute listing alerts for one follow. The follow itself stays. */
+router.patch("/:userId/follow", requireAuth, async (req, res) => {
+  const followerId = req.user!.sub;
+  const followeeId = p(req.params["userId"]);
+  const parsed = z.object({ alertsMuted: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation",
+      message: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const [row] = await db
+    .update(userFollowsTable)
+    .set({ alertsMuted: parsed.data.alertsMuted })
+    .where(
+      and(
+        eq(userFollowsTable.followerId, followerId),
+        eq(userFollowsTable.followeeId, followeeId),
+      ),
+    )
+    .returning();
+
+  if (!row) {
+    return res.status(404).json({
+      error: "not_found",
+      message: "Not following this user",
+    });
+  }
+
+  return res.json({
+    followeeId,
+    following: true,
+    alertsMuted: row.alertsMuted,
+  });
 });
 
 // ─── GET /api/users/:userId ───────────────────────────────────────────────────

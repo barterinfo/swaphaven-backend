@@ -70,6 +70,8 @@ export const userProfilesTable = pgTable("user_profiles", {
   superlikesRemaining: integer("superlikes_remaining").notNull().default(2),
   /** Onboarding interest slugs (e.g. electronics) — cold-start recommendations. */
   interestCategoryIds: jsonb("interest_category_ids").$type<string[]>().notNull().default([]),
+  /** Master switch for pushes about people you follow. Per-person mute is separate. */
+  followListingAlerts: boolean("follow_listing_alerts").notNull().default(true),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
 });

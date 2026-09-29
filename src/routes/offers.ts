@@ -17,6 +17,7 @@ import { MAX_OFFER_ROUNDS } from "../lib/max-rounds.js";
 import { sendPushToUser } from "../lib/push.js";
 import { containsProfanity } from "../lib/moderation.js";
 import { isBlockedEitherWay, blockedUserIds } from "../lib/user-blocks.js";
+import { notifyFollowersOfAcceptedTrade } from "../lib/follow-alerts.js";
 import {
   buildCounterOfferPush,
   buildOfferAcceptedPush,
@@ -348,6 +349,19 @@ async function handleAccept(offerId: string, userId: string, res: Response) {
     });
     await sendPushToUser(notifyUserId, payload);
   })().catch(console.error);
+  if (isSeller) {
+    const listing = await db.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, offer.listingId),
+      columns: { id: true, title: true },
+    });
+    if (listing) {
+      void notifyFollowersOfAcceptedTrade({
+        sellerId: userId,
+        listingId: listing.id,
+        listingTitle: listing.title,
+      }).catch(console.error);
+    }
+  }
   return res.json({ ...trade, conversationId: conv.id });
 }
 
