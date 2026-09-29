@@ -24,6 +24,13 @@ import {
   buildOfferPush,
   loadRoundSidesForPush,
 } from "../lib/push-card-context.js";
+import {
+  notifyNewSwapOffer,
+  notifyOfferAccepted,
+  notifyOfferDeclined,
+  notifyOfferWithdrawn,
+  notifySwapCounter,
+} from "../lib/activity-email/notify.js";
 
 const router = Router();
 
@@ -174,6 +181,12 @@ router.post("/", requireAuth, async (req, res) => {
     });
     await sendPushToUser(listing.userId, payload);
   })().catch(console.error);
+  void notifyNewSwapOffer({
+    offerId: offer.id,
+    senderUserId: req.user!.sub,
+    theirListingIds: offeredListingIds,
+    yourListingId: offerData.listingId,
+  }).catch(console.error);
   return res.status(201).json(offer);
 });
 
@@ -362,6 +375,12 @@ async function handleAccept(offerId: string, userId: string, res: Response) {
       }).catch(console.error);
     }
   }
+  void notifyOfferAccepted({
+    offerId: offer.id,
+    conversationId: conv.id,
+    accepterUserId: userId,
+    notifyUserId,
+  }).catch(console.error);
   return res.json({ ...trade, conversationId: conv.id });
 }
 
@@ -399,6 +418,19 @@ async function handleDeny(offerId: string, userId: string, res: Response) {
     title: "Offer declined", body: "The trade offer was declined.",
     relatedOfferId: offer.id,
   });
+  void (async () => {
+    const target = await db.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, offer.listingId),
+      columns: { title: true },
+    });
+    const listingTitle = target?.title?.trim() || "your item";
+    await notifyOfferDeclined({
+      offerId: offer.id,
+      notifyUserId,
+      listingTitle,
+      reason: "manual",
+    });
+  })().catch(console.error);
   return res.status(204).send();
 }
 
@@ -428,6 +460,10 @@ router.post("/:offerId/withdraw", requireAuth, async (req, res) => {
     title: "Offer withdrawn", body: "The buyer withdrew their swap offer.",
     relatedOfferId: offer.id,
   });
+  void notifyOfferWithdrawn({
+    offerId: offer.id,
+    buyerUserId: req.user!.sub,
+  }).catch(console.error);
   return res.status(204).send();
 });
 
@@ -550,6 +586,11 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
     });
     await sendPushToUser(notifyUserId, payload);
   })().catch(console.error);
+  void notifySwapCounter({
+    offerId: offer.id,
+    senderUserId: userId,
+    theirListingIds,
+  }).catch(console.error);
   return res.status(201).json(serializeOfferRound({ ...newRound, items: [] }));
 });
 

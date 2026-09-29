@@ -23,6 +23,10 @@ import {
   buildCashCounterOfferPush,
   buildCashOfferPush,
 } from "../lib/cash-offer-push.js";
+import {
+  notifyCashCounter,
+  notifyNewCashOffer,
+} from "../lib/activity-email/notify.js";
 
 const router = Router();
 
@@ -168,6 +172,12 @@ router.post("/", requireAuth, async (req, res) => {
     });
     await sendPushToUser(listing.userId, payload);
   })().catch(console.error);
+  void notifyNewCashOffer({
+    offerId: offer.id,
+    senderUserId: buyerId,
+    cashTopUpCents,
+    listingId,
+  }).catch(console.error);
 
   return res.status(201).json(offer);
 });
@@ -323,6 +333,12 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
     });
     await sendPushToUser(notifyUserId, payload);
   })().catch(console.error);
+  void notifyCashCounter({
+    offerId: offer.id,
+    senderUserId: userId,
+    buyerCashTopUpCents,
+    sellerCashRequestedCents,
+  }).catch(console.error);
 
   return res.status(201).json(serializeOfferRound({ ...newRound, items: [] }));
 });
