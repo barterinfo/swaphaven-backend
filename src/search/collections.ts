@@ -1,6 +1,11 @@
-import { and, desc, eq, inArray, ne, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, notInArray, or } from "drizzle-orm";
 import { db } from "../db/client.js";
-import { listingsTable, swipesTable, userProfilesTable } from "../db/schema/index.js";
+import {
+  listingsTable,
+  swipesTable,
+  userFollowsTable,
+  userProfilesTable,
+} from "../db/schema/index.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { recommendSearch } from "../lib/barter-ai.js";
 import { serializeListingsByIds } from "../lib/related-listings.js";
@@ -106,6 +111,7 @@ export async function searchRecommendedPage(
     hiddenOwnerIds(filters.viewerId),
     followedOwnerIds(filters.viewerId),
   ]);
+  const excludeSet = new Set(excludeOwnerIds);
   const candidateIds = await fetchSearchCandidateIds({
     q: filters.q,
     lat: filters.lat,
@@ -121,7 +127,7 @@ export async function searchRecommendedPage(
 
   const mergedIds = await injectFollowedListingIds({
     viewerId: filters.viewerId,
-    followeeIds: followeeIds.filter((id) => !excludeOwnerIds.includes(id)),
+    followeeIds: followeeIds.filter((id) => !excludeSet.has(id)),
     existingIds: candidateIds,
   });
   if (!mergedIds.length) return emptyPage();
@@ -147,20 +153,16 @@ export async function searchFollowedPage(opts: {
   limit: number;
   offset: number;
 }): Promise<CollectionPage> {
-  const [followees, hidden] = await Promise.all([
-    followedOwnerIds(opts.viewerId),
-    hiddenOwnerIds(opts.viewerId),
-  ]);
-  const hiddenSet = new Set(hidden);
-  const owners = followees.filter(
-    (id) => id !== opts.viewerId && !hiddenSet.has(id),
-  );
-  if (!owners.length) return emptyPage();
+  const hidden = await hiddenOwnerIds(opts.viewerId);
 
   const conditions = [
     eq(listingsTable.status, "active"),
-    inArray(listingsTable.userId, owners),
+    eq(userFollowsTable.followerId, opts.viewerId),
+    ne(listingsTable.userId, opts.viewerId),
   ];
+  if (hidden.length) {
+    conditions.push(notInArray(listingsTable.userId, hidden));
+  }
   if (opts.country) {
     conditions.push(
       or(
@@ -170,19 +172,36 @@ export async function searchFollowedPage(opts: {
     );
   }
 
-  const rows = await db
-    .select({ id: listingsTable.id })
-    .from(listingsTable)
-    .where(and(...conditions))
-    .orderBy(desc(listingsTable.createdAt));
+  const whereClause = and(...conditions);
 
-  const { page, total, nextOffset } = slicePage(
-    rows.map((row) => row.id),
-    opts.offset,
-    opts.limit,
-  );
-  if (!page.length) return { listings: [], total, nextOffset };
-  const listings = await serializeListingsByIds(page);
+  const [totalRow, rows] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(listingsTable)
+      .innerJoin(
+        userFollowsTable,
+        eq(userFollowsTable.followeeId, listingsTable.userId),
+      )
+      .where(whereClause)
+      .then((r) => r[0]!),
+    db
+      .select({ id: listingsTable.id })
+      .from(listingsTable)
+      .innerJoin(
+        userFollowsTable,
+        eq(userFollowsTable.followeeId, listingsTable.userId),
+      )
+      .where(whereClause)
+      .orderBy(desc(listingsTable.createdAt))
+      .limit(opts.limit)
+      .offset(opts.offset),
+  ]);
+
+  const total = Number(totalRow.total);
+  const nextOffset =
+    opts.offset + opts.limit < total ? opts.offset + opts.limit : null;
+  if (!rows.length) return { listings: [], total, nextOffset };
+  const listings = await serializeListingsByIds(rows.map((row) => row.id));
   return { listings, total, nextOffset };
 }
 

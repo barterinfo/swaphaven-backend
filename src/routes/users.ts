@@ -11,14 +11,15 @@ import {
   userFollowsTable,
   usersTable,
   categoriesTable,
+  userBlocksTable,
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
 import { p, toDecimalStr } from "../lib/route-helpers.js";
 import { findProfaneField } from "../lib/moderation.js";
 import { refreshCompletionRate } from "../lib/profile-stats.js";
-import { hiddenOwnerIds, isBlockedEitherWay } from "../lib/user-blocks.js";
-import { followedOwnerIds } from "../lib/user-follows.js";
+import { isBlockedEitherWay } from "../lib/user-blocks.js";
+import { adjustFollowCounts } from "../lib/user-follows.js";
 import { notifyNewFollower } from "../lib/follow-alerts.js";
 
 const router = Router();
@@ -33,23 +34,10 @@ router.get("/me", requireAuth, async (req, res) => {
   });
   if (!profile) return res.status(404).json({ error: "not_found", message: "Profile not found" });
 
-  const [followerCountRow, followingCountRow] = await Promise.all([
-    db
-      .select({ total: count() })
-      .from(userFollowsTable)
-      .where(eq(userFollowsTable.followeeId, userId))
-      .then((r) => r[0]!),
-    db
-      .select({ total: count() })
-      .from(userFollowsTable)
-      .where(eq(userFollowsTable.followerId, userId))
-      .then((r) => r[0]!),
-  ]);
-
   return res.json({
     ...profile,
-    followerCount: Number(followerCountRow.total),
-    followingCount: Number(followingCountRow.total),
+    followerCount: profile.followerCount,
+    followingCount: profile.followingCount,
   });
 });
 
@@ -202,12 +190,6 @@ router.get("/me/suggestions", requireAuth, async (req, res) => {
   const interests = (profile?.interestCategoryIds ?? []).filter(Boolean);
   if (!interests.length) return res.json({ items: [] });
 
-  const [followees, hidden] = await Promise.all([
-    followedOwnerIds(viewerId),
-    hiddenOwnerIds(viewerId),
-  ]);
-  const exclude = new Set([viewerId, ...followees, ...hidden]);
-
   const rows = await db
     .selectDistinctOn([listingsTable.userId], {
       userId: listingsTable.userId,
@@ -222,24 +204,35 @@ router.get("/me/suggestions", requireAuth, async (req, res) => {
       and(
         eq(listingsTable.status, "active"),
         inArray(categoriesTable.slug, interests),
+        ne(listingsTable.userId, viewerId),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${userFollowsTable}
+          WHERE ${userFollowsTable.followerId} = ${viewerId}
+            AND ${userFollowsTable.followeeId} = ${listingsTable.userId}
+        )`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${userBlocksTable}
+          WHERE (
+            ${userBlocksTable.blockerId} = ${viewerId}
+            AND ${userBlocksTable.blockedId} = ${listingsTable.userId}
+          ) OR (
+            ${userBlocksTable.blockerId} = ${listingsTable.userId}
+            AND ${userBlocksTable.blockedId} = ${viewerId}
+          )
+        )`,
       ),
     )
     .orderBy(listingsTable.userId, desc(listingsTable.createdAt))
-    .limit(40);
+    .limit(10);
 
-  const items = [];
-  for (const row of rows) {
-    if (exclude.has(row.userId)) continue;
-    items.push({
+  return res.json({
+    items: rows.map((row) => ({
       userId: row.userId,
       displayName: row.displayName,
       avatarUrl: row.avatarUrl,
       categoryLabel: row.categoryLabel,
-    });
-    if (items.length >= 10) break;
-  }
-
-  return res.json({ items });
+    })),
+  });
 });
 
 // ─── POST /api/users/:userId/follow ───────────────────────────────────────────
@@ -289,7 +282,9 @@ router.post("/:userId/follow", requireAuth, async (req, res) => {
     .values({ followerId, followeeId })
     .returning();
 
-  await notifyNewFollower({ followeeId, followerId }).catch(console.error);
+  await adjustFollowCounts({ followerId, followeeId, delta: 1 });
+
+  void notifyNewFollower({ followeeId, followerId }).catch(console.error);
 
   return res.status(201).json({
     id: row!.id,
@@ -304,14 +299,19 @@ router.delete("/:userId/follow", requireAuth, async (req, res) => {
   const followerId = req.user!.sub;
   const followeeId = p(req.params["userId"]);
 
-  await db
+  const deleted = await db
     .delete(userFollowsTable)
     .where(
       and(
         eq(userFollowsTable.followerId, followerId),
         eq(userFollowsTable.followeeId, followeeId),
       ),
-    );
+    )
+    .returning({ id: userFollowsTable.id });
+
+  if (deleted.length) {
+    await adjustFollowCounts({ followerId, followeeId, delta: -1 });
+  }
 
   return res.status(204).send();
 });
@@ -368,27 +368,16 @@ router.get("/:userId", optionalAuth, async (req, res) => {
   }))!;
 
   const viewerId = req.user?.sub;
-  const [followerCountRow, followingCountRow, followRow] = await Promise.all([
-    db
-      .select({ total: count() })
-      .from(userFollowsTable)
-      .where(eq(userFollowsTable.followeeId, userId))
-      .then((r) => r[0]!),
-    db
-      .select({ total: count() })
-      .from(userFollowsTable)
-      .where(eq(userFollowsTable.followerId, userId))
-      .then((r) => r[0]!),
+  const followRow =
     viewerId && viewerId !== userId
-      ? db.query.userFollowsTable.findFirst({
+      ? await db.query.userFollowsTable.findFirst({
           where: and(
             eq(userFollowsTable.followerId, viewerId),
             eq(userFollowsTable.followeeId, userId),
           ),
           columns: { id: true },
         })
-      : Promise.resolve(null),
-  ]);
+      : null;
 
   const { locationLat } = profile;
   const rating =
@@ -410,8 +399,8 @@ router.get("/:userId", optionalAuth, async (req, res) => {
     completionRate: profile.completionRate,
     avgResponseMinutes: profile.avgResponseMinutes,
     createdAt: profile.createdAt,
-    followerCount: Number(followerCountRow.total),
-    followingCount: Number(followingCountRow.total),
+    followerCount: profile.followerCount,
+    followingCount: profile.followingCount,
     isFollowing: viewerId && viewerId !== userId ? Boolean(followRow) : false,
   });
 });

@@ -48,6 +48,13 @@ export const notificationsTable = pgTable("notifications", {
   index("notifications_user_id_created_at_idx").on(t.userId, t.createdAt),
   // unread badge count: WHERE user_id = ? AND is_read = false
   index("notifications_user_id_is_read_idx").on(t.userId, t.isRead),
+  // follow burst collapse: user + type + actor + recency
+  index("notifications_user_type_actor_created_at_idx").on(
+    t.userId,
+    t.type,
+    t.actorUserId,
+    t.createdAt,
+  ),
 ]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────

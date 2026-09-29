@@ -10,6 +10,10 @@ import { sendPushToUser, type PushDataType } from "./push.js";
 
 /** Listings from one seller inside this window become a single alert. */
 const BURST_WINDOW_MS = 15 * 60 * 1000;
+/** Bound concurrent DB + FCM work per fan-out. */
+const FANOUT_CONCURRENCY = 15;
+/** Soft-cap recipients per event (in-app + push). */
+const FANOUT_MAX_RECIPIENTS = 2000;
 
 type ActivityType = Extract<
   PushDataType,
@@ -19,20 +23,46 @@ type ActivityType = Extract<
   | "followed_trade_accepted"
 >;
 
+/** Run async work over items with a fixed concurrency pool; never fails the batch. */
+async function mapPoolSettled<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (!items.length) return;
+  let next = 0;
+  const runners = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (next < items.length) {
+        const idx = next++;
+        try {
+          await worker(items[idx]!);
+        } catch (err) {
+          console.error("[follow-alerts] recipient failed:", err);
+        }
+      }
+    },
+  );
+  await Promise.all(runners);
+}
+
 /**
  * Followers who should receive activity alerts: not muted, not blocked,
  * and with the global "new listings from people you follow" switch on.
  */
 export async function alertableFollowerIds(sellerId: string): Promise<string[]> {
   const follows = await db
-    .select({
-      followerId: userFollowsTable.followerId,
-      alertsMuted: userFollowsTable.alertsMuted,
-    })
+    .select({ followerId: userFollowsTable.followerId })
     .from(userFollowsTable)
-    .where(eq(userFollowsTable.followeeId, sellerId));
+    .where(
+      and(
+        eq(userFollowsTable.followeeId, sellerId),
+        eq(userFollowsTable.alertsMuted, false),
+      ),
+    );
 
-  const unmuted = follows.filter((row) => !row.alertsMuted).map((row) => row.followerId);
+  const unmuted = follows.map((row) => row.followerId);
   if (!unmuted.length) return [];
 
   const blockRows = await db
@@ -43,8 +73,14 @@ export async function alertableFollowerIds(sellerId: string): Promise<string[]> 
     .from(userBlocksTable)
     .where(
       or(
-        eq(userBlocksTable.blockerId, sellerId),
-        eq(userBlocksTable.blockedId, sellerId),
+        and(
+          eq(userBlocksTable.blockerId, sellerId),
+          inArray(userBlocksTable.blockedId, unmuted),
+        ),
+        and(
+          eq(userBlocksTable.blockedId, sellerId),
+          inArray(userBlocksTable.blockerId, unmuted),
+        ),
       ),
     );
 
@@ -88,69 +124,68 @@ async function fanOutActivity(opts: {
   titleFor: (count: number) => string;
   bodyFor: (name: string, count: number) => string;
 }): Promise<void> {
-  const recipients = await alertableFollowerIds(opts.sellerId);
-  if (!recipients.length) return;
+  const allRecipients = await alertableFollowerIds(opts.sellerId);
+  if (!allRecipients.length) return;
 
+  const recipients = allRecipients.slice(0, FANOUT_MAX_RECIPIENTS);
   const displayName = await sellerDisplayName(opts.sellerId);
   const since = new Date(Date.now() - BURST_WINDOW_MS);
 
-  await Promise.all(
-    recipients.map(async (userId) => {
-      if (opts.collapse !== "none") {
-        const conditions = [
-          eq(notificationsTable.userId, userId),
-          eq(notificationsTable.type, opts.type),
-          eq(notificationsTable.actorUserId, opts.sellerId),
-          gte(notificationsTable.createdAt, since),
-        ];
-        if (opts.collapse === "listing") {
-          conditions.push(eq(notificationsTable.relatedListingId, opts.listingId));
-        }
-        const recent = await db.query.notificationsTable.findFirst({
-          where: and(...conditions),
-          orderBy: [desc(notificationsTable.createdAt)],
-        });
-        if (recent) {
-          const count = recent.burstCount + 1;
-          await db
-            .update(notificationsTable)
-            .set({
-              title: opts.titleFor(count),
-              body: opts.bodyFor(displayName, count),
-              relatedListingId: opts.listingId,
-              burstCount: count,
-              isRead: false,
-            })
-            .where(eq(notificationsTable.id, recent.id));
-          return;
-        }
+  await mapPoolSettled(recipients, FANOUT_CONCURRENCY, async (userId) => {
+    if (opts.collapse !== "none") {
+      const conditions = [
+        eq(notificationsTable.userId, userId),
+        eq(notificationsTable.type, opts.type),
+        eq(notificationsTable.actorUserId, opts.sellerId),
+        gte(notificationsTable.createdAt, since),
+      ];
+      if (opts.collapse === "listing") {
+        conditions.push(eq(notificationsTable.relatedListingId, opts.listingId));
       }
+      const recent = await db.query.notificationsTable.findFirst({
+        where: and(...conditions),
+        orderBy: [desc(notificationsTable.createdAt)],
+      });
+      if (recent) {
+        const count = recent.burstCount + 1;
+        await db
+          .update(notificationsTable)
+          .set({
+            title: opts.titleFor(count),
+            body: opts.bodyFor(displayName, count),
+            relatedListingId: opts.listingId,
+            burstCount: count,
+            isRead: false,
+          })
+          .where(eq(notificationsTable.id, recent.id));
+        return;
+      }
+    }
 
-      const title = opts.titleFor(1);
-      const body = opts.bodyFor(displayName, 1);
-      await db.insert(notificationsTable).values({
-        userId,
-        actorUserId: opts.sellerId,
+    const title = opts.titleFor(1);
+    const body = opts.bodyFor(displayName, 1);
+    await db.insert(notificationsTable).values({
+      userId,
+      actorUserId: opts.sellerId,
+      type: opts.type,
+      title,
+      body,
+      relatedListingId: opts.listingId,
+      burstCount: 1,
+    });
+    await sendPushToUser(userId, {
+      title,
+      body,
+      data: {
         type: opts.type,
+        listingId: opts.listingId,
         title,
         body,
-        relatedListingId: opts.listingId,
-        burstCount: 1,
-      });
-      await sendPushToUser(userId, {
-        title,
-        body,
-        data: {
-          type: opts.type,
-          listingId: opts.listingId,
-          title,
-          body,
-        },
-      }).catch((err) => {
-        console.error(`[push] ${opts.type} failed:`, userId, err);
-      });
-    }),
-  );
+      },
+    }).catch((err) => {
+      console.error(`[push] ${opts.type} failed:`, userId, err);
+    });
+  });
 }
 
 /**
@@ -237,8 +272,7 @@ export async function notifyNewFollower(opts: {
 
   const blocked = await db
     .select({
-      blockerId: userBlocksTable.blockerId,
-      blockedId: userBlocksTable.blockedId,
+      id: userBlocksTable.id,
     })
     .from(userBlocksTable)
     .where(
@@ -252,12 +286,17 @@ export async function notifyNewFollower(opts: {
           eq(userBlocksTable.blockedId, followeeId),
         ),
       ),
-    );
+    )
+    .limit(1);
   if (blocked.length) return;
 
-  const displayName = await sellerDisplayName(followerId);
+  const follower = await db.query.userProfilesTable.findFirst({
+    where: eq(userProfilesTable.id, followerId),
+    columns: { displayName: true },
+  });
+  const name = follower?.displayName?.trim() || "Someone";
   const title = "New follower";
-  const body = `${displayName} started following you`;
+  const body = `${name} started following you`;
 
   await db.insert(notificationsTable).values({
     userId: followeeId,
@@ -265,6 +304,7 @@ export async function notifyNewFollower(opts: {
     type: "new_follower",
     title,
     body,
+    burstCount: 1,
   });
 
   await sendPushToUser(followeeId, {

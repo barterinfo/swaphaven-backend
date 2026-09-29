@@ -1,6 +1,6 @@
 import {
   pgTable, uuid, text, boolean, integer,
-  timestamp, pgEnum, decimal, date, jsonb,
+  timestamp, pgEnum, decimal, date, jsonb, index,
 } from "drizzle-orm/pg-core";
 
 export const platformEnum = pgEnum("platform", ["ios", "android", "web"]);
@@ -72,6 +72,9 @@ export const userProfilesTable = pgTable("user_profiles", {
   interestCategoryIds: jsonb("interest_category_ids").$type<string[]>().notNull().default([]),
   /** Master switch for pushes about people you follow. Per-person mute is separate. */
   followListingAlerts: boolean("follow_listing_alerts").notNull().default(true),
+  /** Denormalized — maintained on follow / unfollow / block edge delete. */
+  followerCount:       integer("follower_count").notNull().default(0),
+  followingCount:      integer("following_count").notNull().default(0),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
 });
@@ -83,7 +86,9 @@ export const deviceTokensTable = pgTable("device_tokens", {
   token:     text("token").notNull().unique(),
   platform:  platformEnum("platform").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("device_tokens_user_id_idx").on(t.userId),
+]);
 
 // ─── swipe_streaks ────────────────────────────────────────────────────────────
 export const swipeStreaksTable = pgTable("swipe_streaks", {
