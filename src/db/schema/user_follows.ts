@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, timestamp, unique, index,
+  pgTable, uuid, boolean, timestamp, unique, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
 
@@ -11,6 +11,8 @@ export const userFollowsTable = pgTable(
     id:         uuid("id").primaryKey().defaultRandom(),
     followerId: uuid("follower_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     followeeId: uuid("followee_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    /** When true, keep the follow and ranking boost but skip activity pushes. */
+    alertsMuted: boolean("alerts_muted").notNull().default(false),
     createdAt:  timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [

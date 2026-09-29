@@ -246,6 +246,13 @@
       "when": 1786400000000,
       "tag": "0033_followed_listing_notification",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786500000000,
+      "tag": "0034_follow_activity",
+      "breakpoints": true
     }
   ]
 }

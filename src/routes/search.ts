@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { optionalAuth, requireAuth } from "../middleware/auth.js";
-import { searchRecommendedPage, searchRelatedPage } from "../search/collections.js";
+import { searchFollowedPage, searchRecommendedPage, searchRelatedPage } from "../search/collections.js";
 import { searchListings } from "../search/queries.js";
 import type { SearchSort } from "../search/types.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
@@ -95,6 +95,28 @@ function defaultSort(q: string | undefined, lat?: number, lng?: number): SearchS
   if (lat != null && lng != null) return "nearest";
   return "newest";
 }
+
+// ─── GET /api/search/followed ─────────────────────────────────────────────────
+/** Recent listings from people the caller follows, newest first. Not re-ranked. */
+router.get("/followed", requireAuth, async (req, res) => {
+  const parsed = collectionQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation_error",
+      message: parsed.error.issues[0]?.message ?? "Invalid query",
+    });
+  }
+  const q = parsed.data;
+  const viewerId = req.user!.sub;
+  const country = await viewerCountry(req, viewerId);
+  const result = await searchFollowedPage({
+    viewerId,
+    country,
+    limit: q.limit,
+    offset: q.offset,
+  });
+  return res.json(result);
+});
 
 // ─── GET /api/search/recommended ──────────────────────────────────────────────
 router.get("/recommended", requireAuth, async (req, res) => {

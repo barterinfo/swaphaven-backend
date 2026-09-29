@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, boolean, timestamp, pgEnum, index,
+  pgTable, uuid, text, boolean, integer, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
 
@@ -20,6 +20,10 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "swipe_match",
   "streak_milestone",
   "followed_listing",
+  "new_follower",
+  "followed_listing_price",
+  "followed_listing_relisted",
+  "followed_trade_accepted",
 ]);
 
 // ─── notifications ────────────────────────────────────────────────────────────
@@ -33,6 +37,10 @@ export const notificationsTable = pgTable("notifications", {
   relatedTradeId:        uuid("related_trade_id"),
   relatedConversationId: uuid("related_conversation_id"),
   relatedListingId:      uuid("related_listing_id"),
+  /** Seller or follower who caused the alert. Used to collapse bursts. */
+  actorUserId:           uuid("actor_user_id"),
+  /** How many events this row represents after burst collapse. */
+  burstCount:            integer("burst_count").notNull().default(1),
   isRead:                boolean("is_read").notNull().default(false),
   createdAt:             timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
