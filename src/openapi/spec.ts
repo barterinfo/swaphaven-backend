@@ -1682,7 +1682,7 @@ export const openApiSpec = {
     "/api/offers": {
       post: {
         tags: ["Offers"], summary: "Create a swap offer",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["listingId","offeredListingIds"], properties: { listingId: { type: "string", format: "uuid" }, swipeId: { type: "string", format: "uuid" }, offeredListingIds: { type: "array", items: { type: "string", format: "uuid" } }, cashTopUpCents: { type: "integer" }, buyerNote: { type: "string" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["listingId","offeredListingIds"], properties: { listingId: { type: "string", format: "uuid" }, swipeId: { type: "string", format: "uuid" }, offeredListingIds: { type: "array", items: { type: "string", format: "uuid" } }, sellerListingIds: { type: "array", items: { type: "string", format: "uuid" }, description: "Optional extras from the seller's closet; listingId is always included on the seller side." }, cashTopUpCents: { type: "integer" }, buyerNote: { type: "string" } } } } } },
         responses: { "201": { description: "Offer created", content: { "application/json": { schema: { $ref: "#/components/schemas/Offer" } } } } },
       },
     },

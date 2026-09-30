@@ -95,6 +95,67 @@ describe("POST /api/offers", () => {
       .send({ listingId: "fake", offeredListingIds: ["fake"] });
     expect(res.status).toBe(401);
   });
+
+  it("accepts extra seller listings on create and pins the target first", async () => {
+    const seller = await registerUser();
+    const buyer = await registerUser();
+    const target = await createListing(seller.accessToken, { title: "Target jacket" });
+    const extra = await createListing(seller.accessToken, { title: "Extra boots" });
+    const buyerListing = await createListing(buyer.accessToken);
+
+    const res = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({
+        listingId: target.id,
+        offeredListingIds: [buyerListing.id],
+        sellerListingIds: [extra.id, target.id],
+      });
+
+    expect(res.status).toBe(201);
+
+    const detail = await request(app)
+      .get(`/api/offers/${res.body.id}`)
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+
+    expect(detail.status).toBe(200);
+    const sellerIds = (detail.body.latestRound?.sellerItems ?? []).map(
+      (i: { id: string }) => i.id,
+    );
+    expect(sellerIds).toEqual([target.id, extra.id]);
+
+    const sent = await request(app)
+      .get("/api/offers/sent")
+      .set("Authorization", `Bearer ${buyer.accessToken}`);
+    expect(sent.status).toBe(200);
+    const row = sent.body.items.find((o: { id: string }) => o.id === res.body.id);
+    expect(row).toBeTruthy();
+    const listSellerIds = (row.latestRound?.sellerItems ?? []).map(
+      (i: { id: string }) => i.id,
+    );
+    expect(listSellerIds).toEqual([target.id, extra.id]);
+  });
+
+  it("rejects seller listings that belong to someone else", async () => {
+    const seller = await registerUser();
+    const other = await registerUser();
+    const buyer = await registerUser();
+    const target = await createListing(seller.accessToken);
+    const otherListing = await createListing(other.accessToken);
+    const buyerListing = await createListing(buyer.accessToken);
+
+    const res = await request(app)
+      .post("/api/offers")
+      .set("Authorization", `Bearer ${buyer.accessToken}`)
+      .send({
+        listingId: target.id,
+        offeredListingIds: [buyerListing.id],
+        sellerListingIds: [otherListing.id],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("bad_request");
+  });
 });
 
 // ─── GET /api/offers/received ─────────────────────────────────────────────────
