@@ -8,6 +8,10 @@ import { env } from "./config/env.js";
 import { createApp } from "./app.js";
 import { createWsServer } from "./lib/ws.js";
 import { pool } from "./db/client.js";
+import {
+  startActivityEmailOutboxWorker,
+  stopActivityEmailOutboxWorker,
+} from "./lib/activity-email/outbox-worker.js";
 
 console.log(
   `[server] Booting (NODE_ENV=${env.NODE_ENV}, PORT=${env.PORT}, TRUST_PROXY=${env.TRUST_PROXY})`,
@@ -20,6 +24,7 @@ createWsServer(httpServer);
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
 async function shutdown(signal: string): Promise<void> {
   console.log(`\n[server] ${signal} received — shutting down gracefully…`);
+  stopActivityEmailOutboxWorker();
   httpServer.close(async () => {
     await pool.end();
     console.log("[server] DB pool drained. Bye.");
@@ -46,4 +51,5 @@ httpServer.on("error", (err: NodeJS.ErrnoException) => {
 httpServer.listen(env.PORT, env.HOST, () => {
   console.log(`[server] Listening on http://${env.HOST}:${env.PORT}`);
   console.log(`[server] Health: /api/healthz  Ready (DB): /api/readyz`);
+  startActivityEmailOutboxWorker();
 });

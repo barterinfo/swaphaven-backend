@@ -13,12 +13,14 @@ import {
 import { tradesTable, tradeReviewsTable } from "./trades.js";
 import { conversationsTable, messagesTable } from "./messages.js";
 import { notificationsTable } from "./notifications.js";
+import { userPresenceTable, emailOutboxTable } from "./activity_email.js";
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 export const usersRelations = relations(usersTable, ({ one, many }) => ({
   profile:       one(userProfilesTable, { fields: [usersTable.id], references: [userProfilesTable.id] }),
   deviceTokens:  many(deviceTokensTable),
   swipeStreak:   one(swipeStreaksTable, { fields: [usersTable.id], references: [swipeStreaksTable.userId] }),
+  presence:      one(userPresenceTable, { fields: [usersTable.id], references: [userPresenceTable.userId] }),
   listings:      many(listingsTable),
   swipes:        many(swipesTable, { relationName: "swiper" }),
   savedListings: many(savedListingsTable),
@@ -30,8 +32,16 @@ export const usersRelations = relations(usersTable, ({ one, many }) => ({
   initiatedConversations: many(conversationsTable, { relationName: "conversationInitiator" }),
   receivedConversations:  many(conversationsTable, { relationName: "conversationRecipient" }),
   notifications: many(notificationsTable),
+  emailOutbox:   many(emailOutboxTable),
 }));
 
+export const userPresenceRelations = relations(userPresenceTable, ({ one }) => ({
+  user: one(usersTable, { fields: [userPresenceTable.userId], references: [usersTable.id] }),
+}));
+
+export const emailOutboxRelations = relations(emailOutboxTable, ({ one }) => ({
+  user: one(usersTable, { fields: [emailOutboxTable.userId], references: [usersTable.id] }),
+}));
 export const userProfilesRelations = relations(userProfilesTable, ({ one }) => ({
   user: one(usersTable, { fields: [userProfilesTable.id], references: [usersTable.id] }),
 }));

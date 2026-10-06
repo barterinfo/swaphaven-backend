@@ -130,6 +130,24 @@ const envSchema = z.object({
    * Keep in sync with Firebase Remote Config `cash_only_bonus_offers`.
    */
   CASH_ONLY_BONUS_OFFERS: z.coerce.number().int().min(0).default(0),
+  /**
+   * Activity-email fallback: minutes after the first unsent outbox row before
+   * sending a digest. Only for users with push off who are offline.
+   */
+  ACTIVITY_EMAIL_DELAY_MINUTES: z.coerce.number().int().min(1).default(30),
+  /**
+   * Force-kill safety: if is_foreground stayed true but last_seen is older
+   * than this (no background heartbeat), treat as offline. Default 6 hours —
+   * clients only heartbeat on resume/pause, not on a timer.
+   */
+  ACTIVITY_EMAIL_ONLINE_TTL_SECONDS: z.coerce.number().int().min(60).default(21_600),
+  /** Outbox worker poll interval in seconds. */
+  ACTIVITY_EMAIL_POLL_SECONDS: z.coerce.number().int().min(10).default(60),
+  /** Kill switch — enqueue + worker no-op when false. */
+  ACTIVITY_EMAIL_ENABLED: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v !== "false"),
 });
 
 const parsed = envSchema.safeParse(normalizeEnv(process.env));

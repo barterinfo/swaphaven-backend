@@ -61,6 +61,24 @@ Related listing docs: [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md), [DELETE_LI
 
 ---
 
+## Push vs activity email fallback
+
+Activity emails are a fallback for users who have **push off and are not in the app**. Each `notify*` call in `src/lib/activity-email/notify.ts` checks this and queues an `email_outbox` row instead of sending right away:
+
+| Push status (reported by the app) | User in app | Activity email |
+|---|---|---|
+| On | Any | Never |
+| Off | Yes (foreground) | No; opening the app also cancels pending rows |
+| Off | No | One email `ACTIVITY_EMAIL_DELAY_MINUTES` after the first unsent activity; no repeats |
+
+The server learns push status and foreground state from `POST /api/presence/heartbeat` (`{ state, pushEnabled }`), stored in `user_presence`. The app sends it on resume, on pause, and after the Settings push toggle; there is no periodic polling. When the app has never reported (`push_enabled` is null), the server falls back to "push on if a `device_tokens` row exists".
+
+`sendPushToUser` itself is unchanged: it still sends to every registered token. The presence data only controls email.
+
+Full design, tables, worker, and env vars: [ACTIVITY_EMAIL_AND_PRESENCE.md](./ACTIVITY_EMAIL_AND_PRESENCE.md).
+
+---
+
 ## Architecture
 
 ### Key files
@@ -75,7 +93,9 @@ Related listing docs: [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md), [DELETE_LI
 | `src/routes/listings.ts` | `cancelPendingOffersAndNotify` — **DB `offer_denied` only, no push** |
 | `src/routes/conversations.ts` | Fires `new_message` push |
 | `scripts/push-announce.ts` | Ops CLI for `announcement` broadcasts |
-| `src/config/env.ts` | `FIREBASE_SERVICE_ACCOUNT_JSON` env var |
+| `src/routes/presence.ts` | `POST /api/presence/heartbeat` — app reports foreground/background and `pushEnabled` |
+| `src/lib/activity-email/gates.ts` | Push-on / online checks used to skip or cancel fallback emails |
+| `src/config/env.ts` | `FIREBASE_SERVICE_ACCOUNT_JSON`; `ACTIVITY_EMAIL_*` for the email fallback |
 
 ---
 
@@ -280,6 +300,8 @@ sequenceDiagram
     FCM-->>API: registration-token-not-registered error
     API->>API: DELETE FROM device_tokens WHERE id = staleId
 ```
+
+A `device_tokens` row does **not** prove push is on: turning push off in the app deletes the token on the device only, and turning it off in OS Settings leaves the token valid. For the email fallback, the server uses `user_presence.push_enabled` from the heartbeat and only falls back to "has a token" when the app has never reported. See [ACTIVITY_EMAIL_AND_PRESENCE.md](./ACTIVITY_EMAIL_AND_PRESENCE.md).
 
 ---
 

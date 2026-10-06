@@ -26,6 +26,7 @@ vi.mock("../../src/lib/mailer.js", () => ({
 // but we use CASCADE anyway for safety.
 const TRUNCATE = `
   TRUNCATE TABLE
+    email_outbox, user_presence,
     notifications, messages, conversations,
     trade_reviews, trades,
     counter_offer_items, counter_offers,

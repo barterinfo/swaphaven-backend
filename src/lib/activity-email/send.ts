@@ -52,5 +52,10 @@ export async function sendActivityEmail(
 
   if (error) {
     console.error("[activity-email] Resend send failed:", error);
+    throw new Error(
+      typeof error === "object" && error && "message" in error
+        ? String((error as { message: unknown }).message)
+        : "Resend send failed",
+    );
   }
 }

@@ -1,5 +1,9 @@
 const BASE = "https://www.bartersg.com";
 
+export function inboxUrl(): string {
+  return `${BASE}/inbox`;
+}
+
 export function inboxOfferUrl(offerId: string): string {
   return `${BASE}/inbox/offers/${offerId}`;
 }

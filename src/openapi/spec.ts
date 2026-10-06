@@ -781,6 +781,36 @@ export const openApiSpec = {
         responses: { "204": { description: "Token registered" } },
       },
     },
+    "/api/presence/heartbeat": {
+      post: {
+        tags: ["Presence"],
+        summary: "Report app foreground/background and push-enabled state",
+        description:
+          "Upserts user_presence on app resume/pause (no periodic polling). " +
+          "Foreground cancels pending activity-email outbox rows. " +
+          "pushEnabled should reflect in-app preference AND OS permission.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["state", "pushEnabled"],
+                properties: {
+                  state: { type: "string", enum: ["foreground", "background"] },
+                  pushEnabled: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "204": { description: "Presence recorded" },
+          "400": { description: "Validation error" },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
     "/api/account": {
       delete: {
         tags: ["Account"],
@@ -2284,6 +2314,7 @@ export const openApiSpec = {
     { name: "Trades",        description: "Confirmed trades, meetup coordination, and sealed peer reviews (7-day reveal window)" },
     { name: "Chat",          description: "Real-time conversation and messages" },
     { name: "Notifications", description: "In-app notification feed" },
+    { name: "Presence",      description: "App foreground/background heartbeats for activity-email gating" },
     { name: "Ads",           description: "Sponsored / house-ad cards for the swipe deck" },
     { name: "Search",        description: "Dedicated listing search (microservice-ready module)" },
   ],
