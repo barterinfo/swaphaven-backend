@@ -6,8 +6,8 @@
  * Used by: npm run schema:sync-barter-ai, Cursor afterFileEdit hook, git pre-commit.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BARTER_AI_ROOT = join(ROOT, "..", "barter-ai");
@@ -42,7 +42,7 @@ export function syncBarterAiSchema() {
   return { synced: true, files: files.length };
 }
 
-function readHookPath() {
+export function readHookPath() {
   let payload = "";
   try {
     payload = readFileSync(0, "utf8");
@@ -66,10 +66,12 @@ function readHookPath() {
   }
 }
 
-const hookPath = readHookPath();
-if (hookPath !== null && !isSchemaSourcePath(hookPath)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const hookPath = readHookPath();
+  if (hookPath !== null && !isSchemaSourcePath(hookPath)) {
+    process.exit(0);
+  }
+
+  syncBarterAiSchema();
   process.exit(0);
 }
-
-syncBarterAiSchema();
-process.exit(0);

@@ -16,6 +16,10 @@
       {
         "command": "node scripts/sync-barter-ai-schema.mjs",
         "timeout": 30
+      },
+      {
+        "command": "node scripts/sync-admin-api-schema.mjs",
+        "timeout": 30
       }
     ]
   },

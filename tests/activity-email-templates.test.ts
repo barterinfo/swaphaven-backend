@@ -5,6 +5,7 @@ import {
   profileUrl,
 } from "../src/lib/activity-email/links.js";
 import {
+  renderActivityDigest,
   renderCashCounter,
   renderChatMessage,
   renderListingSaved,
@@ -122,5 +123,17 @@ describe("activity email templates", () => {
     expect(r.html).toContain("View profile");
     expect(r.html).toContain("SAVED");
     expect(r.html).toContain(profileLink);
+  });
+
+  it("activity digest", () => {
+    const r = renderActivityDigest({
+      summaries: ["Alex wants to swap for your Guitar", "Sam messaged you"],
+      buttonUrl: "https://www.bartersg.com/inbox",
+    });
+    expect(r.subject).toBe("You have 2 updates on Barter");
+    expect(r.html).toContain("ACTIVITY");
+    expect(r.html).toContain("Open inbox");
+    expect(r.text).toContain("Alex wants to swap for your Guitar");
+    expect(r.text).toContain("Sam messaged you");
   });
 });
