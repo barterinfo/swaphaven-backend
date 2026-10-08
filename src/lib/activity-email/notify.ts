@@ -6,9 +6,7 @@ import {
   listingImagesTable,
   offersTable,
   userProfilesTable,
-  usersTable,
 } from "../../db/schema/index.js";
-import { decryptEmail } from "../email-privacy.js";
 import {
   formatUsdFromCents,
   loadDisplayName,
@@ -20,32 +18,7 @@ import {
   inboxOfferUrl,
   profileUrl,
 } from "./links.js";
-import { sendActivityEmail } from "./send.js";
-import {
-  renderCashCounter,
-  renderChatMessage,
-  renderListingSaved,
-  renderNewCashOffer,
-  renderNewSwapOffer,
-  renderOfferAccepted,
-  renderOfferDeclined,
-  renderOfferWithdrawn,
-  renderSwapCounter,
-} from "./templates.js";
-
-async function recipientEmail(userId: string): Promise<string | null> {
-  const user = await db.query.usersTable.findFirst({
-    where: eq(usersTable.id, userId),
-    columns: { emailCiphertext: true },
-  });
-  if (!user?.emailCiphertext) return null;
-  try {
-    return decryptEmail(user.emailCiphertext);
-  } catch {
-    console.error("[activity-email] Failed to decrypt email for user", userId);
-    return null;
-  }
-}
+import { enqueueActivityEmail } from "./enqueue.js";
 
 async function listingTitleAndImage(listingId: string): Promise<{
   title: string;
@@ -67,12 +40,6 @@ async function listingTitleAndImage(listingId: string): Promise<{
   };
 }
 
-async function sendToUser(userId: string, rendered: Parameters<typeof sendActivityEmail>[1]): Promise<void> {
-  const to = await recipientEmail(userId);
-  if (!to) return;
-  await sendActivityEmail(to, rendered);
-}
-
 export async function notifyNewSwapOffer(args: {
   offerId: string;
   senderUserId: string;
@@ -92,16 +59,18 @@ export async function notifyNewSwapOffer(args: {
   ]);
   const their = summarizeSide(theirListings);
 
-  await sendToUser(
-    offer.sellerId,
-    renderNewSwapOffer({
+  await enqueueActivityEmail({
+    userId: offer.sellerId,
+    eventType: "new_swap_offer",
+    summary: `${senderName} wants to swap for your ${title}`,
+    payload: {
       listingTitle: title,
       senderName,
       offeredItemsLabel: their.itemName,
       imageUrl,
       buttonUrl: inboxOfferUrl(args.offerId),
-    }),
-  );
+    },
+  });
 }
 
 export async function notifyNewCashOffer(args: {
@@ -122,16 +91,18 @@ export async function notifyNewCashOffer(args: {
     listingTitleAndImage(args.listingId),
   ]);
 
-  await sendToUser(
-    offer.sellerId,
-    renderNewCashOffer({
+  await enqueueActivityEmail({
+    userId: offer.sellerId,
+    eventType: "new_cash_offer",
+    summary: `${senderName} offered ${cashLabel} for your ${title}`,
+    payload: {
       listingTitle: title,
       senderName,
       cashLabel,
       imageUrl,
       buttonUrl: inboxOfferUrl(args.offerId),
-    }),
-  );
+    },
+  });
 }
 
 export async function notifySwapCounter(args: {
@@ -155,16 +126,18 @@ export async function notifySwapCounter(args: {
   ]);
   const their = summarizeSide(theirListings);
 
-  await sendToUser(
-    notifyUserId,
-    renderSwapCounter({
+  await enqueueActivityEmail({
+    userId: notifyUserId,
+    eventType: "swap_counter",
+    summary: `${senderName} sent new swap terms for ${title}`,
+    payload: {
       listingTitle: title,
       senderName,
       theirItemsLabel: their.itemName,
       imageUrl,
       buttonUrl: inboxOfferUrl(args.offerId),
-    }),
-  );
+    },
+  });
 }
 
 export async function notifyCashCounter(args: {
@@ -192,16 +165,18 @@ export async function notifyCashCounter(args: {
     listingTitleAndImage(offer.listingId),
   ]);
 
-  await sendToUser(
-    notifyUserId,
-    renderCashCounter({
+  await enqueueActivityEmail({
+    userId: notifyUserId,
+    eventType: "cash_counter",
+    summary: `${senderName} proposed ${cashLabel} for ${title}`,
+    payload: {
       listingTitle: title,
       senderName,
       cashLabel,
       imageUrl,
       buttonUrl: inboxOfferUrl(args.offerId),
-    }),
-  );
+    },
+  });
 }
 
 export async function notifyOfferAccepted(args: {
@@ -221,14 +196,16 @@ export async function notifyOfferAccepted(args: {
     listingTitleAndImage(offer.listingId),
   ]);
 
-  await sendToUser(
-    args.notifyUserId,
-    renderOfferAccepted({
+  await enqueueActivityEmail({
+    userId: args.notifyUserId,
+    eventType: "offer_accepted",
+    summary: `${accepterName} accepted the trade for ${title}`,
+    payload: {
       listingTitle: title,
       accepterName,
       buttonUrl: inboxChatUrl(args.conversationId),
-    }),
-  );
+    },
+  });
 }
 
 export type OfferDeclinedReason = "manual" | "listing_sold" | "listing_deleted";
@@ -246,14 +223,16 @@ export async function notifyOfferDeclined(args: {
         ? `${args.listingTitle} was removed. Your offer was declined.`
         : `Your offer for ${args.listingTitle} was declined.`;
 
-  await sendToUser(
-    args.notifyUserId,
-    renderOfferDeclined({
+  await enqueueActivityEmail({
+    userId: args.notifyUserId,
+    eventType: "offer_declined",
+    summary: headline,
+    payload: {
       listingTitle: args.listingTitle,
       headline,
       buttonUrl: inboxOfferUrl(args.offerId),
-    }),
-  );
+    },
+  });
 }
 
 export async function notifyOfferWithdrawn(args: {
@@ -271,14 +250,16 @@ export async function notifyOfferWithdrawn(args: {
     listingTitleAndImage(offer.listingId),
   ]);
 
-  await sendToUser(
-    offer.sellerId,
-    renderOfferWithdrawn({
+  await enqueueActivityEmail({
+    userId: offer.sellerId,
+    eventType: "offer_withdrawn",
+    summary: `${buyerName} withdrew their offer for ${title}`,
+    payload: {
       listingTitle: title,
       buyerName,
       buttonUrl: inboxOfferUrl(args.offerId),
-    }),
-  );
+    },
+  });
 }
 
 export async function notifyChatMessage(args: {
@@ -304,15 +285,19 @@ export async function notifyChatMessage(args: {
     listingTitleAndImage(conv.offer.listingId),
   ]);
 
-  await sendToUser(
-    notifyUserId,
-    renderChatMessage({
+  await enqueueActivityEmail({
+    userId: notifyUserId,
+    eventType: "new_message",
+    coalesceKey: `new_message:${args.conversationId}`,
+    summary: `${senderName} messaged you about ${title}`,
+    payload: {
       listingTitle: title,
       senderName,
       quote: args.preview,
       buttonUrl: inboxChatUrl(args.conversationId),
-    }),
-  );
+      messageCount: 1,
+    },
+  });
 }
 
 export async function notifyListingSaved(args: {
@@ -343,14 +328,16 @@ export async function notifyListingSaved(args: {
 
   const title = listing.title?.trim() || "your item";
 
-  await sendToUser(
-    listing.userId,
-    renderListingSaved({
+  await enqueueActivityEmail({
+    userId: listing.userId,
+    eventType: "listing_saved",
+    summary: `${saverName} bookmarked your ${title}`,
+    payload: {
       listingTitle: title,
       saverName,
       listingImageUrl: listingImg?.url ?? null,
       saverAvatarUrl: saverProfile?.avatarUrl ?? null,
       buttonUrl: profileUrl(args.saverUserId),
-    }),
-  );
+    },
+  });
 }

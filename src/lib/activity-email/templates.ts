@@ -279,3 +279,33 @@ export function renderListingSaved(input: {
     }),
   });
 }
+
+/** Multi-event digest for users with push off who were offline for the delay window. */
+export function renderActivityDigest(input: {
+  summaries: string[];
+  buttonUrl: string;
+}): ActivityEmailRendered {
+  const n = input.summaries.length;
+  const headline =
+    n === 1
+      ? "You have 1 update on Barter."
+      : `You have ${n} updates on Barter.`;
+  const listHtml = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:${c.insetBg};border-radius:12px;">
+${input.summaries
+  .map(
+    (s, i) =>
+      `<tr><td style="padding:${i === 0 ? "14px" : "0"} 16px ${i === input.summaries.length - 1 ? "14px" : "10px"} 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45;color:${c.textSecondary};">${escapeHtml(s)}</td></tr>`,
+  )
+  .join("\n")}
+</table>`;
+
+  return renderShell({
+    subject: n === 1 ? "You have an update on Barter" : `You have ${n} updates on Barter`,
+    eyebrow: "ACTIVITY",
+    headline,
+    buttonLabel: "Open inbox",
+    buttonUrl: input.buttonUrl,
+    bodyTextLines: input.summaries,
+    innerHtml: listHtml,
+  });
+}

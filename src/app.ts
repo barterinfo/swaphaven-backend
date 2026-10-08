@@ -34,6 +34,7 @@ import safetyRouter from "./routes/safety.js";
 import accountDeletionRouter from "./routes/account-deletion.js";
 import geoRouter from "./routes/geo.js";
 import inboxEmailDeepLinkRouter from "./routes/inboxEmailDeepLink.js";
+import presenceRouter from "./routes/presence.js";
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
@@ -191,6 +192,7 @@ export function createApp(): express.Express {
   app.use("/api/barter-ai",     barterAiRouter);
   app.use("/api/account",       accountDeletionRouter);
   app.use("/api/geo",           geoRouter);
+  app.use("/api/presence",      presenceRouter);
   app.use("/api",               safetyRouter);
 
   // ─── Error handling ───────────────────────────────────────────────────────────

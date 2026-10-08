@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { and, eq, desc, sql, notInArray } from "drizzle-orm";
+import { and, eq, desc, sql, notInArray, inArray } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
@@ -59,7 +59,10 @@ const offerListWith = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Fetches and serializes the latest pending round for an offer, or null. */
-async function getLatestRound(offerId: string) {
+async function getLatestRound(
+  offerId: string,
+  opts?: Parameters<typeof serializeOfferRound>[1],
+) {
   const round = await db.query.offerRoundsTable.findFirst({
     where: and(eq(offerRoundsTable.offerId, offerId), eq(offerRoundsTable.status, "pending")),
     orderBy: [desc(offerRoundsTable.roundNumber)],
@@ -74,7 +77,51 @@ async function getLatestRound(offerId: string) {
       },
     },
   });
-  return round ? serializeOfferRound(round) : null;
+  return round ? serializeOfferRound(round, opts) : null;
+}
+
+/**
+ * Batch-load the latest pending round per offer for inbox list rows.
+ * Returns offerId → serialized round (highest pending roundNumber wins).
+ */
+async function getLatestRoundsByOfferIds(offerIds: string[]) {
+  const map = new Map<string, ReturnType<typeof serializeOfferRound>>();
+  if (offerIds.length === 0) return map;
+
+  const rounds = await db.query.offerRoundsTable.findMany({
+    where: and(
+      inArray(offerRoundsTable.offerId, offerIds),
+      eq(offerRoundsTable.status, "pending"),
+    ),
+    orderBy: [desc(offerRoundsTable.roundNumber)],
+    with: {
+      items: {
+        with: {
+          listing: {
+            columns: listingSummaryColumns,
+            with: { images: true },
+          },
+        },
+      },
+    },
+  });
+
+  for (const round of rounds) {
+    if (map.has(round.offerId)) continue;
+    map.set(round.offerId, serializeOfferRound(round));
+  }
+  return map;
+}
+
+/** Serialize list rows and attach each offer's pending latestRound when present. */
+async function serializeOfferListWithRounds(
+  items: Parameters<typeof serializeOfferListItem>[0][],
+) {
+  const rounds = await getLatestRoundsByOfferIds(items.map((o) => o.id));
+  return items.map((offer) => ({
+    ...serializeOfferListItem(offer),
+    latestRound: rounds.get(offer.id) ?? null,
+  }));
 }
 
 // ─── POST /api/offers ─────────────────────────────────────────────────────────
@@ -82,6 +129,8 @@ const createOfferSchema = z.object({
   listingId:         z.string().uuid(),
   swipeId:           z.string().uuid().optional(),
   offeredListingIds: z.array(z.string().uuid()).min(1, "At least one item must be offered"),
+  /** Optional extras from the seller's closet; [listingId] is always included. */
+  sellerListingIds:  z.array(z.string().uuid()).optional(),
   cashTopUpCents:    z.number().int().min(0).default(0),
   buyerNote:         z.string().max(500).optional(),
 });
@@ -99,7 +148,7 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  const { offeredListingIds, ...offerData } = parsed.data;
+  const { offeredListingIds, sellerListingIds: sellerListingIdsRaw, ...offerData } = parsed.data;
   const listing = await db.query.listingsTable.findFirst({
     where: eq(listingsTable.id, offerData.listingId),
   });
@@ -115,6 +164,37 @@ router.post("/", requireAuth, async (req, res) => {
   }
   if (listing.status !== "active") {
     return res.status(409).json({ error: "conflict", message: "Listing is no longer active" });
+  }
+
+  // Pin the opened listing first; extras from the soft "add more" CTA follow.
+  const sellerListingIds = [
+    offerData.listingId,
+    ...(sellerListingIdsRaw ?? []).filter((id) => id !== offerData.listingId),
+  ];
+  if (sellerListingIds.length > 1) {
+    const sellerListings = await db.query.listingsTable.findMany({
+      where: (t, { inArray }) => inArray(t.id, sellerListingIds),
+      columns: { id: true, userId: true, status: true },
+    });
+    const listingMap = new Map(sellerListings.map((l) => [l.id, l]));
+    for (const id of sellerListingIds) {
+      const l = listingMap.get(id);
+      if (!l) {
+        return res.status(400).json({ error: "bad_request", message: `Listing ${id} not found` });
+      }
+      if (l.userId !== listing.userId) {
+        return res.status(400).json({
+          error: "bad_request",
+          message: `Listing ${id} does not belong to the seller`,
+        });
+      }
+      if (l.status !== "active") {
+        return res.status(409).json({
+          error: "conflict",
+          message: `Listing ${id} is no longer active`,
+        });
+      }
+    }
   }
 
   // Check whether the triggering swipe was a super-swipe so the offer is flagged.
@@ -156,13 +236,15 @@ router.post("/", requireAuth, async (req, res) => {
       position: i,
     })),
   );
-  // Seller's listing on the seller side.
-  await db.insert(offerRoundItemsTable).values([{
-    offerRoundId: round.id,
-    listingId: offerData.listingId,
-    side: "seller" as const,
-    position: 0,
-  }]);
+  // Seller side: pinned target + any extras the buyer added from their closet.
+  await db.insert(offerRoundItemsTable).values(
+    sellerListingIds.map((lid, i) => ({
+      offerRoundId: round.id,
+      listingId: lid,
+      side: "seller" as const,
+      position: i,
+    })),
+  );
 
   await db.insert(notificationsTable).values({
     userId: listing.userId,
@@ -171,13 +253,13 @@ router.post("/", requireAuth, async (req, res) => {
     body: "Someone wants to trade for your item.",
     relatedOfferId: offer.id,
   });
-  // Rich FCM card for the seller (recipient): their = buyer items, your = target listing.
+  // Rich FCM card for the seller (recipient): their = buyer items, your = seller side.
   void (async () => {
     const payload = await buildOfferPush({
       offerId: offer.id,
       senderUserId: req.user!.sub,
       theirListingIds: offeredListingIds,
-      yourListingIds: [offerData.listingId],
+      yourListingIds: sellerListingIds,
     });
     await sendPushToUser(listing.userId, payload);
   })().catch(console.error);
@@ -209,7 +291,10 @@ router.get("/received", requireAuth, async (req, res) => {
     orderBy: [sql`${offersTable.isSuperlike} DESC`, desc(offersTable.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
-  return res.json({ items: items.map(serializeOfferListItem), nextCursor });
+  return res.json({
+    items: await serializeOfferListWithRounds(items),
+    nextCursor,
+  });
 });
 
 // ─── GET /api/offers/sent ─────────────────────────────────────────────────────
@@ -231,7 +316,10 @@ router.get("/sent", requireAuth, async (req, res) => {
     orderBy: [sql`${offersTable.isSuperlike} DESC`, desc(offersTable.createdAt)],
   });
   const nextCursor = items.length === limit ? encodeCursor(items.at(-1)!.createdAt) : null;
-  return res.json({ items: items.map(serializeOfferListItem), nextCursor });
+  return res.json({
+    items: await serializeOfferListWithRounds(items),
+    nextCursor,
+  });
 });
 
 // ─── GET /api/offers/:offerId ─────────────────────────────────────────────────
@@ -247,7 +335,7 @@ router.get("/:offerId", requireAuth, async (req, res) => {
   }
 
   const [latestRound, counterOffer, conversation] = await Promise.all([
-    getLatestRound(offerId),
+    getLatestRound(offerId, { maxImages: Number.POSITIVE_INFINITY }),
     db.query.counterOffersTable.findFirst({
       where: eq(counterOffersTable.offerId, offer.id),
       with: { items: { with: { offerItem: true } } },
@@ -258,7 +346,7 @@ router.get("/:offerId", requireAuth, async (req, res) => {
   ]);
 
   return res.json({
-    ...serializeOfferListItem(offer),
+    ...serializeOfferListItem(offer, { maxImages: Number.POSITIVE_INFINITY }),
     currentTurn: offer.currentTurn,
     roundCount: offer.roundCount,
     latestRound,

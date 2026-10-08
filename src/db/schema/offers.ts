@@ -1,5 +1,5 @@
 import {
-  pgTable, uuid, text, integer, boolean, timestamp, pgEnum,
+  pgTable, uuid, text, integer, boolean, timestamp, pgEnum, index,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users.js";
 import { listingsTable } from "./listings.js";
@@ -86,7 +86,14 @@ export const offerRoundsTable = pgTable("offer_rounds", {
   status:                   offerRoundStatusEnum("status").notNull().default("pending"),
   createdAt:                timestamp("created_at").notNull().defaultNow(),
   updatedAt:                timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // inbox list/detail: WHERE offer_id IN (…) AND status = 'pending' ORDER BY round_number DESC
+  index("offer_rounds_offer_id_status_round_number_idx").on(
+    t.offerId,
+    t.status,
+    t.roundNumber,
+  ),
+]);
 
 // ─── offer_round_items ────────────────────────────────────────────────────────
 export const offerRoundItemsTable = pgTable("offer_round_items", {
@@ -96,7 +103,10 @@ export const offerRoundItemsTable = pgTable("offer_round_items", {
   /** Which side of the trade this listing belongs to. */
   side:          offerRoundItemSideEnum("side").notNull(),
   position:      integer("position").notNull().default(0),
-});
+}, (t) => [
+  // relational hydrate of round items: WHERE offer_round_id IN (…)
+  index("offer_round_items_offer_round_id_idx").on(t.offerRoundId),
+]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type Offer            = typeof offersTable.$inferSelect;
