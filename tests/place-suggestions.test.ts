@@ -58,7 +58,7 @@ describe("classifyNominatimHit", () => {
     );
   });
 
-  it("keeps a public station as a venue", () => {
+  it("keeps a public station as a venue and shows its area", () => {
     const suggestion = classifyNominatimHit(
       hit({
         displayName: "Hillview, Singapore",
@@ -74,11 +74,38 @@ describe("classifyNominatimHit", () => {
       expect.objectContaining({
         label: "Hillview MRT",
         pinKind: "venue",
-        placeType: "Station",
+        placeType: "Station · Hillview",
         lat: 1.3624,
         lng: 103.7675,
       }),
     );
+  });
+
+  it("maps several suburb hits for the same name to one selectable label", () => {
+    const a = classifyNominatimHit(
+      hit({
+        displayName: "Bukit Batok, Singapore",
+        type: "suburb",
+        address: { suburb: "Bukit Batok" },
+        lat: 1.349,
+        lng: 103.75,
+      }),
+      "Bukit Batok",
+    );
+    const b = classifyNominatimHit(
+      hit({
+        displayName: "Bukit Batok, Singapore",
+        type: "suburb",
+        address: { suburb: "Bukit Batok" },
+        lat: 1.351,
+        lng: 103.752,
+      }),
+      "Bukit Batok",
+    );
+    expect(a?.label).toBe("Bukit Batok");
+    expect(b?.label).toBe("Bukit Batok");
+    expect(a?.pinKind).toBe("area");
+    expect(b?.pinKind).toBe("area");
   });
 
   it("rejects unknown classes", () => {
@@ -93,6 +120,80 @@ describe("classifyNominatimHit", () => {
         "Somewhere",
       ),
     ).toBeNull();
+  });
+
+  it("maps a condo estate to its surrounding neighbourhood", () => {
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName:
+            "Hillview Heights, Bukit Batok, West Region, Singapore, 669561, Singapore",
+          className: "landuse",
+          type: "residential",
+          address: {
+            suburb: "Bukit Batok",
+            city: "Singapore",
+            postcode: "669561",
+            country_code: "sg",
+          },
+        }),
+        "Hillview Heights",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Bukit Batok",
+        pinKind: "area",
+        placeType: "Near Hillview Heights",
+      }),
+    );
+  });
+
+  it("accepts Singapore planning areas (boundary/administrative)", () => {
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName: "Bukit Batok, West Region, Singapore",
+          className: "boundary",
+          type: "administrative",
+          address: {
+            suburb: "Bukit Batok",
+            borough: "West Region",
+            city: "Singapore",
+            country_code: "sg",
+          },
+          lat: 1.349,
+          lng: 103.75,
+        }),
+        "bukit batok",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Bukit Batok",
+        pinKind: "area",
+        placeType: "Neighbourhood",
+      }),
+    );
+
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName: "Bukit Panjang, West Region, Singapore",
+          className: "boundary",
+          type: "administrative",
+          address: {
+            suburb: "Bukit Panjang",
+            city: "Singapore",
+            country_code: "sg",
+          },
+        }),
+        "bukit panjang",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Bukit Panjang",
+        pinKind: "area",
+      }),
+    );
   });
 });
 

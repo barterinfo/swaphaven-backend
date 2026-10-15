@@ -1,5 +1,5 @@
-/** ~1 km grid cell for public map pins (neighbourhood accuracy). */
-const CELL_DEG = 0.01;
+/** ~500 m grid cell for public map pins (area accuracy, not building-level). */
+const CELL_DEG = 0.0045;
 
 export type MapPinPrecision = "area" | "venue";
 
@@ -9,7 +9,7 @@ export type MapPin = {
   precision: MapPinPrecision;
 };
 
-/** Snap a coordinate to the center of a fixed ~1 km grid cell. */
+/** Snap a coordinate to the center of a fixed ~500 m grid cell. */
 export function snapToNeighbourhoodCell(lat: number, lng: number): {
   lat: number;
   lng: number;

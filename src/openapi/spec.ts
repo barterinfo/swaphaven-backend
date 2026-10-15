@@ -1274,7 +1274,7 @@ export const openApiSpec = {
         summary: "Nearby map pins (public place or area cell)",
         description:
           "Returns public location_city, map_pin, and distance for listings in radius. " +
-          "Venue pins use the stored place; area and legacy rows use a ~1 km cell. " +
+          "Venue pins use the stored place; area and legacy rows use a ~500 m cell. " +
           "Exact coordinates, address, and postal code are never returned.",
         security: [],
         parameters: [

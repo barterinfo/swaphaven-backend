@@ -51,7 +51,7 @@ export const listingsTable = pgTable("listings", {
   locationPostalCode:  text("location_postal_code").notNull().default(""),
   /**
    * Private pin mode for GET /api/listings/map.
-   * `area` → ~1 km cell; `venue` → exact venue point; null → treat as area.
+   * `area` → ~500 m cell; `venue` → exact venue point; null → treat as area.
    */
   locationPinKind:     text("location_pin_kind").$type<"area" | "venue">(),
   createdAt:           timestamp("created_at").notNull().defaultNow(),

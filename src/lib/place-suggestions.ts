@@ -55,6 +55,16 @@ const PUBLIC_TYPES = new Set([
   "hamlet",
 ]);
 
+/** Country-only labels must not become a selectable "area". */
+const COUNTRY_ONLY_LABELS = new Set([
+  "singapore",
+  "new zealand",
+  "australia",
+  "malaysia",
+  "indonesia",
+  "india",
+]);
+
 export function queryHasUnit(query: string): boolean {
   return UNIT_RE.test(query.trim());
 }
@@ -66,12 +76,13 @@ function areaLabelFromAddress(address: Record<string, string>): string | null {
     "neighborhood",
     "quarter",
     "city_district",
+    "borough",
     "town",
     "city",
     "village",
   ]) {
     const value = address[key]?.trim();
-    if (value) return value;
+    if (value && !COUNTRY_ONLY_LABELS.has(value.toLowerCase())) return value;
   }
   return null;
 }
@@ -86,12 +97,46 @@ function placeTypeLabel(className: string, type: string): string {
     type === "neighbourhood" ||
     type === "neighborhood" ||
     type === "suburb" ||
-    type === "quarter"
+    type === "quarter" ||
+    type === "administrative"
   ) {
     return "Neighbourhood";
   }
   if (type === "city" || type === "town" || type === "village") return "Area";
   return "Place";
+}
+
+function isSelectableAreaLabel(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  if (COUNTRY_ONLY_LABELS.has(t.toLowerCase())) return false;
+  return true;
+}
+
+function areaSuggestionFromHit(
+  hit: NominatimHit,
+  placeType: string,
+): PlaceSuggestion | null {
+  const area = areaLabelFromAddress(hit.address);
+  if (!area || !isSelectableAreaLabel(area)) return null;
+  return {
+    label: area,
+    lat: hit.lat,
+    lng: hit.lng,
+    pinKind: "area",
+    placeType,
+    countryCode: hit.countryCode,
+  };
+}
+
+/** Subtitle when a condo/building search resolves to its neighbourhood. */
+function nearPlaceType(namedPlace: string, hit: NominatimHit): string {
+  const area = areaLabelFromAddress(hit.address);
+  const name = namedPlace.trim();
+  if (!name || (area && name.toLowerCase() === area.toLowerCase())) {
+    return "Neighbourhood";
+  }
+  return `Near ${name}`;
 }
 
 /**
@@ -114,9 +159,34 @@ export function classifyNominatimHit(
     hasHouseNumber ||
     BLOCK_RE.test(hit.displayName);
 
+  // Buildings / house numbers / "block …": public label is the surrounding area.
   if (isBuilding) {
-    const area = areaLabelFromAddress(hit.address);
-    if (!area) return null;
+    const named =
+      hit.address["building"]?.trim() ||
+      hit.displayName.split(",")[0]?.trim() ||
+      "";
+    const placeType =
+      named && !queryHasUnit(named) ? nearPlaceType(named, hit) : "Neighbourhood";
+    return areaSuggestionFromHit(hit, placeType);
+  }
+
+  // Condo / residential estates (Hillview Heights, Reflections at Keppel Bay, …).
+  // Public label is the surrounding neighbourhood only — not the condo name.
+  if (className === "landuse" && type === "residential") {
+    const condoName = hit.displayName.split(",")[0]?.trim() || "";
+    const placeType = condoName
+      ? nearPlaceType(condoName, hit)
+      : "Neighbourhood";
+    return areaSuggestionFromHit(hit, placeType);
+  }
+
+  // SG planning areas (and similar) are boundary/administrative with a suburb.
+  if (className === "boundary" && type === "administrative") {
+    const area =
+      areaLabelFromAddress(hit.address) ||
+      hit.displayName.split(",")[0]?.trim() ||
+      null;
+    if (!area || !isSelectableAreaLabel(area)) return null;
     return {
       label: area,
       lat: hit.lat,
@@ -143,22 +213,39 @@ export function classifyNominatimHit(
     hit.displayName.split(",")[0]?.trim() ||
     hit.displayName;
 
+  if (!isSelectableAreaLabel(shortName.trim())) return null;
+
   const isAreaType =
     type === "neighbourhood" ||
     type === "neighborhood" ||
     type === "suburb" ||
     type === "quarter" ||
+    type === "administrative" ||
     type === "city" ||
     type === "town" ||
     type === "village" ||
     type === "hamlet";
+
+  const kind = placeTypeLabel(className, type);
+  const areaHint =
+    hit.address["suburb"] ||
+    hit.address["neighbourhood"] ||
+    hit.address["neighborhood"] ||
+    hit.address["quarter"] ||
+    hit.address["city_district"] ||
+    null;
+  // Venues often share a brand name — show area under the row so picks differ.
+  const placeType =
+    !isAreaType && areaHint && areaHint.trim().toLowerCase() !== shortName.trim().toLowerCase()
+      ? `${kind} · ${areaHint.trim()}`
+      : kind;
 
   return {
     label: shortName.trim(),
     lat: hit.lat,
     lng: hit.lng,
     pinKind: isAreaType ? "area" : "venue",
-    placeType: placeTypeLabel(className, type),
+    placeType,
     countryCode: hit.countryCode,
   };
 }
@@ -229,13 +316,18 @@ export async function fetchPlaceSuggestions(opts: {
   if (!Array.isArray(data)) return [];
 
   const out: PlaceSuggestion[] = [];
+  // Areas: one row per public name (Nominatim often returns the same suburb
+  // at several nearby points). Venues: keep distinct area subtitles.
   const seen = new Set<string>();
   for (const item of data) {
     const hit = parseNominatimItem(item);
     if (!hit) continue;
     const suggestion = classifyNominatimHit(hit, q);
     if (!suggestion) continue;
-    const key = `${suggestion.label.toLowerCase()}|${suggestion.pinKind}|${suggestion.lat.toFixed(4)}|${suggestion.lng.toFixed(4)}`;
+    const key =
+      suggestion.pinKind === "area"
+        ? `area|${suggestion.label.toLowerCase()}`
+        : `venue|${suggestion.label.toLowerCase()}|${suggestion.placeType.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(suggestion);
