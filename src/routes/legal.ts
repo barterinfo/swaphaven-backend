@@ -120,10 +120,12 @@ function buildPrivacyPolicyHtml(): string {
     </ul>
 
     <div class="callout">
-      <p><strong>How nearby listings work.</strong> Precise coordinates are kept server-side and
-      used to filter, rank, and calculate distance. Public listing responses provide an
-      approximate distance and coarse location such as city, state, or country — not a listing's
-      street address, postal code, or coordinates.</p>
+      <p><strong>How nearby listings work.</strong> A listing place is one the seller picked from
+      suggestions. Unit numbers are not accepted. A block or house is saved and shown as the
+      surrounding area. Precise coordinates stay server-side for distance and ranking. Other
+      people see the public place or area name, an approximate distance, and a map pin on that
+      public place or neighbourhood area — not a street address, postal code, unit, block, or
+      the exact stored coordinates.</p>
     </div>
 
     <h2>4. Data We Make Visible to Other Users</h2>

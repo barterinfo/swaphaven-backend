@@ -58,6 +58,28 @@ export const createListingBodySchema = z.object({
 
 export type CreateListingBody = z.infer<typeof createListingBodySchema>;
 
+/** Place row tapped from GET /api/places/suggestions. */
+export const pickedPlaceSchema = z.object({
+  label: z.string().trim().min(1).max(200),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  pinKind: z.enum(["area", "venue"]),
+  countryCode: z.string().trim().length(2).optional(),
+  placeType: z.string().trim().max(80).optional(),
+});
+
+/**
+ * Create listing after a suggestion is tapped.
+ * Coordinates come only from the picked place — free-typed location is rejected.
+ */
+export const createListingFromPlaceBodySchema = createListingBodySchema
+  .omit({ location: true, locationCity: true, locationLat: true, locationLng: true })
+  .extend({
+    place: pickedPlaceSchema,
+  });
+
+export type CreateListingFromPlaceBody = z.infer<typeof createListingFromPlaceBodySchema>;
+
 /** Input shape for seed/fixture scripts that build a create-listing request body. */
 export type ListingFixtureInput = {
   title: string;

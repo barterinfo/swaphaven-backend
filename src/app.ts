@@ -33,6 +33,7 @@ import barterAiRouter from "./routes/barterAi.js";
 import safetyRouter from "./routes/safety.js";
 import accountDeletionRouter from "./routes/account-deletion.js";
 import geoRouter from "./routes/geo.js";
+import placesRouter from "./routes/places.js";
 import inboxEmailDeepLinkRouter from "./routes/inboxEmailDeepLink.js";
 import presenceRouter from "./routes/presence.js";
 import { sanitizeRequestUrlForLogs } from "./lib/request-log-privacy.js";
@@ -199,6 +200,7 @@ export function createApp(): express.Express {
   app.use("/api/barter-ai",     barterAiRouter);
   app.use("/api/account",       accountDeletionRouter);
   app.use("/api/geo",           geoRouter);
+  app.use("/api/places",        placesRouter);
   app.use("/api/presence",      presenceRouter);
   app.use("/api",               safetyRouter);
 
