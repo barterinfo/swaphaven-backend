@@ -158,7 +158,7 @@ export const openApiSpec = {
       },
       Listing: {
         type: "object",
-        description: "Raw DB-shape listing row (camelCase). Returned in items[] arrays alongside the serialized listings[] array.",
+        description: "Legacy camelCase listing shape used by negotiation payloads.",
         properties: {
           id:                  { type: "string", format: "uuid" },
           userId:              { type: "string", format: "uuid" },
@@ -213,14 +213,12 @@ export const openApiSpec = {
           },
           location: {
             type: "object",
+            description:
+              "Coarse public location only. Precise address, postal code, latitude, and longitude stay server-side for distance calculations.",
             properties: {
-              address:     { type: "string" },
-              city:        { type: "string" },
-              state:       { type: "string" },
-              country:     { type: "string" },
-              postal_code: { type: "string" },
-              lat:         { type: "number", nullable: true },
-              lng:         { type: "number", nullable: true },
+              city:    { type: "string" },
+              state:   { type: "string" },
+              country: { type: "string" },
             },
           },
           status:            { type: "string", enum: ["active","traded","paused","deleted"] },
@@ -278,7 +276,6 @@ export const openApiSpec = {
         type: "object",
         properties: {
           listings:   { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
-          items:      { type: "array", items: { $ref: "#/components/schemas/Listing" } },
           nextCursor: { type: "string", nullable: true },
         },
       },
@@ -980,7 +977,7 @@ export const openApiSpec = {
                 schema: {
                   type: "object",
                   properties: {
-                    items:      { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                    items:      { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
                     nextCursor: { type: "string", nullable: true },
                     total:      { type: "integer", description: "Total non-deleted listings for this user (for the '8 listings' header)." },
                   },
@@ -1185,8 +1182,14 @@ export const openApiSpec = {
         description:
           "Returns up to 20 active listings ordered by right_swipe_count desc (trending), " +
           "plus additional recent active listings excluding those already in trending. " +
+          "When lat/lng/radius are supplied, filtering and distance calculation happen server-side. " +
           "Auth is optional (same optionalAuth as the main feed).",
         security: [],
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number", minimum: 0 }, description: "Radius in miles" },
+        ],
         responses: {
           "200": {
             description: "Trending and recent listings",
@@ -1198,12 +1201,22 @@ export const openApiSpec = {
                   properties: {
                     trending: {
                       type: "array",
-                      items: { $ref: "#/components/schemas/BarterListing" },
+                      items: {
+                        allOf: [
+                          { $ref: "#/components/schemas/BarterListing" },
+                          { type: "object", properties: { distance_miles: { type: "number", nullable: true } } },
+                        ],
+                      },
                       description: "Highest right-swipe counts first",
                     },
                     others: {
                       type: "array",
-                      items: { $ref: "#/components/schemas/BarterListing" },
+                      items: {
+                        allOf: [
+                          { $ref: "#/components/schemas/BarterListing" },
+                          { type: "object", properties: { distance_miles: { type: "number", nullable: true } } },
+                        ],
+                      },
                       description: "Recent active listings not already in trending",
                     },
                   },
@@ -1440,7 +1453,7 @@ export const openApiSpec = {
                 schema: {
                   type: "object",
                   properties: {
-                    listings: { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                    listings: { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
                   },
                 },
               },

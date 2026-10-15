@@ -3,6 +3,7 @@ import { Router } from "express";
 const router = Router();
 
 const LAST_UPDATED = "July 29, 2026";
+const PRIVACY_LAST_UPDATED = "October 13, 2026";
 
 const STYLES = `
     :root { color-scheme: dark; }
@@ -57,73 +58,179 @@ function buildLegalPageHtml(opts: {
 function buildPrivacyPolicyHtml(): string {
   return buildLegalPageHtml({
     title: "Privacy Policy",
-    description: "Barter's privacy policy, including your responsibility as a user of the app.",
+    description:
+      "How Barter collects, uses, discloses, protects, and retains personal data under Singapore's PDPA.",
+    lastUpdated: PRIVACY_LAST_UPDATED,
     bodyHtml: `
-    <p>This Privacy Policy explains how Barter ("Barter", "the app", "we", "us") collects, uses,
-    and shares information when you use our mobile application and related services, and it
-    describes your responsibilities as a user of the app.</p>
+    <p>This Privacy Policy explains how Barter ("Barter", "we", "us") collects, uses, discloses,
+    protects, and retains personal data when you use our mobile application, website, and related
+    services (collectively, the "Service"). It is intended to describe our practices under
+    Singapore's Personal Data Protection Act 2012 ("PDPA").</p>
 
     <p>Barter is currently operated on an independent, unincorporated basis and is not a
-    registered company. References in this Policy to "Barter," "we," or "us" refer to the
-    individual(s) who operate the app, not a corporate entity, and there are no separate
-    employees or corporate affiliates at this time.</p>
+    registered company. References to Barter refer to the individual operator(s) responsible
+    for the Service.</p>
 
-    <h2>1. Information We Collect</h2>
+    <h2>1. Personal Data We Collect</h2>
+    <p>Depending on how you use the Service, we may collect:</p>
     <ul>
-      <li>Account information you provide, such as your name, email address, and profile photo.</li>
-      <li>Content you create, such as listings, messages, offers, and trade history.</li>
-      <li>Device and usage information, such as app version, device type, and interaction logs.</li>
-      <li>Approximate location, where you choose to enable it, to show nearby listings.</li>
+      <li><strong>Account and profile data:</strong> name, email address, hashed sign-in
+      credentials, social sign-in identifiers, display name, profile photo, biography, city,
+      country, interests, and preferences.</li>
+      <li><strong>Location data:</strong> precise latitude and longitude when you grant location
+      permission or provide a listing location; location labels, city, country, and search
+      radius; and an approximate country or city inferred from network information.</li>
+      <li><strong>Content and transactions:</strong> listing descriptions and photos, messages
+      and chat images, offers, trade and meetup details, reviews, reports, and information you
+      choose to include in those fields.</li>
+      <li><strong>Activity data:</strong> searches, swipes, saves, follows, listing views,
+      blocks, notification preferences, app-presence signals, and interactions with features.</li>
+      <li><strong>Device and technical data:</strong> push-notification tokens, platform, app
+      version, device type, IP address in server logs, request and diagnostic information, and
+      an account identifier used for analytics.</li>
+      <li><strong>Information from sign-in providers:</strong> information supplied by Apple,
+      Google, or Facebook when you choose the relevant sign-in method.</li>
     </ul>
+    <p>Please do not put another person's sensitive information, home address, identification
+    number, financial information, or other unnecessary personal data in listings or messages.</p>
 
-    <h2>2. How We Use Your Information</h2>
+    <h2>2. How We Collect Personal Data</h2>
+    <p>We collect personal data directly from you, automatically when you use the Service, from
+    your device when you grant permission, from sign-in providers you select, from other users
+    who interact with you, and from service providers that support the Service.</p>
+
+    <h2>3. Purposes for Collection, Use, and Disclosure</h2>
+    <p>We collect, use, and disclose personal data with your consent, deemed consent, or where
+    otherwise permitted by the PDPA. We use it to:</p>
     <ul>
-      <li>To operate, maintain, and improve the app's features (listings, swiping, offers, chat, trades).</li>
-      <li>To communicate with you about your account, trades, and updates to our services.</li>
-      <li>To detect, prevent, and address fraud, abuse, and violations of our terms.</li>
+      <li>create and secure accounts and provide listings, discovery, offers, chat, trades,
+      reviews, follows, saves, and related features;</li>
+      <li>use location to filter and rank nearby listings, calculate approximate distance,
+      suggest meetup areas, and infer the appropriate country catalogue;</li>
+      <li>send account verification, password-reset, offer, message, trade, safety, service,
+      and other requested notifications;</li>
+      <li>personalise recommendations. Listing titles, descriptions, categories, condition,
+      brand, and wanted categories may be converted into machine-learning embeddings;</li>
+      <li>moderate text and, where enabled, assess listing or chat images for relevance or
+      inappropriate content;</li>
+      <li>measure feature use, diagnose faults, conduct analytics, and improve the Service;</li>
+      <li>prevent fraud, abuse, prohibited conduct, and security incidents; investigate reports;
+      enforce our Terms; and protect users and the public; and</li>
+      <li>comply with legal obligations and establish, exercise, or defend legal claims.</li>
     </ul>
-
-    <h2>3. Sharing of Information</h2>
-    <p>We do not sell your personal information. We may share limited information with other
-    users as part of core app functionality (e.g. your display name and listing details are
-    visible to users you interact with), and with service providers who help us operate the app
-    (e.g. cloud hosting, push notifications, email delivery), under confidentiality obligations.</p>
-
-    <h2>4. Data Security</h2>
-    <p>We take reasonable technical and organizational measures to protect your information.
-    However, no method of transmission or storage is completely secure, and we cannot guarantee
-    absolute security.</p>
 
     <div class="callout">
-      <p><strong>5. Your Responsibility &amp; Assumption of Risk.</strong> Barter is a platform
-      that helps users discover, list, and arrange trades of items with other users. We do not
-      own, inspect, or verify the items listed, and we do not conduct background checks on users.
-      You are solely responsible for evaluating other users, verifying the condition and legality
-      of items, and exercising caution and good judgment in all interactions, including any
-      in-person meetups or exchanges arranged through the app.</p>
+      <p><strong>How nearby listings work.</strong> Precise coordinates are kept server-side and
+      used to filter, rank, and calculate distance. Public listing responses provide an
+      approximate distance and coarse location such as city, state, or country — not a listing's
+      street address, postal code, or coordinates.</p>
     </div>
 
-    <h2>6. Limitation of Liability</h2>
-    <p>To the fullest extent permitted by applicable law, Barter and the individual(s) who
-    operate it are not responsible or liable for any injury, loss, damage, dispute, tragedy,
-    theft, fraud, or other wrongdoing — whether direct, indirect, incidental, consequential, or
-    otherwise — arising from or related to your use of the app, any item exchanged through the
-    app, or your interactions or meetups with other users, whether online or in person. The app
-    is provided "as is" and "as available," without warranties of any kind. By using the app, you
-    acknowledge and agree that you do so entirely at your own risk, and that you are solely
-    responsible for your own safety, decisions, and conduct while using it.</p>
+    <h2>4. Data We Make Visible to Other Users</h2>
+    <p>Marketplace participation requires some sharing. Other users may see your display name,
+    profile photo, biography, coarse location, listings, listing photos, public reviews, trade
+    statistics, and content you send to them in offers or chats. We do not display your email
+    address, password, precise coordinates, street address, or postal code to other users.</p>
 
-    <h2>7. Children's Privacy</h2>
-    <p>Barter is not intended for children under 13, and we do not knowingly collect information
-    from children under 13.</p>
+    <h2>5. Service Providers and Other Disclosures</h2>
+    <p>We do not sell or rent personal data. We may disclose only the data reasonably needed for
+    the purposes above to:</p>
+    <ul>
+      <li><strong>Railway</strong> or another hosting provider for application and database hosting;</li>
+      <li><strong>Amazon Web Services</strong> for media storage and, where enabled, image moderation;</li>
+      <li><strong>Google Firebase</strong> for analytics, push notifications, and remote configuration;</li>
+      <li><strong>Resend</strong> for transactional email delivery;</li>
+      <li><strong>OpenAI</strong> for listing-text embeddings used in recommendations;</li>
+      <li><strong>Apple, Google, and Facebook</strong> for sign-in and token verification;</li>
+      <li><strong>Google Maps, OpenStreetMap Nominatim, and Overpass</strong> for maps,
+      geocoding, and meetup suggestions; and</li>
+      <li>professional advisers, authorities, courts, emergency services, or other parties where
+      reasonably necessary for safety, legal compliance, or legal claims.</li>
+    </ul>
+    <p>Providers may change as the Service develops. We select and configure providers with
+    regard to the personal data involved, the service they perform, and the safeguards available,
+    subject to their terms and privacy policies.</p>
 
-    <h2>8. Changes to This Policy</h2>
-    <p>We may update this Privacy Policy from time to time. We will update the "Last updated"
-    date above when we do, and material changes may be communicated in-app.</p>
+    <h2>6. Overseas Transfers</h2>
+    <p>Some providers process or store personal data outside Singapore, including in the United
+    States and other countries where they or their subprocessors operate. When transferring
+    personal data outside Singapore, we take reasonable steps required by the PDPA to ensure
+    that the recipient is bound to provide a standard of protection comparable to the PDPA,
+    including through contractual obligations, recognised certification, or other legally
+    permitted safeguards as applicable.</p>
 
-    <h2>9. Contact Us</h2>
-    <p>If you have questions about this Privacy Policy, contact us at
-    <a href="mailto:support@bartersg.com">support@bartersg.com</a>.</p>
+    <h2>7. Analytics and Communications</h2>
+    <p>Firebase Analytics records product events and an internal account identifier. Advertising
+    ID collection and ad-personalisation signals are disabled in the app. Search terms may be
+    included in analytics, so do not enter personal data in the search box.</p>
+    <p>You can disable push notifications in Barter's Settings or your device settings and mute
+    listing-follow alerts. We currently use email for transactional or account-related messages
+    and do not send SMS marketing or collect telephone numbers. If we introduce direct marketing,
+    we will provide the notices, consent choices, and opt-out mechanisms required by law.</p>
+
+    <h2>8. Retention and Account Deletion</h2>
+    <p>We retain personal data only while it serves the purpose for which it was collected, or
+    while retention is reasonably required for legal, safety, fraud-prevention, dispute, backup,
+    or legitimate operational purposes. Retention depends on the data and context; for example,
+    account and marketplace records are generally retained while an account is active, while
+    shorter-lived verification and technical records are retained only as needed for their
+    operational purpose.</p>
+    <p>You can delete your account in the app or request deletion by email. This removes the
+    active account and associated marketplace records from the primary database. Limited copies
+    may remain in backups, security records, provider caches, or uploaded-media storage where
+    technically necessary or legally permitted. They are not used for new purposes and will be
+    deleted or de-identified when no longer required. If you want us to locate and remove
+    uploaded media remaining after account deletion, contact our Data Protection Officer.</p>
+
+    <h2>9. Security</h2>
+    <p>We use reasonable administrative, technical, and organisational measures designed to
+    prevent unauthorised access, collection, use, disclosure, copying, modification, disposal,
+    or loss. Measures include access controls, password hashing, encryption and masking of email
+    addresses, transport security, restricted administrative access, and data minimisation.
+    No system is completely secure, and you should protect your credentials and report
+    suspected misuse promptly.</p>
+
+    <h2>10. Access, Correction, Withdrawal, and Complaints</h2>
+    <p>You can view and correct many profile fields in the app. Subject to the PDPA, you may also
+    ask us to:</p>
+    <ul>
+      <li>provide access to personal data in our possession or control and information about how
+      it was used or disclosed during the preceding year;</li>
+      <li>correct an error or omission in your personal data;</li>
+      <li>withdraw consent to specified collection, use, or disclosure;</li>
+      <li>delete your account or remaining uploaded media; or</li>
+      <li>review a privacy concern or complaint.</li>
+    </ul>
+    <p>Email the Data Protection Officer with the subject "PDPA Request." We may need to verify
+    your identity and clarify the scope of your request. Withdrawing consent does not affect
+    processing already lawfully carried out. If the data is needed to provide a feature or the
+    Service, withdrawal may mean that feature or your account can no longer be provided. Rights
+    may be subject to exceptions under the PDPA.</p>
+
+    <h2>11. Data Breaches</h2>
+    <p>We assess suspected personal-data breaches in a reasonable and expeditious manner. Where
+    a breach is notifiable under the PDPA, we will notify Singapore's Personal Data Protection
+    Commission as soon as practicable and no later than three calendar days after determining
+    that notification is required, and notify affected individuals where required.</p>
+
+    <h2>12. Children's Personal Data</h2>
+    <p>The Service is not intended for children under 13. If you are between 13 and 17, please
+    review this Policy with a parent or guardian and make sure you understand the consequences
+    of providing and withdrawing consent. If we learn that a child under 13 provided personal
+    data without appropriate authorisation, contact us and we will take reasonable steps to
+    remove it.</p>
+
+    <h2>13. Changes to This Policy</h2>
+    <p>We may update this Policy as the Service or law changes. We will update the date above
+    and give additional notice in the app where a change is material or fresh consent is
+    required.</p>
+
+    <h2>14. Data Protection Officer</h2>
+    <p>The Barter operator is the designated Data Protection Officer and public data-protection
+    contact. For access, correction, withdrawal, deletion, complaints, or questions:</p>
+    <p><strong>Data Protection Officer — Barter</strong><br />
+    Email: <a href="mailto:support@bartersg.com">support@bartersg.com</a><br />
+    Subject: PDPA Request</p>
     `,
   });
 }
@@ -220,11 +327,11 @@ function buildDeleteAccountHtml(): string {
     title: "How do I delete my Barter account?",
     description:
       "Step-by-step instructions to delete your Barter account in the app, and what happens to your data.",
-    lastUpdated: "August 19, 2026",
+    lastUpdated: PRIVACY_LAST_UPDATED,
     bodyHtml: `
-    <p>You can delete your Barter account yourself in the app. Deletion is
-    immediate and permanent — we do not keep a waiting period, and you cannot
-    recover the account once it is gone.</p>
+    <p>You can delete your Barter account yourself in the app. The active-account
+    deletion process starts immediately and is permanent — we do not keep a
+    recovery waiting period, and you cannot restore the account once it is gone.</p>
 
     <h2>Delete your account in the app</h2>
     <ol>
@@ -239,19 +346,26 @@ function buildDeleteAccountHtml(): string {
 
     <div class="callout">
       <p><strong>This cannot be undone.</strong> Deleting your profile permanently
-      removes your account, listings, offers, and chats.</p>
+      removes your active account and takes down your listings. Limited copies may
+      remain where described below and in our Privacy Policy.</p>
     </div>
 
     <h2>What we delete</h2>
-    <p>When you confirm, we immediately purge your account from Barter:</p>
+    <p>When you confirm, the deletion process removes the following active records
+    from Barter's primary database:</p>
     <ul>
       <li>Your profile, email, and sign-in credentials</li>
       <li>Your listings (they are taken down and no longer visible to others)</li>
-      <li>Your offers, chats, trade history, and reviews</li>
-      <li>Saved items, swipe history, and notification records tied to you</li>
+      <li>Offers, trades, reviews, saved items, swipe history, notifications, and
+      related conversations covered by the account-deletion process</li>
     </ul>
     <p>Open offers and trades with other people are cancelled. They may see a
     notice that you left Barter. Their own listings stay up.</p>
+    <p>Uploaded images, security records, provider caches, and backup copies may
+    remain where technically necessary or legally permitted. They are not used
+    for new purposes and are deleted or de-identified when no longer required.
+    To ask us to locate and remove uploaded media that remains after deletion,
+    email the Data Protection Officer below.</p>
     <p>If you return later, you will need to create a new account. You can use
     the same email address.</p>
 

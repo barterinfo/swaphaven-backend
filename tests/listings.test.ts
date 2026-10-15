@@ -35,7 +35,8 @@ describe("GET /api/listings", () => {
 
     const res = await request(app).get("/api/listings");
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(2);
+    expect(res.body.listings).toHaveLength(2);
+    expect(res.body.items).toBeUndefined();
     expect(res.body.nextCursor).toBeNull();
   });
 
@@ -46,7 +47,7 @@ describe("GET /api/listings", () => {
 
     const res = await request(app).get("/api/listings?q=vinyl");
     expect(res.status).toBe(200);
-    const titles = res.body.items.map((l: { title: string }) => l.title);
+    const titles = res.body.listings.map((l: { title: string }) => l.title);
     expect(titles).toContain("Rare Vinyl Record");
     expect(titles).not.toContain("Old Guitar");
   });
@@ -57,11 +58,11 @@ describe("GET /api/listings", () => {
 
     const res = await request(app).get("/api/listings?limit=3");
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(3);
+    expect(res.body.listings).toHaveLength(3);
     expect(res.body.nextCursor).not.toBeNull();
   });
 
-  it("includes right swipe counts on listings and items arrays", async () => {
+  it("includes right swipe counts on sanitized listings", async () => {
     const owner = await registerUser();
     const swiper1 = await registerUser();
     const swiper2 = await registerUser();
@@ -79,9 +80,47 @@ describe("GET /api/listings", () => {
     const res = await request(app).get("/api/listings");
     expect(res.status).toBe(200);
     const barter = res.body.listings.find((l: { id: string }) => l.id === listing.id);
-    const item = res.body.items.find((l: { id: string }) => l.id === listing.id);
     expect(barter.right_swipe_count).toBe(2);
-    expect(item.rightSwipeCount).toBe(2);
+    expect(res.body.items).toBeUndefined();
+  });
+
+  it("keeps precise location server-side and returns only coarse public location", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      title: `PrivateLocation-${uid()}`,
+      location: {
+        lat: 1.3521,
+        lng: 103.8198,
+        address: "123 Privacy Street",
+        city: "Singapore",
+        state: "Singapore",
+        country: "SG",
+        postalCode: "123456",
+      },
+    });
+
+    const feed = await request(app).get("/api/listings");
+    expect(feed.status).toBe(200);
+    expect(feed.body.items).toBeUndefined();
+    const feedListing = feed.body.listings.find(
+      (item: { id: string }) => item.id === listing.id,
+    );
+    expect(feedListing.location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+    expect(feedListing.review_snapshot.location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+
+    const detail = await request(app).get(`/api/listings/${listing.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.listing.location).toEqual(feedListing.location);
+    expect(JSON.stringify(detail.body)).not.toContain("123 Privacy Street");
+    expect(JSON.stringify(detail.body)).not.toContain("123456");
   });
 });
 
@@ -739,6 +778,14 @@ describe("GET /api/listings/trending", () => {
     ];
     expect(allIds).toContain(sfListing.id);
     expect(allIds).not.toContain(nyListing.id);
+    const nearby = [...res.body.trending, ...res.body.others].find(
+      (item: { id: string }) => item.id === sfListing.id,
+    );
+    expect(nearby.distance_miles).toEqual(expect.any(Number));
+    expect(nearby.location.lat).toBeUndefined();
+    expect(nearby.location.lng).toBeUndefined();
+    expect(nearby.location.address).toBeUndefined();
+    expect(nearby.location.postal_code).toBeUndefined();
   });
 
   it("most-liked listing appears in trending before others", async () => {

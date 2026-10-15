@@ -149,7 +149,7 @@ router.get("/", optionalAuth, async (req, res) => {
   );
 
   const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
-  return res.json({ listings, items: rawItems, nextCursor });
+  return res.json({ listings, nextCursor });
 });
 
 // ─── POST /api/listings ───────────────────────────────────────────────────────
@@ -289,6 +289,23 @@ router.post("/", requireAuth, async (req, res) => {
 
 const SPOTLIGHT_LIMIT = 100;
 
+function haversineMiles(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latDelta = radians(toLat - fromLat);
+  const lngDelta = radians(toLng - fromLng);
+  const a =
+    Math.sin(latDelta / 2) ** 2
+    + Math.cos(radians(fromLat))
+      * Math.cos(radians(toLat))
+      * Math.sin(lngDelta / 2) ** 2;
+  return 2 * 3958.8 * Math.asin(Math.sqrt(a));
+}
+
 // ─── GET /api/listings/spotlight ──────────────────────────────────────────────
 // Public cover photos for the bartersg.com background. The 100 active listings
 // people have swiped or opened most, newest first when those counts tie.
@@ -402,13 +419,25 @@ router.get("/trending", optionalAuth, async (req, res) => {
 
   const serialize = (rows: typeof trendingRaw) =>
     Promise.all(
-      rows.map(async (row) =>
-        serializeListingBarter(row, {
+      rows.map(async (row) => {
+        const listing = serializeListingBarter(row, {
           images: row.images?.length
             ? row.images.sort((a, b) => a.position - b.position).map((i) => i.url)
             : await loadListingImages(row.id),
-        }),
-      ),
+        });
+        const distanceMiles =
+          hasLocation && row.locationLat != null && row.locationLng != null
+            ? Math.round(
+                haversineMiles(
+                  rawLat,
+                  rawLng,
+                  Number(row.locationLat),
+                  Number(row.locationLng),
+                ) * 10,
+              ) / 10
+            : null;
+        return { ...listing, distance_miles: distanceMiles };
+      }),
     );
 
   const [trending, others] = await Promise.all([

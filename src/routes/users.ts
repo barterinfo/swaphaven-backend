@@ -21,6 +21,7 @@ import { refreshCompletionRate } from "../lib/profile-stats.js";
 import { isBlockedEitherWay } from "../lib/user-blocks.js";
 import { adjustFollowCounts } from "../lib/user-follows.js";
 import { notifyNewFollower } from "../lib/follow-alerts.js";
+import { serializeListingBarter } from "../lib/barter-listing.js";
 
 const router = Router();
 
@@ -429,8 +430,16 @@ router.get("/:userId/listings", async (req, res) => {
     }),
   ]);
 
+  const items = rawItems.map((item) =>
+    serializeListingBarter(item, {
+      images: item.images
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((image) => image.url),
+    }),
+  );
   const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
-  return res.json({ items: rawItems, nextCursor, total: Number(totalRow.total) });
+  return res.json({ items, nextCursor, total: Number(totalRow.total) });
 });
 
 // ─── GET /api/users/:userId/reviews ──────────────────────────────────────────

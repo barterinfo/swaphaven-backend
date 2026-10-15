@@ -35,6 +35,7 @@ import accountDeletionRouter from "./routes/account-deletion.js";
 import geoRouter from "./routes/geo.js";
 import inboxEmailDeepLinkRouter from "./routes/inboxEmailDeepLink.js";
 import presenceRouter from "./routes/presence.js";
+import { sanitizeRequestUrlForLogs } from "./lib/request-log-privacy.js";
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
@@ -70,7 +71,13 @@ export function createApp(): express.Express {
   }));
 
   // ─── Logging ─────────────────────────────────────────────────────────────────
-  app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
+  morgan.token("safe-url", (req) =>
+    sanitizeRequestUrlForLogs(req.url ?? "/"),
+  );
+  const logFormat = env.NODE_ENV === "production"
+    ? ':remote-addr - :remote-user [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"'
+    : ":method :safe-url :status :response-time ms - :res[content-length]";
+  app.use(morgan(logFormat));
 
   // ─── Request ID ──────────────────────────────────────────────────────────────
   app.use((req, res, next) => {

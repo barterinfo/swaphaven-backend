@@ -21,6 +21,7 @@ import {
 } from "../lib/geo-country.js";
 import { recommendDeck } from "../lib/barter-ai.js";
 import { followedOwnerIds } from "../lib/user-follows.js";
+import { sanitizeRawListingForPublic } from "../lib/barter-listing.js";
 
 const router = Router();
 
@@ -319,7 +320,11 @@ router.get("/deck", optionalAuth, async (req, res) => {
       const ownerName = user?.profile?.displayName?.trim() || user?.name?.trim() || "";
       const mlReason = mlReasonById.get(c.id);
       return {
-        listing: { ...listing, ownerName, is_saved: savedIds.has(c.id) },
+        listing: {
+          ...sanitizeRawListingForPublic(listing),
+          ownerName,
+          is_saved: savedIds.has(c.id),
+        },
         matchReason: mlReason || matchReason,
         mutualFitScore,
         matchedWantedLabels,

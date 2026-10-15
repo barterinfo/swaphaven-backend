@@ -183,6 +183,43 @@ describe("GET /api/search/listings", () => {
     );
   });
 
+  it("filters nearby server-side without returning listing coordinates", async () => {
+    const { accessToken } = await registerUser();
+    const marker = `NearbyPrivate-${uid()}`;
+    const listing = await createListing(accessToken, {
+      title: marker,
+      location: {
+        lat: 1.3521,
+        lng: 103.8198,
+        address: "789 Nearby Street",
+        city: "Singapore",
+        state: "Singapore",
+        country: "SG",
+        postalCode: "789012",
+      },
+    });
+
+    const res = await request(app).get("/api/search/listings").query({
+      q: marker,
+      lat: 1.35,
+      lng: 103.82,
+      radius: 5,
+    });
+    expect(res.status).toBe(200);
+    const result = res.body.listings.find(
+      (item: { id: string }) => item.id === listing.id,
+    );
+    expect(result).toBeTruthy();
+    expect(result.distance_miles).toEqual(expect.any(Number));
+    expect(result.location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+    expect(JSON.stringify(result)).not.toContain("789 Nearby Street");
+    expect(JSON.stringify(result)).not.toContain("789012");
+  });
+
   it("matches sports_fitness slug to Sports & Fitness listings", async () => {
     const { accessToken } = await registerUser();
     const marker = `SportsCat-${uid()}`;
