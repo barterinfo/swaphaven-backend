@@ -36,6 +36,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-10-15 | Location pin privacy and PDPA docs | docs/LOCATION_PIN_PRIVACY.md, docs/PDPA.md, API_GUIDE, DB_SCHEMA, place-suggestions, from-place, listings/map, 0038 | [Location pin privacy](5b8ebc97-6184-4961-be14-d00ac661d7d2) |
 | 2026-09-29 | Follow feature full doc and perf | docs/FOLLOW_FEATURE.md, 0035_follow_perf, fan-out caps, denorm counts | [Follow feature end-to-end](272151c5-0acc-40a4-93ec-80eabaa4e285) |
 | 2026-09-29 | Follow feature end-to-end | user_follows, follow-alerts, search/followed, mute, suggestions, mobile follow + docs/FOLLOW_FEATURE.md | [Follow feature end-to-end](272151c5-0acc-40a4-93ec-80eabaa4e285) |
 | 2026-09-17 | Search recommendations feature doc | docs/SEARCH_RECOMMENDATIONS.md, SEARCH_FEATURE, API_GUIDE | [Search recommendations See all](8dfa2873-3673-4a60-866e-62105f141c05) |

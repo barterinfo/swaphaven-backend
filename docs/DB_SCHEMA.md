@@ -302,8 +302,8 @@ See [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md). Migration: `drizzle/0017_p
 | `display_name` | text | NN | shown in app |
 | `bio` | text | | |
 | `avatar_url` | text | | |
-| `location_city` | text | | |
-| `location_lat` / `location_lng` | decimal(9,6) | | |
+| `location_city` | text | | Coarse place / city label |
+| `location_lat` / `location_lng` | decimal(9,6) | | Owner home; used server-side for distance / meetup — not in public user payloads |
 | `trade_score` | int | NN, default 0 | |
 | `total_trades` | int | NN, default 0 | |
 | `rating_sum` / `rating_count` | int | NN, default 0 | average = sum/count |
@@ -366,10 +366,15 @@ Seeded via `drizzle/0015_seed_categories.sql` and `0016_seed_jewelry_category.sq
 | `status` | `listing_status` enum | NN, default `active` | |
 | `sold_method` | text | | set on `POST /sold`: `traded_on_barter` \| `sold_for_cash` \| `given_away` |
 | `traded_with_user_id` | uuid | FK→`users.id` | only when `sold_method = traded_on_barter` |
-| `location_*` | text/decimal | various defaults | city/lat/lng/address/state/country/postal |
+| `location_city` | text | | Public place / area name shown to others |
+| `location_lat` / `location_lng` | decimal(9,6) | | Private; distance / radius only — omitted from public listing serializers |
+| `location_address` / `location_state` / `location_country` / `location_postal_code` | text | | May exist on older rows; not returned on public listing wire |
+| `location_pin_kind` | text | | `area` \| `venue` \| null (legacy → treat as area). Migration `0038_listing_pin_kind.sql` |
 | `created_at` / `updated_at` | timestamp | NN, default now | |
 
 Indexes: `(status, created_at)`, `(user_id)`. Trigram search indexes: `0013_search_trgm_indexes.sql`.
+
+Location product rules: [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md). Map pins (~500 m cell or venue) only via `GET /api/listings/map`.
 
 #### `listing_images`
 | Column | Type | Constraints | Notes |

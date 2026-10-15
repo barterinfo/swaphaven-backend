@@ -176,7 +176,9 @@ Upload the file with **PUT** to `uploadUrl` using header `Content-Type: image/jp
 |--------|------|------|-------|
 | GET | `/api/categories` | — | Category tree |
 | GET | `/api/listings` | optional | Feed / browse |
-| POST | `/api/listings` | ✓ | Create |
+| POST | `/api/listings` | ✓ | Create (legacy body; tests / older clients) |
+| POST | `/api/listings/from-place` | ✓ | Create from tapped place suggestion (mobile) |
+| GET | `/api/listings/map` | optional | Nearby map pins (`map_pin` only; no exact coords) |
 | GET | `/api/listings/trending` | optional | Trending + recent |
 | GET | `/api/listings/:id` | — | Detail + seller card |
 | PATCH | `/api/listings/:id` | ✓ owner | Edit fields |
@@ -186,17 +188,72 @@ Upload the file with **PUT** to `uploadUrl` using header `Content-Type: image/jp
 | GET | `/api/listings/:id/trade-partners` | ✓ owner | Past trade partners for sold flow |
 | POST | `/api/listings/:id/images` | ✓ owner | Attach image URL |
 | DELETE | `/api/listings/:id/images/:imageId` | ✓ owner | Remove image |
+| GET | `/api/places/suggestions` | optional | Place autocomplete for home / listing |
 
 Feature docs: [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md),
 [EDIT_LISTING_FLOW.md](./EDIT_LISTING_FLOW.md),
 [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md),
 [DELETE_LISTING_FLOW.md](./DELETE_LISTING_FLOW.md),
-[LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md).
+[LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md),
+[LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md),
+[PDPA.md](./PDPA.md).
 
-### Create listing
+### Place suggestions
+
+```bash
+curl -s 'http://localhost:3001/api/places/suggestions?q=Bukit%20Batok&country=SG&limit=8'
+```
+
+Returns `{ "suggestions": [{ "label", "lat", "lng", "pinKind", "placeType", "countryCode" }] }`.
+Units are rejected; blocks/condos surface as **area** labels. See [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md).
+
+### Create listing from place (preferred for mobile)
+
+Same fields as create listing, plus `place` from a tapped suggestion. Register this route **before** `/:listingId`.
+
+```bash
+CAT=$(curl -s http://localhost:3001/api/categories | jq -r '.[0].id')
+
+curl -s -X POST http://localhost:3001/api/listings/from-place \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"title\": \"Vintage camera\",
+    \"description\": \"Works great\",
+    \"categoryId\": \"$CAT\",
+    \"category\": \"Cameras\",
+    \"estimatedValue\": 250,
+    \"condition\": \"great\",
+    \"acceptCashTopUps\": true,
+    \"wantedCategoryIds\": [\"$CAT\"],
+    \"wantedCategories\": [\"Cameras\"],
+    \"details\": { \"ageRange\": \"5-10 years\", \"brand\": \"Canon\" },
+    \"place\": {
+      \"label\": \"Bukit Batok\",
+      \"lat\": 1.3491,
+      \"lng\": 103.7496,
+      \"pinKind\": \"area\",
+      \"countryCode\": \"SG\"
+    },
+    \"images\": [\"https://cdn.example.com/listings/photo.jpg\"]
+  }"
+```
+
+Response: `{ "listing": { ... } }` (barter-shaped; **no** raw lat/lng on the public listing).
+
+### Nearby map pins
+
+```bash
+curl -s 'http://localhost:3001/api/listings/map?lat=1.35&lng=103.8&radius=10&limit=50'
+```
+
+Each item includes `location_city`, `map_pin: { lat, lng, precision }`, `distance_miles`. Distance uses private stored points; pin is ~500 m cell (`area` / legacy) or venue point.
+
+### Create listing (legacy)
 
 `categoryId` must be a **category UUID** (from `GET /api/categories`), not a slug.
 `images` must be **https** URLs from the media presign flow (not local paths).
+Mobile publish uses **from-place** above.
 
 ```bash
 # Resolve a category id first
@@ -551,7 +608,9 @@ Types include `reviews_revealed` (mutual review unlock). See [DB_SCHEMA.md](./DB
 |-------------------------|---------------|
 | `API_BASE` + `/api/auth/login` | Same |
 | `authRegister` / `authRegisterVerify` | OTP create-account |
-| `createProduct` → POST `/api/listings` | UUID `categoryId` + https image URLs |
+| `createProduct` → POST `/api/listings/from-place` | UUID `categoryId` + https image URLs + tapped `place` |
+| Place pick → GET `/api/places/suggestions` | Debounced autocomplete; units rejected |
+| Nearby map → GET `/api/listings/map` | `map_pin` only; see LOCATION_PIN_PRIVACY |
 | `listListingsActive` → GET `/api/listings` | Reads `listings` key |
 | Search / trending / ads / inbox | Matching `/api/search/*`, `/api/ads/*`, `/api/inbox/summary` |
 | Bearer token | `Authorization: Bearer` |
