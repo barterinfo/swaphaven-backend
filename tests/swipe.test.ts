@@ -850,6 +850,41 @@ describe("GET /api/swipe/deck country filter", () => {
     expect(ids).not.toContain(inListing.id);
   });
 
+  it("does not expose precise listing location in browse cards", async () => {
+    const seller = await registerUser();
+    const listing = await createListing(seller.accessToken, {
+      title: "Private Deck Location",
+      location: {
+        lat: 1.3521,
+        lng: 103.8198,
+        address: "321 Deck Street",
+        city: "Singapore",
+        state: "Singapore",
+        country: "SG",
+        postalCode: "321654",
+      },
+    });
+
+    const res = await request(app).get("/api/swipe/deck");
+    expect(res.status).toBe(200);
+    const card = res.body.cards.find(
+      (item: { listing: { id: string } }) => item.listing.id === listing.id,
+    );
+    expect(card).toBeTruthy();
+    expect(card.listing.locationCity).toBe("Singapore");
+    expect(card.listing.locationState).toBe("Singapore");
+    expect(card.listing.locationCountry).toBe("SG");
+    expect(card.listing.locationLat).toBeUndefined();
+    expect(card.listing.locationLng).toBeUndefined();
+    expect(card.listing.locationAddress).toBeUndefined();
+    expect(card.listing.locationPostalCode).toBeUndefined();
+    expect(card.listing.reviewSnapshot.location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+  });
+
   it("stamps listing country from the CDN header when payload omits it", async () => {
     const seller = await registerUser();
     const res = await request(app)

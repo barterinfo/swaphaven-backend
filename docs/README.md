@@ -35,6 +35,8 @@
 | [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md) | Email OTP signup — sequences, DFD, DB, API, mobile bind |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review, swaphaven-infra sync |
 | [MEETUP_SUGGESTIONS.md](./MEETUP_SUGGESTIONS.md) | Meet Halfway — transit stop suggestions between buyer and seller |
+| [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md) | Listing / home location — suggestions, pin kinds, map pins (~500 m), public wire |
+| [PDPA.md](./PDPA.md) | PDPA-oriented controls already managed (location disclosure, related) |
 
 **Quick links**
 

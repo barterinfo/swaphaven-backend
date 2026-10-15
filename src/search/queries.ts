@@ -258,6 +258,7 @@ export async function searchListings(params: SearchListingParams): Promise<{
       isSwipeOnly: false,
       soldMethod: null,
       tradedWithUserId: null,
+      locationPinKind: null,
       updatedAt: row.createdAt,
     } satisfies Listing;
     const barter = serializeListingBarter(listingForSerialize, {

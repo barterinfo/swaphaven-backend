@@ -274,6 +274,13 @@
       "when": 1786800000000,
       "tag": "0037_activity_email_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786900000000,
+      "tag": "0038_listing_pin_kind",
+      "breakpoints": true
     }
   ]
 }
