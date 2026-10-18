@@ -18,6 +18,8 @@ What we already do so location and related personal data are collected for marke
 | Control | Status | Where |
 |---------|--------|--------|
 | Listing publish requires a **tapped suggestion**, not free-typed geocode-first-hit | Done | Mobile create-listing + `POST /api/listings/from-place` |
+| Listing **edit** location only via tapped `place` on PATCH (same rules) | Done | Mobile edit-listing + `PATCH /api/listings/:id` `place` |
+| **Use current location** seeds **area/neighbourhood only** (never street/block/house in the field) | Done | Mobile `reverseToCoarsePlace` / `formatCoarse` + create-listing/onboarding/edit |
 | **Units** rejected in suggestions and on from-place | Done | `place-suggestions.ts`, listings route |
 | **Block / condo / house** → public **area** name only; pin is area cell | Done | Classification + `location_pin_kind = area` |
 | **Public venues** (MRT, mall, park, …) → label + venue pin | Done | `pinKind = venue` |

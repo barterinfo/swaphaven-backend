@@ -29,6 +29,7 @@ import {
   createListingFromPlaceBodySchema,
   isUuid,
   normalizeDetails,
+  pickedPlaceSchema,
   resolveCategoryUuid,
   resolveEstimatedValueCents,
   resolveLocation,
@@ -839,7 +840,8 @@ router.post("/:listingId/view", requireAuth, (req, res) => {
 
 // ─── PATCH /api/listings/:listingId ───────────────────────────────────────────
 // Edit Listing screen — title, value, condition, category, description, trade wants.
-// Status changes use POST /sold or DELETE; location is set at create time only.
+// Close via POST /sold or DELETE. Location only via tapped `place` (same PDPA
+// rules as POST /from-place). Free-typed locationCity is ignored.
 const updateListingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(10000).optional(),
@@ -851,7 +853,12 @@ const updateListingSchema = z.object({
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
   /** Owner can pause an active listing or bring a paused one back. */
-  status: z.enum(["active", "paused"]).optional(),
+  status: z.preprocess(
+    (v) => (v === "active" || v === "paused" ? v : undefined),
+    z.enum(["active", "paused"]).optional(),
+  ),
+  /** Tapped suggestion from GET /api/places/suggestions. */
+  place: pickedPlaceSchema.optional(),
 });
 
 async function syncListingWants(
@@ -931,6 +938,39 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     nextStatus = patch.status;
   }
 
+  let placePatch: {
+    locationCity: string;
+    locationLat: string;
+    locationLng: string;
+    locationAddress: string;
+    locationState: string;
+    locationPostalCode: string;
+    locationCountry: string;
+    locationPinKind: "area" | "venue";
+  } | undefined;
+  if (patch.place !== undefined) {
+    if (queryHasUnit(patch.place.label)) {
+      return res.status(400).json({
+        error: "validation",
+        message: "Pick a public place or neighbourhood. Unit numbers are not accepted.",
+      });
+    }
+    const country =
+      normalizeCountryCode(patch.place.countryCode) ??
+      normalizeCountryCode(listing.locationCountry) ??
+      "";
+    placePatch = {
+      locationCity: patch.place.label.trim(),
+      locationLat: String(patch.place.lat),
+      locationLng: String(patch.place.lng),
+      locationAddress: "",
+      locationState: "",
+      locationPostalCode: "",
+      locationCountry: country,
+      locationPinKind: patch.place.pinKind,
+    };
+  }
+
   const [updated] = await db
     .update(listingsTable)
     .set({
@@ -941,6 +981,7 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...valuePatch,
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
+      ...(placePatch ?? {}),
       ...(patch.wantedCategoryIds !== undefined
         ? { wantedCategoryIds: patch.wantedCategoryIds }
         : {}),

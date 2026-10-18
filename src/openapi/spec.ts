@@ -1397,7 +1397,7 @@ export const openApiSpec = {
       },
       patch: {
         tags: ["Listings"], summary: "Update listing (Edit Listing screen)",
-        description: "Partial update for the Edit Listing form — all fields optional. Caller must own the listing. Close a listing via POST /sold or DELETE, not this route. Photos via POST/DELETE /api/listings/{listingId}/images.",
+        description: "Partial update for the Edit Listing form — all fields optional. Caller must own the listing. Close via POST /sold or DELETE. Location only via tapped `place` (same PDPA rules as POST /from-place). Photos via POST/DELETE images.",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: {
@@ -1423,6 +1423,20 @@ export const openApiSpec = {
                   },
                   wantedCategoryIds:   { type: "array", items: { type: "string", format: "uuid" }, description: "Open to trade for — category UUIDs." },
                   wantedCategories:    { type: "array", items: { type: "string" }, description: "Open to trade for — display labels (e.g. 'Vintage Clothing', 'Sneakers')." },
+                  status:              { type: "string", enum: ["active", "paused"], description: "Pause or re-list (active ↔ paused only)." },
+                  place: {
+                    type: "object",
+                    description: "Tapped suggestion from GET /api/places/suggestions.",
+                    required: ["label", "lat", "lng", "pinKind"],
+                    properties: {
+                      label: { type: "string" },
+                      lat: { type: "number" },
+                      lng: { type: "number" },
+                      pinKind: { type: "string", enum: ["area", "venue"] },
+                      countryCode: { type: "string", minLength: 2, maxLength: 2 },
+                      placeType: { type: "string" },
+                    },
+                  },
                 },
               },
             },
