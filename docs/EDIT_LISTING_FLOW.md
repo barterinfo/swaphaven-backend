@@ -1,6 +1,6 @@
 # Edit listing flow
 
-Thorough reference for **editing** an owned listing (`PATCH /api/listings/:listingId`) and related photo mutations, including mobile Edit Listing UI, allowed fields, and what edit does **not** change (status / location / offers).
+Thorough reference for **editing** an owned listing (`PATCH /api/listings/:listingId`) and related photo mutations, including mobile Edit Listing UI, allowed fields, and what edit does **not** change (close status / offers). Location can be updated only via a tapped `place` suggestion (same PDPA rules as create from-place).
 
 **Related docs:** [LISTING_STATUS_AND_OWNER_FLOWS.md](./LISTING_STATUS_AND_OWNER_FLOWS.md) (status diagram + all sequences) · [MARK_AS_SOLD_FLOW.md](./MARK_AS_SOLD_FLOW.md) · [DELETE_LISTING_FLOW.md](./DELETE_LISTING_FLOW.md) · [LISTING_MANAGEMENT_FEATURE.md](./LISTING_MANAGEMENT_FEATURE.md)
 
@@ -61,7 +61,7 @@ sequenceDiagram
   end
 
   Mobile->>API: PATCH /listings/:id
-  Note over API: status/locationCity not in schema
+  Note over API: optional place from suggestions; free locationCity ignored
   API->>DB: UPDATE listing fields
   opt wants changed
     API->>DB: sync listing_wants
@@ -99,16 +99,18 @@ All body fields are **optional** (partial update). Zod schema: `updateListingSch
 | `estimatedValueCents` | positive int | Preferred precise value |
 | `wantedCategoryIds` | UUID[] | Open-to-trade category IDs; syncs `listing_wants` |
 | `wantedCategories` | string[] | Display labels for wants |
+| `status` | `active` \| `paused` | Pause / re-list only (not sold/deleted) |
+| `place` | `{ label, lat, lng, pinKind, … }` | Tapped suggestion; units rejected; clears street/postal |
 
 **Explicitly not part of edit**
 
 | Field | How to change instead |
 |-------|------------------------|
-| `status` | `POST /sold` or `DELETE` — not in `updateListingSchema` |
-| `locationCity` / geo | Set at **create** time only — not in PATCH schema |
+| `status` → sold/deleted | `POST /sold` or `DELETE` |
+| Free-typed `locationCity` | Ignored — send `place` from suggestions |
 | Photos | Image routes below |
 
-Sending `status` or `locationCity` in PATCH has no effect (Zod strips unknown keys / fields not in schema). Tests assert status stays `active`.
+Sending `status: "deleted"` or bare `locationCity` has no effect (Zod strips / rejects).
 
 **Success `200`**
 

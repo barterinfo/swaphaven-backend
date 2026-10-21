@@ -35,7 +35,8 @@ describe("GET /api/listings", () => {
 
     const res = await request(app).get("/api/listings");
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(2);
+    expect(res.body.listings).toHaveLength(2);
+    expect(res.body.items).toBeUndefined();
     expect(res.body.nextCursor).toBeNull();
   });
 
@@ -46,7 +47,7 @@ describe("GET /api/listings", () => {
 
     const res = await request(app).get("/api/listings?q=vinyl");
     expect(res.status).toBe(200);
-    const titles = res.body.items.map((l: { title: string }) => l.title);
+    const titles = res.body.listings.map((l: { title: string }) => l.title);
     expect(titles).toContain("Rare Vinyl Record");
     expect(titles).not.toContain("Old Guitar");
   });
@@ -57,11 +58,11 @@ describe("GET /api/listings", () => {
 
     const res = await request(app).get("/api/listings?limit=3");
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(3);
+    expect(res.body.listings).toHaveLength(3);
     expect(res.body.nextCursor).not.toBeNull();
   });
 
-  it("includes right swipe counts on listings and items arrays", async () => {
+  it("includes right swipe counts on sanitized listings", async () => {
     const owner = await registerUser();
     const swiper1 = await registerUser();
     const swiper2 = await registerUser();
@@ -79,9 +80,201 @@ describe("GET /api/listings", () => {
     const res = await request(app).get("/api/listings");
     expect(res.status).toBe(200);
     const barter = res.body.listings.find((l: { id: string }) => l.id === listing.id);
-    const item = res.body.items.find((l: { id: string }) => l.id === listing.id);
     expect(barter.right_swipe_count).toBe(2);
-    expect(item.rightSwipeCount).toBe(2);
+    expect(res.body.items).toBeUndefined();
+  });
+
+  it("keeps precise location server-side and returns only coarse public location", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      title: `PrivateLocation-${uid()}`,
+      location: {
+        lat: 1.3521,
+        lng: 103.8198,
+        address: "123 Privacy Street",
+        city: "Singapore",
+        state: "Singapore",
+        country: "SG",
+        postalCode: "123456",
+      },
+    });
+
+    const feed = await request(app).get("/api/listings");
+    expect(feed.status).toBe(200);
+    expect(feed.body.items).toBeUndefined();
+    const feedListing = feed.body.listings.find(
+      (item: { id: string }) => item.id === listing.id,
+    );
+    expect(feedListing.location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+    expect(feedListing.review_snapshot.location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+
+    const detail = await request(app).get(`/api/listings/${listing.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.listing.location).toEqual(feedListing.location);
+    expect(JSON.stringify(detail.body)).not.toContain("123 Privacy Street");
+    expect(JSON.stringify(detail.body)).not.toContain("123456");
+  });
+});
+
+// ─── POST /api/listings/from-place + GET /api/listings/map ────────────────────
+describe("POST /api/listings/from-place", () => {
+  it("rejects create without a picked place and stores nothing", async () => {
+    const { accessToken } = await registerUser();
+    const categoryId = categoryIdBySlug("electronics")!;
+    const before = await testDb.select({ id: listingsTable.id }).from(listingsTable);
+
+    const res = await request(app)
+      .post("/api/listings/from-place")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: `NoPlace-${uid()}`,
+        categoryId,
+        condition: "good",
+      });
+
+    expect(res.status).toBe(400);
+    const after = await testDb.select({ id: listingsTable.id }).from(listingsTable);
+    expect(after.length).toBe(before.length);
+  });
+
+  it("rejects a unit label", async () => {
+    const { accessToken } = await registerUser();
+    const categoryId = categoryIdBySlug("electronics")!;
+    const res = await request(app)
+      .post("/api/listings/from-place")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title: `UnitPlace-${uid()}`,
+        categoryId,
+        condition: "good",
+        place: {
+          label: "0505, block 27 Hillview Heights",
+          lat: 1.35,
+          lng: 103.76,
+          pinKind: "area",
+          countryCode: "SG",
+        },
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("stores an area place as Hillview and pins the cell on the map route", async () => {
+    const { accessToken } = await registerUser();
+    const categoryId = categoryIdBySlug("electronics")!;
+    const title = `HillviewArea-${uid()}`;
+    const create = await request(app)
+      .post("/api/listings/from-place")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title,
+        categoryId,
+        condition: "good",
+        place: {
+          label: "Hillview",
+          lat: 1.3521,
+          lng: 103.7675,
+          pinKind: "area",
+          countryCode: "SG",
+        },
+      });
+    expect(create.status).toBe(201);
+    const listingId = create.body.id as string;
+
+    const [row] = await testDb
+      .select()
+      .from(listingsTable)
+      .where(eq(listingsTable.id, listingId));
+    expect(row.locationCity).toBe("Hillview");
+    expect(row.locationPinKind).toBe("area");
+    expect(row.locationAddress).toBe("");
+
+    const detail = await request(app).get(`/api/listings/${listingId}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.listing.location.city).toBe("Hillview");
+    expect(detail.body.listing.location.lat).toBeUndefined();
+    expect(JSON.stringify(detail.body)).not.toContain("Block 27");
+
+    const map = await request(app)
+      .get("/api/listings/map")
+      .query({ lat: 1.3521, lng: 103.7675, radius: 50 });
+    expect(map.status).toBe(200);
+    const pinRow = map.body.listings.find((l: { id: string }) => l.id === listingId);
+    expect(pinRow).toBeTruthy();
+    expect(pinRow.location_city).toBe("Hillview");
+    expect(pinRow.map_pin.precision).toBe("area");
+    expect(pinRow.map_pin.lat).not.toBe(1.3521);
+    expect(JSON.stringify(map.body)).not.toContain("Block 27");
+  });
+
+  it("pins a venue at the station coordinates", async () => {
+    const { accessToken } = await registerUser();
+    const categoryId = categoryIdBySlug("electronics")!;
+    const title = `HillviewMrt-${uid()}`;
+    const create = await request(app)
+      .post("/api/listings/from-place")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        title,
+        categoryId,
+        condition: "good",
+        place: {
+          label: "Hillview MRT",
+          lat: 1.3624,
+          lng: 103.7675,
+          pinKind: "venue",
+          countryCode: "SG",
+        },
+      });
+    expect(create.status).toBe(201);
+
+    const map = await request(app)
+      .get("/api/listings/map")
+      .query({ lat: 1.3624, lng: 103.7675, radius: 50 });
+    expect(map.status).toBe(200);
+    const pinRow = map.body.listings.find(
+      (l: { id: string }) => l.id === create.body.id,
+    );
+    expect(pinRow.location_city).toBe("Hillview MRT");
+    expect(pinRow.map_pin).toEqual({
+      lat: 1.3624,
+      lng: 103.7675,
+      precision: "venue",
+    });
+  });
+
+  it("pins legacy listings (null pin kind) as the area cell", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      title: `LegacyPin-${uid()}`,
+      location: {
+        lat: 1.3521,
+        lng: 103.8198,
+        city: "Hillview",
+        country: "SG",
+      },
+    });
+    const [row] = await testDb
+      .select()
+      .from(listingsTable)
+      .where(eq(listingsTable.id, listing.id));
+    expect(row.locationPinKind).toBeNull();
+
+    const map = await request(app)
+      .get("/api/listings/map")
+      .query({ lat: 1.3521, lng: 103.8198, radius: 50 });
+    expect(map.status).toBe(200);
+    const pinRow = map.body.listings.find((l: { id: string }) => l.id === listing.id);
+    expect(pinRow.location_city).toBe("Hillview");
+    expect(pinRow.map_pin.precision).toBe("area");
+    expect(pinRow.map_pin.lat).not.toBe(1.3521);
   });
 });
 
@@ -739,6 +932,14 @@ describe("GET /api/listings/trending", () => {
     ];
     expect(allIds).toContain(sfListing.id);
     expect(allIds).not.toContain(nyListing.id);
+    const nearby = [...res.body.trending, ...res.body.others].find(
+      (item: { id: string }) => item.id === sfListing.id,
+    );
+    expect(nearby.distance_miles).toEqual(expect.any(Number));
+    expect(nearby.location.lat).toBeUndefined();
+    expect(nearby.location.lng).toBeUndefined();
+    expect(nearby.location.address).toBeUndefined();
+    expect(nearby.location.postal_code).toBeUndefined();
   });
 
   it("most-liked listing appears in trending before others", async () => {

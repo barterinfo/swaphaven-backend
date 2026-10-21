@@ -498,9 +498,12 @@ describe("PATCH /api/listings/:id — edit listing", () => {
     expect(res.body.listing.wanted_categories).toEqual(["Sneakers", "Electronics"]);
   });
 
-  it("ignores status and locationCity on PATCH — close via /sold or DELETE", async () => {
+  it("ignores deleted status and free-typed locationCity on PATCH", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken);
+    const before = await testDb.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, listing.id),
+    });
 
     const res = await request(app)
       .patch(`/api/listings/${listing.id}`)
@@ -514,6 +517,56 @@ describe("PATCH /api/listings/:id — edit listing", () => {
     expect(res.status).toBe(200);
     expect(res.body.title).toBe("Still open");
     expect(res.body.status).toBe("active");
+    const row = await testDb.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, listing.id),
+    });
+    expect(row?.locationCity).toBe(before?.locationCity);
+  });
+
+  it("updates location from a tapped place suggestion", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+
+    const res = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        place: {
+          label: "Bukit Batok",
+          lat: 1.3491,
+          lng: 103.7496,
+          pinKind: "area",
+          countryCode: "SG",
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.listing?.location?.city).toBe("Bukit Batok");
+    const row = await testDb.query.listingsTable.findFirst({
+      where: eq(listingsTable.id, listing.id),
+    });
+    expect(row?.locationCity).toBe("Bukit Batok");
+    expect(row?.locationPinKind).toBe("area");
+    expect(row?.locationAddress).toBe("");
+  });
+
+  it("rejects unit labels on place patch", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+
+    const res = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        place: {
+          label: "Unit 12-34 Foo",
+          lat: 1.35,
+          lng: 103.8,
+          pinKind: "area",
+        },
+      });
+
+    expect(res.status).toBe(400);
   });
 
   it("does not deny or alter pending offers when fields are edited", async () => {

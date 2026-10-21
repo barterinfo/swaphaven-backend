@@ -58,6 +58,28 @@ export const createListingBodySchema = z.object({
 
 export type CreateListingBody = z.infer<typeof createListingBodySchema>;
 
+/** Place row tapped from GET /api/places/suggestions. */
+export const pickedPlaceSchema = z.object({
+  label: z.string().trim().min(1).max(200),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  pinKind: z.enum(["area", "venue"]),
+  countryCode: z.string().trim().length(2).optional(),
+  placeType: z.string().trim().max(80).optional(),
+});
+
+/**
+ * Create listing after a suggestion is tapped.
+ * Coordinates come only from the picked place — free-typed location is rejected.
+ */
+export const createListingFromPlaceBodySchema = createListingBodySchema
+  .omit({ location: true, locationCity: true, locationLat: true, locationLng: true })
+  .extend({
+    place: pickedPlaceSchema,
+  });
+
+export type CreateListingFromPlaceBody = z.infer<typeof createListingFromPlaceBodySchema>;
+
 /** Input shape for seed/fixture scripts that build a create-listing request body. */
 export type ListingFixtureInput = {
   title: string;
@@ -212,15 +234,52 @@ function categoryRowFromListing(listing: Listing) {
   return { id: row.id, slug: row.slug, name: row.name, icon: row.icon };
 }
 
-/** barter-stack `serializeListing` wire shape (snake_case). */
+function sanitizeReviewSnapshot(snapshot: Record<string, unknown>) {
+  const location = snapshot["location"];
+  if (!location || typeof location !== "object" || Array.isArray(location)) {
+    return snapshot;
+  }
+
+  const locationRecord = location as Record<string, unknown>;
+  return {
+    ...snapshot,
+    location: {
+      city: typeof locationRecord["city"] === "string" ? locationRecord["city"] : "",
+      state: typeof locationRecord["state"] === "string" ? locationRecord["state"] : "",
+      country: typeof locationRecord["country"] === "string" ? locationRecord["country"] : "",
+    },
+  };
+}
+
+/** Remove precise location fields while preserving a legacy listing object's wire shape. */
+export function sanitizeRawListingForPublic<T extends Listing>(
+  listing: T,
+): Omit<
+  T,
+  "locationLat" | "locationLng" | "locationAddress" | "locationPostalCode" | "reviewSnapshot"
+> & { reviewSnapshot: Record<string, unknown> } {
+  const {
+    locationLat: _locationLat,
+    locationLng: _locationLng,
+    locationAddress: _locationAddress,
+    locationPostalCode: _locationPostalCode,
+    reviewSnapshot,
+    ...publicListing
+  } = listing;
+  return {
+    ...publicListing,
+    reviewSnapshot: sanitizeReviewSnapshot(reviewSnapshot ?? {}),
+  };
+}
+
+/**
+ * Public barter-stack listing wire shape (snake_case).
+ * Precise location stays server-side for distance filtering and is never serialized.
+ */
 export function serializeListingBarter(
   listing: Listing,
   options: { ownerName?: string; images?: string[]; seller?: SellerSnapshot | null } = {},
 ) {
-  const lat =
-    listing.locationLat != null ? Number(listing.locationLat) : null;
-  const lng =
-    listing.locationLng != null ? Number(listing.locationLng) : null;
   const wantedIds = listing.wantedCategoryIds ?? [];
   const wantedLabels = listing.wantedCategories ?? [];
   const details = listing.details ?? { ageRange: "", brand: "" };
@@ -247,15 +306,11 @@ export function serializeListingBarter(
     images: options.images ?? [],
     details,
     location: {
-      address: listing.locationAddress ?? "",
       city: listing.locationCity ?? "",
       state: listing.locationState ?? "",
       country: listing.locationCountry ?? "",
-      postal_code: listing.locationPostalCode ?? "",
-      lat,
-      lng,
     },
-    review_snapshot: listing.reviewSnapshot ?? {},
+    review_snapshot: sanitizeReviewSnapshot(listing.reviewSnapshot ?? {}),
     status: listing.status,
     created_at: listing.createdAt,
     owner_name: options.ownerName ?? "",

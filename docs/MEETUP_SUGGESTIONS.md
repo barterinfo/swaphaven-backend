@@ -17,16 +17,17 @@ seller location (lat, lng)
   midpoint = ((lat1+lat2)/2, (lng1+lng2)/2)
         │
         ▼
-  Overpass API (OpenStreetMap)
-  — queries nodes/ways within 2 km of midpoint
-  — MRT/LRT stations, tram stops, bus stations, bus stops,
+  Overpass API (OpenStreetMap) — raced across public mirrors
+  — queries nodes/ways within **5 km** of midpoint
+  — MRT/LRT stations, tram stops, bus stations,
     shopping malls, markets
+  — if Overpass is busy/empty → Nominatim viewbox fallback
         │
         ▼
-  deduplicate by name → sort by distance → return top 8
+  deduplicate by name → sort by distance → return top 10
 ```
 
-The Overpass query runs against the public [overpass-api.de](https://overpass-api.de) endpoint. Results are cached in-memory per rounded midpoint (≈100 m grid precision) for **1 hour** to avoid hammering the free public endpoint.
+Non-empty results are cached in-memory per rounded midpoint (≈100 m grid) for **1 hour**. Empty results cache for **60 seconds** so a busy Overpass mirror does not blank the sheet for an hour.
 
 ---
 

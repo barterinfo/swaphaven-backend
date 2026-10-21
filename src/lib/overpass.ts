@@ -35,7 +35,10 @@ interface NominatimHit {
   name?: string;
   lat?: string;
   lon?: string;
+  /** Present on `format=json`. */
   class?: string;
+  /** Present on `format=jsonv2` (same meaning as `class`). */
+  category?: string;
   type?: string;
 }
 
@@ -50,9 +53,13 @@ export const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 
 export const OVERPASS_USER_AGENT = "SwapHaven/1.0 (meetup-suggestions; api@swaphaven.io)";
 
-const CACHE_TTL_MS = 60 * 60 * 1_000; // 1 hour
+const CACHE_TTL_MS = 60 * 60 * 1_000; // 1 hour — non-empty hits only
+/** Empty results are often transient (busy Overpass); retry soon. */
+const EMPTY_CACHE_TTL_MS = 60 * 1_000;
 const OVERPASS_TIMEOUT_MS = 8_000;
 const NOMINATIM_TIMEOUT_MS = 6_000;
+/** Default search radius — 2 km often lands midpoints in residential gaps with no stations. */
+const DEFAULT_RADIUS_METERS = 5_000;
 
 const _cache = new Map<string, { suggestions: TransitSuggestion[]; expiresAt: number }>();
 
@@ -90,14 +97,16 @@ function osmMeetupType(tags: Record<string, string>): string {
 }
 
 function nominatimMeetupType(cls: string, type: string): string | null {
-  if (cls === "railway" && (type === "station" || type === "halt" || type === "tram_stop")) {
+  const category = cls.trim();
+  if (category === "railway" && (type === "station" || type === "halt" || type === "tram_stop")) {
     return type === "station" ? "Train Station" : type === "halt" ? "Train Stop" : "Tram Stop";
   }
-  if (cls === "amenity" && type === "bus_station") return "Bus Station";
-  if (cls === "highway" && type === "bus_stop") return "Bus Stop";
-  if (cls === "shop" && (type === "mall" || type === "department_store")) return "Shopping Mall";
-  if (cls === "amenity" && type === "marketplace") return "Market";
+  if (category === "amenity" && type === "bus_station") return "Bus Station";
+  if (category === "highway" && type === "bus_stop") return "Bus Stop";
+  if (category === "shop" && (type === "mall" || type === "department_store")) return "Shopping Mall";
+  if (category === "amenity" && type === "marketplace") return "Market";
   if (type === "station") return "Train Station";
+  if (type === "mall" || type === "department_store") return "Shopping Mall";
   return null;
 }
 
@@ -246,7 +255,7 @@ async function fetchNominatimSuggestions(
     const elLat = hit.lat != null ? Number(hit.lat) : NaN;
     const elLon = hit.lon != null ? Number(hit.lon) : NaN;
     if (!name || !Number.isFinite(elLat) || !Number.isFinite(elLon)) continue;
-    const type = nominatimMeetupType(hit.class ?? "", hit.type ?? "");
+    const type = nominatimMeetupType(hit.category ?? hit.class ?? "", hit.type ?? "");
     if (!type) continue;
     const dist = Math.round(haversineMeters(lat, lng, elLat, elLon));
     if (dist > radiusMeters) continue;
@@ -271,7 +280,7 @@ async function fetchNominatimSuggestions(
 export async function fetchTransitSuggestions(
   lat: number,
   lng: number,
-  radiusMeters = 2_000,
+  radiusMeters = DEFAULT_RADIUS_METERS,
   maxResults = 10,
 ): Promise<TransitSuggestion[]> {
   const key = cacheKey(lat, lng);
@@ -302,7 +311,8 @@ export async function fetchTransitSuggestions(
       ).then((data) => mapOverpassElements(data.elements, lat, lng, maxResults)),
       fetchNominatimSuggestions(lat, lng, radiusMeters, maxResults, ac.signal),
     ]);
-    _cache.set(key, { suggestions, expiresAt: Date.now() + CACHE_TTL_MS });
+    const ttl = suggestions.length > 0 ? CACHE_TTL_MS : EMPTY_CACHE_TTL_MS;
+    _cache.set(key, { suggestions, expiresAt: Date.now() + ttl });
     return suggestions;
   } finally {
     ac.abort();

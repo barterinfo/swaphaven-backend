@@ -26,18 +26,23 @@ import {
 import {
   buildReviewSnapshot,
   createListingBodySchema,
+  createListingFromPlaceBodySchema,
   isUuid,
   normalizeDetails,
+  pickedPlaceSchema,
   resolveCategoryUuid,
   resolveEstimatedValueCents,
   resolveLocation,
   serializeListingBarter,
+  type CreateListingBody,
   type SellerSnapshot,
 } from "../lib/barter-listing.js";
 import {
   normalizeCountryCode,
   resolveRequestCountry,
 } from "../lib/geo-country.js";
+import { haversineMiles, publicMapPin } from "../lib/map-pin.js";
+import { queryHasUnit } from "../lib/place-suggestions.js";
 import { notifyOfferDeclined } from "../lib/activity-email/notify.js";
 
 const router = Router();
@@ -149,7 +154,7 @@ router.get("/", optionalAuth, async (req, res) => {
   );
 
   const nextCursor = rawItems.length === limit ? encodeCursor(rawItems.at(-1)!.createdAt) : null;
-  return res.json({ listings, items: rawItems, nextCursor });
+  return res.json({ listings, nextCursor });
 });
 
 // ─── POST /api/listings ───────────────────────────────────────────────────────
@@ -176,14 +181,59 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
+  const location = resolveLocation(data);
+  const result = await insertListingFromBody(req.user!.sub, data, {
+    location,
+    pinKind: null,
+    requestCountry: resolveRequestCountry(req).country,
+  });
+  if ("error" in result && result.error) {
+    return res.status(result.error.status).json(result.error.body);
+  }
+  return res.status(201).json(result.body);
+});
+
+const SPOTLIGHT_LIMIT = 100;
+
+const mapQuerySchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+  radius: z.coerce.number().positive().max(500),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(60),
+});
+
+/**
+ * Shared insert path for POST / and POST /from-place.
+ * [pinKind] is set only on the from-place route.
+ */
+async function insertListingFromBody(
+  userId: string,
+  data: CreateListingBody,
+  opts: {
+    location: ReturnType<typeof resolveLocation>;
+    pinKind?: "area" | "venue" | null;
+    /** Fallback country from CDN / request when payload and profile omit it. */
+    requestCountry: string;
+  },
+) {
   const imageUrls = filterListingImageUrls(data.images ?? []);
   if (imageUrls.length) {
-    const irrelevant = await findIrrelevantImage(imageUrls, data.title, data.description ?? "");
+    const irrelevant = await findIrrelevantImage(
+      imageUrls,
+      data.title,
+      data.description ?? "",
+    );
     if (irrelevant) {
-      return res.status(400).json({
-        error: "moderation",
-        message: "One or more photos do not appear to match the listing title or description. Please upload a photo of the actual item.",
-      });
+      return {
+        error: {
+          status: 400 as const,
+          body: {
+            error: "moderation",
+            message:
+              "One or more photos do not appear to match the listing title or description. Please upload a photo of the actual item.",
+          },
+        },
+      };
     }
   }
 
@@ -193,27 +243,32 @@ router.post("/", requireAuth, async (req, res) => {
     columns: { id: true, name: true, slug: true },
   });
   if (!catRow) {
-    return res.status(400).json({ error: "Unknown categoryId" });
+    return {
+      error: {
+        status: 400 as const,
+        body: { error: "Unknown categoryId" },
+      },
+    };
   }
+
   const category = data.category?.trim() || catRow.name;
   const estimatedValueCents = resolveEstimatedValueCents(data);
   const estimatedValueDollars = Math.floor(estimatedValueCents / 100);
   const details = normalizeDetails(data.details);
-  const location = resolveLocation(data);
+  const location = { ...opts.location };
 
-  // Country is required for swipe scoping. Prefer payload → profile → CDN / SG.
   let country =
     normalizeCountryCode(location.country) ??
     normalizeCountryCode(
       (
         await db.query.userProfilesTable.findFirst({
-          where: eq(userProfilesTable.id, req.user!.sub),
+          where: eq(userProfilesTable.id, userId),
           columns: { locationCountry: true },
         })
       )?.locationCountry,
     );
   if (!country) {
-    country = resolveRequestCountry(req).country;
+    country = opts.requestCountry;
   }
   location.country = country;
 
@@ -228,7 +283,7 @@ router.post("/", requireAuth, async (req, res) => {
   const [listing] = await db
     .insert(listingsTable)
     .values({
-      userId: req.user!.sub,
+      userId,
       title: data.title.trim(),
       description: data.description ?? "",
       category,
@@ -248,6 +303,7 @@ router.post("/", requireAuth, async (req, res) => {
       locationState: location.state,
       locationCountry: location.country,
       locationPostalCode: location.postalCode,
+      locationPinKind: opts.pinKind ?? null,
     })
     .returning();
 
@@ -261,7 +317,11 @@ router.post("/", requireAuth, async (req, res) => {
     );
   }
 
-  const wantRows: { listingId: string; categoryId?: string | null; freeText?: string | null }[] = [];
+  const wantRows: {
+    listingId: string;
+    categoryId?: string | null;
+    freeText?: string | null;
+  }[] = [];
   for (const cid of data.wantedCategoryIds ?? []) {
     if (isUuid(cid)) wantRows.push({ listingId: listing.id, categoryId: cid });
   }
@@ -277,17 +337,173 @@ router.post("/", requireAuth, async (req, res) => {
     listingId: listing.id,
     listingTitle: listing.title,
   }).catch(console.error);
-  return res.status(201).json({
-    listing: serialized,
-    // Legacy flat fields (tests + older clients)
-    id: listing.id,
-    title: listing.title,
-    status: listing.status,
-    userId: listing.userId,
+
+  return {
+    listing,
+    serialized,
+    body: {
+      listing: serialized,
+      id: listing.id,
+      title: listing.title,
+      status: listing.status,
+      userId: listing.userId,
+    },
+  };
+}
+
+// ─── POST /api/listings/from-place ────────────────────────────────────────────
+// Must be registered before /:listingId.
+router.post("/from-place", requireAuth, async (req, res) => {
+  const parsed = createListingFromPlaceBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.issues.map((i) => i.message).join("; ") || "Invalid listing body",
+    });
+  }
+
+  const { place, ...rest } = parsed.data;
+  if (queryHasUnit(place.label)) {
+    return res.status(400).json({
+      error: "validation",
+      message: "Pick a public place or neighbourhood. Unit numbers are not accepted.",
+    });
+  }
+
+  const data: CreateListingBody = {
+    ...rest,
+    location: {
+      lat: place.lat,
+      lng: place.lng,
+      city: place.label,
+      country: place.countryCode?.toUpperCase() ?? "",
+      address: "",
+      state: "",
+      postalCode: "",
+    },
+  };
+
+  const profaneField = findProfaneField([
+    { field: "title", value: data.title },
+    { field: "description", value: data.description },
+    { field: "wantedFreeText", value: data.wantedFreeText },
+    { field: "brand", value: data.details?.brand },
+    { field: "ageRange", value: data.details?.ageRange },
+  ]);
+  if (profaneField) {
+    return res.status(400).json({
+      error: "moderation",
+      message: `${profaneField} contains inappropriate language and cannot be used.`,
+    });
+  }
+
+  const location = resolveLocation(data);
+  if (location.lat == null || location.lng == null || !location.city.trim()) {
+    return res.status(400).json({
+      error: "validation",
+      message: "A tapped place with coordinates is required.",
+    });
+  }
+
+  const result = await insertListingFromBody(req.user!.sub, data, {
+    location,
+    pinKind: place.pinKind,
+    requestCountry: resolveRequestCountry(req).country,
   });
+  if ("error" in result && result.error) {
+    return res.status(result.error.status).json(result.error.body);
+  }
+  return res.status(201).json(result.body);
 });
 
-const SPOTLIGHT_LIMIT = 100;
+// ─── GET /api/listings/map ────────────────────────────────────────────────────
+// Public neighbourhood / venue pins for the nearby map. No exact coordinates.
+router.get("/map", optionalAuth, async (req, res) => {
+  const parsed = mapQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation",
+      message: parsed.error.issues.map((i) => i.message).join("; "),
+    });
+  }
+
+  const { lat: rawLat, lng: rawLng, radius: rawRadius, limit } = parsed.data;
+  const userId = req.user?.sub;
+
+  const conditions: SQL<unknown>[] = [
+    eq(listingsTable.status, "active"),
+    sql`${listingsTable.locationLat} IS NOT NULL`,
+    sql`${listingsTable.locationLng} IS NOT NULL`,
+    sql`(
+      2 * 3958.8 * asin(
+        sqrt(
+          power(sin((radians(${rawLat}) - radians(${listingsTable.locationLat}::float)) / 2), 2)
+          + cos(radians(${listingsTable.locationLat}::float))
+          * cos(radians(${rawLat}))
+          * power(sin((radians(${rawLng}) - radians(${listingsTable.locationLng}::float)) / 2), 2)
+        )
+      ) <= ${rawRadius}
+    )`,
+  ];
+
+  if (userId) {
+    conditions.push(ne(listingsTable.userId, userId));
+    const hidden = await getActiveNegotiationListingIds(userId);
+    if (hidden.length) conditions.push(notInArray(listingsTable.id, hidden));
+    const hiddenOwners = await hiddenOwnerIds(userId);
+    if (hiddenOwners.length) {
+      conditions.push(notInArray(listingsTable.userId, hiddenOwners));
+    }
+  }
+
+  const rows = await db.query.listingsTable.findMany({
+    where: and(...conditions),
+    with: { images: true },
+    limit,
+    orderBy: (t, { desc }) => [desc(t.createdAt)],
+  });
+
+  const listings = rows
+    .map((row) => {
+      const pin = publicMapPin({
+        lat: row.locationLat != null ? Number(row.locationLat) : null,
+        lng: row.locationLng != null ? Number(row.locationLng) : null,
+        pinKind: row.locationPinKind,
+      });
+      if (!pin) return null;
+
+      const distanceMiles =
+        Math.round(
+          haversineMiles(
+            rawLat,
+            rawLng,
+            Number(row.locationLat),
+            Number(row.locationLng),
+          ) * 10,
+        ) / 10;
+
+      const images = row.images?.length
+        ? row.images
+            .slice()
+            .sort((a, b) => a.position - b.position)
+            .map((i) => i.url)
+        : [];
+
+      return {
+        id: row.id,
+        title: row.title,
+        location_city: row.locationCity ?? "",
+        map_pin: pin,
+        distance_miles: distanceMiles,
+        category: row.category,
+        category_id: row.categoryId,
+        images,
+        primary_image_url: images[0] ?? null,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
+
+  return res.json({ listings });
+});
 
 // ─── GET /api/listings/spotlight ──────────────────────────────────────────────
 // Public cover photos for the bartersg.com background. The 100 active listings
@@ -402,13 +618,25 @@ router.get("/trending", optionalAuth, async (req, res) => {
 
   const serialize = (rows: typeof trendingRaw) =>
     Promise.all(
-      rows.map(async (row) =>
-        serializeListingBarter(row, {
+      rows.map(async (row) => {
+        const listing = serializeListingBarter(row, {
           images: row.images?.length
             ? row.images.sort((a, b) => a.position - b.position).map((i) => i.url)
             : await loadListingImages(row.id),
-        }),
-      ),
+        });
+        const distanceMiles =
+          hasLocation && row.locationLat != null && row.locationLng != null
+            ? Math.round(
+                haversineMiles(
+                  rawLat,
+                  rawLng,
+                  Number(row.locationLat),
+                  Number(row.locationLng),
+                ) * 10,
+              ) / 10
+            : null;
+        return { ...listing, distance_miles: distanceMiles };
+      }),
     );
 
   const [trending, others] = await Promise.all([
@@ -612,7 +840,8 @@ router.post("/:listingId/view", requireAuth, (req, res) => {
 
 // ─── PATCH /api/listings/:listingId ───────────────────────────────────────────
 // Edit Listing screen — title, value, condition, category, description, trade wants.
-// Status changes use POST /sold or DELETE; location is set at create time only.
+// Close via POST /sold or DELETE. Location only via tapped `place` (same PDPA
+// rules as POST /from-place). Free-typed locationCity is ignored.
 const updateListingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(10000).optional(),
@@ -624,7 +853,12 @@ const updateListingSchema = z.object({
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
   /** Owner can pause an active listing or bring a paused one back. */
-  status: z.enum(["active", "paused"]).optional(),
+  status: z.preprocess(
+    (v) => (v === "active" || v === "paused" ? v : undefined),
+    z.enum(["active", "paused"]).optional(),
+  ),
+  /** Tapped suggestion from GET /api/places/suggestions. */
+  place: pickedPlaceSchema.optional(),
 });
 
 async function syncListingWants(
@@ -704,6 +938,39 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     nextStatus = patch.status;
   }
 
+  let placePatch: {
+    locationCity: string;
+    locationLat: string;
+    locationLng: string;
+    locationAddress: string;
+    locationState: string;
+    locationPostalCode: string;
+    locationCountry: string;
+    locationPinKind: "area" | "venue";
+  } | undefined;
+  if (patch.place !== undefined) {
+    if (queryHasUnit(patch.place.label)) {
+      return res.status(400).json({
+        error: "validation",
+        message: "Pick a public place or neighbourhood. Unit numbers are not accepted.",
+      });
+    }
+    const country =
+      normalizeCountryCode(patch.place.countryCode) ??
+      normalizeCountryCode(listing.locationCountry) ??
+      "";
+    placePatch = {
+      locationCity: patch.place.label.trim(),
+      locationLat: String(patch.place.lat),
+      locationLng: String(patch.place.lng),
+      locationAddress: "",
+      locationState: "",
+      locationPostalCode: "",
+      locationCountry: country,
+      locationPinKind: patch.place.pinKind,
+    };
+  }
+
   const [updated] = await db
     .update(listingsTable)
     .set({
@@ -714,6 +981,7 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...valuePatch,
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
+      ...(placePatch ?? {}),
       ...(patch.wantedCategoryIds !== undefined
         ? { wantedCategoryIds: patch.wantedCategoryIds }
         : {}),

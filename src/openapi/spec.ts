@@ -158,7 +158,7 @@ export const openApiSpec = {
       },
       Listing: {
         type: "object",
-        description: "Raw DB-shape listing row (camelCase). Returned in items[] arrays alongside the serialized listings[] array.",
+        description: "Legacy camelCase listing shape used by negotiation payloads.",
         properties: {
           id:                  { type: "string", format: "uuid" },
           userId:              { type: "string", format: "uuid" },
@@ -213,14 +213,12 @@ export const openApiSpec = {
           },
           location: {
             type: "object",
+            description:
+              "Coarse public location only. Precise address, postal code, latitude, and longitude stay server-side for distance calculations.",
             properties: {
-              address:     { type: "string" },
-              city:        { type: "string" },
-              state:       { type: "string" },
-              country:     { type: "string" },
-              postal_code: { type: "string" },
-              lat:         { type: "number", nullable: true },
-              lng:         { type: "number", nullable: true },
+              city:    { type: "string" },
+              state:   { type: "string" },
+              country: { type: "string" },
             },
           },
           status:            { type: "string", enum: ["active","traded","paused","deleted"] },
@@ -278,7 +276,6 @@ export const openApiSpec = {
         type: "object",
         properties: {
           listings:   { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
-          items:      { type: "array", items: { $ref: "#/components/schemas/Listing" } },
           nextCursor: { type: "string", nullable: true },
         },
       },
@@ -980,7 +977,7 @@ export const openApiSpec = {
                 schema: {
                   type: "object",
                   properties: {
-                    items:      { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                    items:      { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
                     nextCursor: { type: "string", nullable: true },
                     total:      { type: "integer", description: "Total non-deleted listings for this user (for the '8 listings' header)." },
                   },
@@ -1185,8 +1182,14 @@ export const openApiSpec = {
         description:
           "Returns up to 20 active listings ordered by right_swipe_count desc (trending), " +
           "plus additional recent active listings excluding those already in trending. " +
+          "When lat/lng/radius are supplied, filtering and distance calculation happen server-side. " +
           "Auth is optional (same optionalAuth as the main feed).",
         security: [],
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number", minimum: 0 }, description: "Radius in miles" },
+        ],
         responses: {
           "200": {
             description: "Trending and recent listings",
@@ -1198,12 +1201,22 @@ export const openApiSpec = {
                   properties: {
                     trending: {
                       type: "array",
-                      items: { $ref: "#/components/schemas/BarterListing" },
+                      items: {
+                        allOf: [
+                          { $ref: "#/components/schemas/BarterListing" },
+                          { type: "object", properties: { distance_miles: { type: "number", nullable: true } } },
+                        ],
+                      },
                       description: "Highest right-swipe counts first",
                     },
                     others: {
                       type: "array",
-                      items: { $ref: "#/components/schemas/BarterListing" },
+                      items: {
+                        allOf: [
+                          { $ref: "#/components/schemas/BarterListing" },
+                          { type: "object", properties: { distance_miles: { type: "number", nullable: true } } },
+                        ],
+                      },
                       description: "Recent active listings not already in trending",
                     },
                   },
@@ -1211,6 +1224,148 @@ export const openApiSpec = {
               },
             },
           },
+        },
+      },
+    },
+    "/api/listings/from-place": {
+      post: {
+        tags: ["Listings"],
+        summary: "Create a listing from a tapped place suggestion",
+        description:
+          "Requires a place row from GET /api/places/suggestions. Units are rejected. " +
+          "Blocks save as the surrounding area name; public venues keep their label. " +
+          "Existing POST /api/listings remains unchanged for legacy clients.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["title", "categoryId", "place"],
+                properties: {
+                  title: { type: "string" },
+                  categoryId: { type: "string", format: "uuid" },
+                  place: {
+                    type: "object",
+                    required: ["label", "lat", "lng", "pinKind"],
+                    properties: {
+                      label: { type: "string" },
+                      lat: { type: "number" },
+                      lng: { type: "number" },
+                      pinKind: { type: "string", enum: ["area", "venue"] },
+                      countryCode: { type: "string", minLength: 2, maxLength: 2 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Listing created" },
+          "400": { description: "Missing place, unit label, or invalid body" },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+    "/api/listings/map": {
+      get: {
+        tags: ["Listings"],
+        summary: "Nearby map pins (public place or area cell)",
+        description:
+          "Returns public location_city, map_pin, and distance for listings in radius. " +
+          "Venue pins use the stored place; area and legacy rows use a ~500 m cell. " +
+          "Exact coordinates, address, and postal code are never returned.",
+        security: [],
+        parameters: [
+          { name: "lat", in: "query", required: true, schema: { type: "number" } },
+          { name: "lng", in: "query", required: true, schema: { type: "number" } },
+          { name: "radius", in: "query", required: true, schema: { type: "number", exclusiveMinimum: 0 }, description: "Radius in miles" },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": {
+            description: "Map listings",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["listings"],
+                  properties: {
+                    listings: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["id", "title", "location_city", "map_pin", "distance_miles"],
+                        properties: {
+                          id: { type: "string", format: "uuid" },
+                          title: { type: "string" },
+                          location_city: { type: "string" },
+                          map_pin: {
+                            type: "object",
+                            required: ["lat", "lng", "precision"],
+                            properties: {
+                              lat: { type: "number" },
+                              lng: { type: "number" },
+                              precision: { type: "string", enum: ["area", "venue"] },
+                            },
+                          },
+                          distance_miles: { type: "number" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Invalid query" },
+        },
+      },
+    },
+    "/api/places/suggestions": {
+      get: {
+        tags: ["Places"],
+        summary: "Selectable place suggestions for onboarding and create-listing",
+        description:
+          "Units are omitted. Blocks return as the surrounding area name. " +
+          "Public places (stations, malls, parks, neighbourhoods) return as themselves.",
+        security: [],
+        parameters: [
+          { name: "q", in: "query", required: true, schema: { type: "string", minLength: 2 } },
+          { name: "country", in: "query", schema: { type: "string", minLength: 2, maxLength: 2 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 15 } },
+        ],
+        responses: {
+          "200": {
+            description: "Suggestion rows",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["suggestions"],
+                  properties: {
+                    suggestions: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["label", "lat", "lng", "pinKind", "placeType"],
+                        properties: {
+                          label: { type: "string" },
+                          lat: { type: "number" },
+                          lng: { type: "number" },
+                          pinKind: { type: "string", enum: ["area", "venue"] },
+                          placeType: { type: "string" },
+                          countryCode: { type: "string", nullable: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Invalid query" },
         },
       },
     },
@@ -1242,7 +1397,7 @@ export const openApiSpec = {
       },
       patch: {
         tags: ["Listings"], summary: "Update listing (Edit Listing screen)",
-        description: "Partial update for the Edit Listing form — all fields optional. Caller must own the listing. Close a listing via POST /sold or DELETE, not this route. Photos via POST/DELETE /api/listings/{listingId}/images.",
+        description: "Partial update for the Edit Listing form — all fields optional. Caller must own the listing. Close via POST /sold or DELETE. Location only via tapped `place` (same PDPA rules as POST /from-place). Photos via POST/DELETE images.",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: {
@@ -1268,6 +1423,20 @@ export const openApiSpec = {
                   },
                   wantedCategoryIds:   { type: "array", items: { type: "string", format: "uuid" }, description: "Open to trade for — category UUIDs." },
                   wantedCategories:    { type: "array", items: { type: "string" }, description: "Open to trade for — display labels (e.g. 'Vintage Clothing', 'Sneakers')." },
+                  status:              { type: "string", enum: ["active", "paused"], description: "Pause or re-list (active ↔ paused only)." },
+                  place: {
+                    type: "object",
+                    description: "Tapped suggestion from GET /api/places/suggestions.",
+                    required: ["label", "lat", "lng", "pinKind"],
+                    properties: {
+                      label: { type: "string" },
+                      lat: { type: "number" },
+                      lng: { type: "number" },
+                      pinKind: { type: "string", enum: ["area", "venue"] },
+                      countryCode: { type: "string", minLength: 2, maxLength: 2 },
+                      placeType: { type: "string" },
+                    },
+                  },
                 },
               },
             },
@@ -1440,7 +1609,7 @@ export const openApiSpec = {
                 schema: {
                   type: "object",
                   properties: {
-                    listings: { type: "array", items: { $ref: "#/components/schemas/Listing" } },
+                    listings: { type: "array", items: { $ref: "#/components/schemas/BarterListing" } },
                   },
                 },
               },
@@ -2307,6 +2476,7 @@ export const openApiSpec = {
     { name: "Users",         description: "User profiles" },
     { name: "Media",         description: "S3 presigned upload URLs for listing images" },
     { name: "Listings",      description: "Item listings, categories, and owner actions (edit / mark sold / delete)" },
+    { name: "Places",        description: "Selectable place suggestions for onboarding and create-listing" },
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Saved",         description: "Save-for-later listings (independent of swipes)" },
     { name: "Offers",        description: "Swap offers and counter-offers" },

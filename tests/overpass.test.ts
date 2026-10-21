@@ -92,6 +92,43 @@ describe("fetchTransitSuggestions", () => {
     expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).startsWith(NOMINATIM_SEARCH_URL))).toBe(true);
   });
 
+  it("accepts Nominatim jsonv2 category (not only legacy class)", async () => {
+    mockByUrl((url) => {
+      if (url.startsWith(NOMINATIM_SEARCH_URL)) {
+        return jsonResponse(200, [{
+          name: "Orchard",
+          lat: "1.30312",
+          lon: "103.83138",
+          category: "railway",
+          type: "station",
+        }]);
+      }
+      return jsonResponse(504, {});
+    });
+
+    const suggestions = await fetchTransitSuggestions(1.3048, 103.8318);
+    expect(suggestions[0]?.name).toBe("Orchard");
+    expect(suggestions[0]?.type).toBe("Train Station");
+  });
+
+  it("keeps Nominatim mall hits when only category is set", async () => {
+    mockByUrl((url) => {
+      if (url.startsWith(NOMINATIM_SEARCH_URL)) {
+        return jsonResponse(200, [{
+          name: "West Mall",
+          lat: "1.3048",
+          lon: "103.8318",
+          category: "shop",
+          type: "mall",
+        }]);
+      }
+      return jsonResponse(504, {});
+    });
+
+    const suggestions = await fetchTransitSuggestions(1.3048, 103.8318);
+    expect(suggestions[0]?.type).toBe("Shopping Mall");
+  });
+
   it("returns an empty list when both sources have no named stops", async () => {
     mockByUrl((url) => {
       if (url.includes("nominatim")) return jsonResponse(200, []);

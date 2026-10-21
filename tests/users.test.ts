@@ -151,11 +151,11 @@ describe("GET /api/users/:userId/listings", () => {
     expect(res.body.nextCursor).toBeNull();
     expect(res.body.total).toBe(2);
     for (const item of res.body.items) {
-      expect(item.rightSwipeCount).toBe(0);
+      expect(item.right_swipe_count).toBe(0);
     }
   });
 
-  it("includes rightSwipeCount reflecting received right swipes", async () => {
+  it("includes right swipe count reflecting received right swipes", async () => {
     const { user, accessToken } = await registerUser();
     const swiper = await registerUser();
     const listing = await createListing(accessToken);
@@ -168,7 +168,32 @@ describe("GET /api/users/:userId/listings", () => {
     const res = await request(app).get(`/api/users/${user.id}/listings`);
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(1);
-    expect(res.body.items[0].rightSwipeCount).toBe(1);
+    expect(res.body.items[0].right_swipe_count).toBe(1);
+  });
+
+  it("does not expose precise listing location in a public seller closet", async () => {
+    const { user, accessToken } = await registerUser();
+    await createListing(accessToken, {
+      location: {
+        lat: 1.3521,
+        lng: 103.8198,
+        address: "456 Closet Street",
+        city: "Singapore",
+        state: "Singapore",
+        country: "SG",
+        postalCode: "654321",
+      },
+    });
+
+    const res = await request(app).get(`/api/users/${user.id}/listings`);
+    expect(res.status).toBe(200);
+    expect(res.body.items[0].location).toEqual({
+      city: "Singapore",
+      state: "Singapore",
+      country: "SG",
+    });
+    expect(JSON.stringify(res.body)).not.toContain("456 Closet Street");
+    expect(JSON.stringify(res.body)).not.toContain("654321");
   });
 
   it("returns empty for user with no listings", async () => {

@@ -13,6 +13,8 @@
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Railway deploy, env vars, troubleshooting |
 | [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) | Railway security findings, remediation priorities, and verification |
 | [EC2_MIGRATION.md](./EC2_MIGRATION.md) | Railway → EC2 migration (DNS, env, Nginx, TLS, cutover) |
+| [DOMAIN_NETWORKING.md](./DOMAIN_NETWORKING.md) | Domain, Cloudflare, email/OTP DNS, redirects — recovery snapshot + cutover |
+| [SHARE_DEEP_LINKS_DNS.md](./SHARE_DEEP_LINKS_DNS.md) | `www` share host, App Links / Universal Links, GoDaddy → Railway |
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
 | [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md) | General announcement push — `npm run push:announce` / `push:announce:prod` |
@@ -35,6 +37,8 @@
 | [CREATE_ACCOUNT_OTP.md](./CREATE_ACCOUNT_OTP.md) | Email OTP signup — sequences, DFD, DB, API, mobile bind |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | PRs, harness, agent review, swaphaven-infra sync |
 | [MEETUP_SUGGESTIONS.md](./MEETUP_SUGGESTIONS.md) | Meet Halfway — transit stop suggestions between buyer and seller |
+| [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md) | Listing / home location — suggestions, pin kinds, map pins (~500 m), public wire |
+| [PDPA.md](./PDPA.md) | PDPA-oriented controls already managed (location disclosure, related) |
 
 **Quick links**
 
