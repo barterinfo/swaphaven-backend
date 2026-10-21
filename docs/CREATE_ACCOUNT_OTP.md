@@ -6,6 +6,8 @@ Email/password signup is a **two-step** flow: credentials are stored as a *pendi
 
 Companion mobile notes: see barter-stack repo `mobile/docs/CREATE_ACCOUNT_AND_ONBOARDING.md` (sibling checkout).
 
+DNS / Resend DKIM / Cloudflare proxy rules that affect delivery: **[DOMAIN_NETWORKING.md](./DOMAIN_NETWORKING.md)**.
+
 ---
 
 ## Product overview

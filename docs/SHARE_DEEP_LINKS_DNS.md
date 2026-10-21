@@ -7,6 +7,8 @@ This documents the **final** DNS / deep-link setup for product and profile shari
 - Bare **`bartersg.com`** is forwarded in GoDaddy to `https://www.bartersg.com` (browsers only).
 - Mobile App Links / Universal Links are configured for **`www.bartersg.com`**.
 
+For Cloudflare cutover, email/OTP DNS, MX/TXT recovery snapshots, and proxy rules, see **[DOMAIN_NETWORKING.md](./DOMAIN_NETWORKING.md)**.
+
 Related code:
 
 | Area | Location |

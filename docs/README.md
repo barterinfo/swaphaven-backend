@@ -13,6 +13,8 @@
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Railway deploy, env vars, troubleshooting |
 | [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) | Railway security findings, remediation priorities, and verification |
 | [EC2_MIGRATION.md](./EC2_MIGRATION.md) | Railway → EC2 migration (DNS, env, Nginx, TLS, cutover) |
+| [DOMAIN_NETWORKING.md](./DOMAIN_NETWORKING.md) | Domain, Cloudflare, email/OTP DNS, redirects — recovery snapshot + cutover |
+| [SHARE_DEEP_LINKS_DNS.md](./SHARE_DEEP_LINKS_DNS.md) | `www` share host, App Links / Universal Links, GoDaddy → Railway |
 | [S3_SETUP.md](./S3_SETUP.md) | S3 bucket, IAM, presigned uploads |
 | [ADS.md](./ADS.md) | Sponsored ads — schema, endpoint, mobile flow, `npm run ads` CLI |
 | [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md) | General announcement push — `npm run push:announce` / `push:announce:prod` |
