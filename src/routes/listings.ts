@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { and, asc, count, desc, eq, ilike, inArray, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { z } from "zod";
@@ -16,7 +17,10 @@ import { findProfaneField } from "../lib/moderation.js";
 import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-moderation.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
-import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
+import { recommendRelated, scheduleListingEmbed, suggestListingFromImages } from "../lib/barter-ai.js";
+import { CANONICAL_CATEGORIES, categoryIdBySlug } from "../lib/categories.js";
+import { env } from "../config/env.js";
+import { AppError } from "../middleware/error.js";
 import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
 import {
   notifyFollowersOfNewListing,
@@ -350,6 +354,108 @@ async function insertListingFromBody(
     },
   };
 }
+
+const suggestFromImagesBody = z.object({
+  imageUrls: z.array(z.string().url()).min(1).max(5),
+  country: z.string().trim().min(2).max(2).optional(),
+});
+
+const suggestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  // Prefer authenticated user id; fall back to IP.
+  keyGenerator: (req) => req.user?.sub ?? req.ip ?? "anon",
+  validate: false,
+  skip: () => env.NODE_ENV === "development" || env.NODE_ENV === "test",
+  message: {
+    error: "too_many_requests",
+    message: "Too many AI suggest requests. Please try again later.",
+  },
+});
+
+// ─── POST /api/listings/suggest-from-images ───────────────────────────────────
+// Must be registered before /:listingId.
+router.post(
+  "/suggest-from-images",
+  requireAuth,
+  suggestLimiter,
+  async (req, res, next) => {
+    try {
+      const parsed = suggestFromImagesBody.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "validation",
+          message:
+            parsed.error.issues.map((i) => i.message).join("; ") ||
+            "Invalid suggest body",
+        });
+      }
+
+      const imageUrls = filterListingImageUrls(parsed.data.imageUrls);
+      if (imageUrls.length === 0) {
+        return res.status(400).json({
+          error: "validation",
+          message: "imageUrls must include at least one public https URL",
+        });
+      }
+
+      const country =
+        parsed.data.country?.toUpperCase() ??
+        resolveRequestCountry(req).country;
+
+      const suggestion = await suggestListingFromImages({
+        imageUrls,
+        country,
+        categoryCatalog: CANONICAL_CATEGORIES.map((c) => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+        })),
+      });
+
+      const categoryId =
+        categoryIdBySlug(suggestion.categorySlug) ??
+        categoryIdBySlug("others") ??
+        CANONICAL_CATEGORIES[0]!.id;
+      const categoryName =
+        CANONICAL_CATEGORIES.find((c) => c.id === categoryId)?.name ?? "Others";
+
+      const wantedCategoryIds = suggestion.wantedCategorySlugs
+        .map((slug) => categoryIdBySlug(slug))
+        .filter((id): id is string => Boolean(id));
+      const wantedCategories = wantedCategoryIds.map(
+        (id) => CANONICAL_CATEGORIES.find((c) => c.id === id)?.name ?? id,
+      );
+
+      return res.json({
+        title: suggestion.title,
+        description: suggestion.description,
+        categoryId,
+        category: categoryName,
+        condition: suggestion.condition,
+        brand: suggestion.brand,
+        ageRange: suggestion.ageRange,
+        estimatedValueCents: suggestion.estimatedValueCents,
+        pricingRationale: suggestion.pricingRationale,
+        wantedCategoryIds,
+        wantedCategories,
+        wantedFreeText: suggestion.wantedFreeText,
+        confidence: suggestion.confidence,
+      });
+    } catch (err) {
+      if (err instanceof AppError) {
+        return res.status(err.statusCode).json({
+          error: err.code,
+          message: err.message,
+        });
+      }
+      next(err);
+      return;
+    }
+  },
+);
 
 // ─── POST /api/listings/from-place ────────────────────────────────────────────
 // Must be registered before /:listingId.

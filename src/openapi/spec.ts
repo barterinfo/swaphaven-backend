@@ -1227,6 +1227,81 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/listings/suggest-from-images": {
+      post: {
+        tags: ["Listings"],
+        summary: "AI-suggest listing fields from uploaded photo URLs",
+        description:
+          "Auth required. Accepts public https image URLs from POST /api/media/presign. " +
+          "Returns draft title, description, category, condition, brand, age, estimated value " +
+          "(depreciated used/trade cents), and wanted categories. Does not create a listing. " +
+          "Rate-limited. Returns 503 when barter-ai / Gemini is unconfigured.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["imageUrls"],
+                properties: {
+                  imageUrls: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 5,
+                    items: { type: "string", format: "uri" },
+                  },
+                  country: {
+                    type: "string",
+                    minLength: 2,
+                    maxLength: 2,
+                    description: "ISO country for pricing context (default from request geo)",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Suggestion payload",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    description: { type: "string" },
+                    categoryId: { type: "string", format: "uuid" },
+                    category: { type: "string" },
+                    condition: {
+                      type: "string",
+                      enum: ["new", "like_new", "great", "good", "fair"],
+                    },
+                    brand: { type: "string", nullable: true },
+                    ageRange: { type: "string", nullable: true },
+                    estimatedValueCents: { type: "integer", nullable: true },
+                    pricingRationale: { type: "string", nullable: true },
+                    wantedCategoryIds: {
+                      type: "array",
+                      items: { type: "string", format: "uuid" },
+                    },
+                    wantedCategories: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    wantedFreeText: { type: "string", nullable: true },
+                    confidence: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Validation error" },
+          "401": { description: "Unauthorized" },
+          "503": { description: "AI suggest unavailable" },
+        },
+      },
+    },
     "/api/listings/from-place": {
       post: {
         tags: ["Listings"],
