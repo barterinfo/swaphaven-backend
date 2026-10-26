@@ -57,8 +57,10 @@ describe("POST /api/listings/suggest-from-images", () => {
     expect(res.status).toBe(200);
     expect(res.body.title).toContain("Sony");
     expect(res.body.categoryId).toBe(categoryIdBySlug("electronics"));
+    expect(res.body.categorySlug).toBe("electronics");
     expect(res.body.estimatedValueCents).toBe(22000);
     expect(res.body.wantedCategoryIds).toEqual([categoryIdBySlug("cameras")]);
+    expect(res.body.wantedCategorySlugs).toEqual(["cameras"]);
     expect(res.body.condition).toBe("great");
   });
 });

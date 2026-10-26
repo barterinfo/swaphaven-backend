@@ -360,18 +360,46 @@ const suggestFromImagesBody = z.object({
   country: z.string().trim().min(2).max(2).optional(),
 });
 
-const suggestLimiter = rateLimit({
+const suggestSkipRateLimit = () =>
+  env.NODE_ENV === "development" || env.NODE_ENV === "test";
+
+/** Cap total Gemini calls per user (cost / misuse). */
+const suggestUserLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 10,
+  max: 8,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  // Prefer authenticated user id; fall back to IP.
-  keyGenerator: (req) => req.user?.sub ?? req.ip ?? "anon",
+  keyGenerator: (req) => `suggest:user:${req.user?.sub ?? req.ip ?? "anon"}`,
   validate: false,
-  skip: () => env.NODE_ENV === "development" || env.NODE_ENV === "test",
+  skip: suggestSkipRateLimit,
   message: {
     error: "too_many_requests",
-    message: "Too many AI suggest requests. Please try again later.",
+    message: "Too many AI draft requests this hour. Fill details manually or try later.",
+  },
+});
+
+/** Same photo set spam — max 2 drafts per URL set per hour. */
+const suggestPhotoSetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 2,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const sub = req.user?.sub ?? req.ip ?? "anon";
+    const urls = Array.isArray(req.body?.imageUrls)
+      ? [...(req.body.imageUrls as unknown[])]
+          .map((u) => String(u).trim())
+          .filter(Boolean)
+          .sort()
+          .join("|")
+      : "";
+    return `suggest:photos:${sub}:${urls}`;
+  },
+  validate: false,
+  skip: suggestSkipRateLimit,
+  message: {
+    error: "too_many_requests",
+    message: "Already drafted from these photos. Change a photo or fill details manually.",
   },
 });
 
@@ -380,7 +408,8 @@ const suggestLimiter = rateLimit({
 router.post(
   "/suggest-from-images",
   requireAuth,
-  suggestLimiter,
+  suggestUserLimiter,
+  suggestPhotoSetLimiter,
   async (req, res, next) => {
     try {
       const parsed = suggestFromImagesBody.safeParse(req.body);
@@ -434,6 +463,9 @@ router.post(
         description: suggestion.description,
         categoryId,
         category: categoryName,
+        // Slugs let clients resolve against their local catalog UUIDs (DB ids
+        // may differ from the canonical seed ids used above).
+        categorySlug: suggestion.categorySlug,
         condition: suggestion.condition,
         brand: suggestion.brand,
         ageRange: suggestion.ageRange,
@@ -441,6 +473,7 @@ router.post(
         pricingRationale: suggestion.pricingRationale,
         wantedCategoryIds,
         wantedCategories,
+        wantedCategorySlugs: suggestion.wantedCategorySlugs,
         wantedFreeText: suggestion.wantedFreeText,
         confidence: suggestion.confidence,
       });

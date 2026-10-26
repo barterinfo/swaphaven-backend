@@ -266,7 +266,14 @@ export async function suggestListingFromImages(
         error?: string;
         message?: string;
       } | null;
-      if (res.status === 503 || errBody?.error === "ai_suggest_unconfigured") {
+      const code = errBody?.error ?? "";
+      // Missing key, quota, or budget cut — clients should fall back to manual entry.
+      if (
+        res.status === 503 ||
+        res.status === 429 ||
+        code === "ai_suggest_unconfigured" ||
+        code === "ai_suggest_unavailable"
+      ) {
         throw new AppError(
           503,
           "ai_suggest_unavailable",

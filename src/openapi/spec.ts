@@ -1235,7 +1235,7 @@ export const openApiSpec = {
           "Auth required. Accepts public https image URLs from POST /api/media/presign. " +
           "Returns draft title, description, category, condition, brand, age, estimated value " +
           "(depreciated used/trade cents), and wanted categories. Does not create a listing. " +
-          "Rate-limited. Returns 503 when barter-ai / Gemini is unconfigured.",
+          "Rate-limited (8/hour per user, 2/hour per photo set). Returns 503 when barter-ai / Gemini is unconfigured.",
         requestBody: {
           required: true,
           content: {
@@ -1273,6 +1273,7 @@ export const openApiSpec = {
                     description: { type: "string" },
                     categoryId: { type: "string", format: "uuid" },
                     category: { type: "string" },
+                    categorySlug: { type: "string" },
                     condition: {
                       type: "string",
                       enum: ["new", "like_new", "great", "good", "fair"],
@@ -1286,6 +1287,10 @@ export const openApiSpec = {
                       items: { type: "string", format: "uuid" },
                     },
                     wantedCategories: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                    wantedCategorySlugs: {
                       type: "array",
                       items: { type: "string" },
                     },
