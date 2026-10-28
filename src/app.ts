@@ -13,6 +13,7 @@ import { listCategories } from "./routes/listings.js";
 import authRouter from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
 import listingsRouter from "./routes/listings.js";
+import listingSuggestRouter from "./routes/listing-suggest.js";
 import swipeRouter from "./routes/swipe.js";
 import offersRouter from "./routes/offers.js";
 import cashOffersRouter from "./routes/cash-offers.js";
@@ -185,6 +186,8 @@ export function createApp(): express.Express {
 
   app.use("/api/auth",          authRouter);
   app.use("/api/users",         usersRouter);
+  // Before listings so /suggest-from-images is not captured by /:listingId.
+  app.use("/api/listings",      listingSuggestRouter);
   app.use("/api/listings",      listingsRouter);
   app.use("/api/swipe",         swipeRouter);
   app.use("/api/saved",         savedRouter);

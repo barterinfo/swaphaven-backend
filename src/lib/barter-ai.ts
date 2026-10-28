@@ -18,6 +18,27 @@ export type BarterAiPublicPingResult =
 const DEFAULT_TIMEOUT_MS = 5_000;
 const RECOMMEND_TIMEOUT_MS = 800;
 const EMBED_TIMEOUT_MS = 15_000;
+const SUGGEST_TIMEOUT_MS = 30_000;
+
+export type BarterAiListingSuggestion = {
+  title: string;
+  description: string;
+  categorySlug: string;
+  condition: "new" | "like_new" | "great" | "good" | "fair";
+  brand: string | null;
+  ageRange: string | null;
+  estimatedValueCents: number | null;
+  pricingRationale: string | null;
+  wantedCategorySlugs: string[];
+  wantedFreeText: string | null;
+  confidence: number;
+};
+
+export type SuggestListingFromImagesBody = {
+  imageUrls: string[];
+  country?: string;
+  categoryCatalog: Array<{ id: string; name: string; slug: string }>;
+};
 
 export type BarterAiRankedItem = {
   listingId: string;
@@ -208,6 +229,75 @@ export function scheduleListingEmbed(listingId: string): void {
   void embedListing(listingId).catch((err) => {
     console.error("[barter-ai embed]", err);
   });
+}
+
+/**
+ * Vision suggest for create-listing auto-fill.
+ * Throws AppError 503 when barter-ai is unset or returns suggest-unavailable.
+ */
+export async function suggestListingFromImages(
+  body: SuggestListingFromImagesBody,
+): Promise<BarterAiListingSuggestion> {
+  const cfg = configured();
+  if (!cfg) {
+    throw new AppError(
+      503,
+      "ai_suggest_unavailable",
+      "AI listing suggest is not configured",
+    );
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${cfg.baseUrl}/api/internal/suggest/listing`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Key": cfg.secret,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as {
+        error?: string;
+        message?: string;
+      } | null;
+      const code = errBody?.error ?? "";
+      // Missing key, quota, or budget cut — clients should fall back to manual entry.
+      if (
+        res.status === 503 ||
+        res.status === 429 ||
+        code === "ai_suggest_unconfigured" ||
+        code === "ai_suggest_unavailable"
+      ) {
+        throw new AppError(
+          503,
+          "ai_suggest_unavailable",
+          errBody?.message ?? "AI listing suggest is unavailable",
+        );
+      }
+      throw new AppError(
+        502,
+        "barter_ai_error",
+        `barter-ai suggest failed with HTTP ${res.status}`,
+      );
+    }
+
+    return (await res.json()) as BarterAiListingSuggestion;
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    const message =
+      err instanceof Error && err.name === "AbortError"
+        ? "barter-ai suggest timed out"
+        : `barter-ai suggest failed: ${err instanceof Error ? err.message : String(err)}`;
+    throw new AppError(502, "barter_ai_unreachable", message);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function embedListing(listingId: string): Promise<void> {

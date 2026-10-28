@@ -10,7 +10,8 @@ alwaysApply: false
 
 ## Structure
 
-- Routes in `src/routes/`; Drizzle schema in `src/db/schema/`; auth/errors in `src/middleware/`; helpers in `src/lib/`.
+- Routes in `src/routes/`. A new HTTP feature gets its own route file first (see `.cursor/skills/new-api-route/SKILL.md`). Do not append it to a large router such as `listings.ts`.
+- Drizzle schema in `src/db/schema/`; auth/errors in `src/middleware/`; helpers in `src/lib/`.
 - Keep handlers thin: Zod validate → Drizzle query → consistent JSON response.
 - Listing payloads must stay compatible with `src/lib/barter-listing.ts` (barter-stack mobile).
 
