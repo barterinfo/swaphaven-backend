@@ -17,7 +17,7 @@ description: Express 5 + PostgreSQL + Drizzle conventions for swaphaven-api — 
 
 | Area | Path | Responsibility |
 |------|------|----------------|
-| HTTP | `src/routes/` | Routes, Zod validation, status codes, JSON |
+| HTTP | `src/routes/` | One router file per feature. New endpoints get a new file; do not grow `listings.ts`. |
 | Schema | `src/db/schema/` | Drizzle table definitions |
 | DB | `src/db/client.ts`, `src/db/migrate.ts` | Pool, migrations |
 | Cross-cutting | `src/middleware/` | Auth, errors |
