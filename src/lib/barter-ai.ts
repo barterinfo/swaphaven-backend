@@ -18,7 +18,8 @@ export type BarterAiPublicPingResult =
 const DEFAULT_TIMEOUT_MS = 5_000;
 const RECOMMEND_TIMEOUT_MS = 800;
 const EMBED_TIMEOUT_MS = 15_000;
-const SUGGEST_TIMEOUT_MS = 30_000;
+/** Must exceed barter-ai image fetch + Gemini suggest (≈15s + 55s). */
+const SUGGEST_TIMEOUT_MS = 75_000;
 
 export type BarterAiListingSuggestion = {
   title: string;
