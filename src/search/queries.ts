@@ -226,6 +226,7 @@ export async function searchListings(params: SearchListingParams): Promise<{
       condition: listingsTable.condition,
       estimatedValueCents: listingsTable.estimatedValueCents,
       acceptCashTopUps: listingsTable.acceptCashTopUps,
+      isGiveaway: listingsTable.isGiveaway,
       wantedCategoryIds: listingsTable.wantedCategoryIds,
       wantedCategories: listingsTable.wantedCategories,
       details: listingsTable.details,

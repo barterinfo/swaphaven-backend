@@ -110,6 +110,12 @@ router.post("/", requireAuth, async (req, res) => {
       message: "Listing is no longer active",
     });
   }
+  if (listing.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Free giveaways do not accept cash offers",
+    });
+  }
 
   let isSuperlike = false;
   if (swipeId) {

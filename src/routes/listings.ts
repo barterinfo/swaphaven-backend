@@ -29,6 +29,7 @@ import {
   createListingFromPlaceBodySchema,
   isUuid,
   normalizeDetails,
+  normalizeGiveawayFields,
   pickedPlaceSchema,
   resolveCategoryUuid,
   resolveEstimatedValueCents,
@@ -200,6 +201,11 @@ const mapQuerySchema = z.object({
   lng: z.coerce.number().min(-180).max(180),
   radius: z.coerce.number().positive().max(500),
   limit: z.coerce.number().int().min(1).max(100).optional().default(60),
+  /** When true, only free giveaway listings. */
+  giveaway: z
+    .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0"), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "true" || v === "1"),
 });
 
 /**
@@ -252,10 +258,12 @@ async function insertListingFromBody(
   }
 
   const category = data.category?.trim() || catRow.name;
-  const estimatedValueCents = resolveEstimatedValueCents(data);
+  const normalized = normalizeGiveawayFields(data);
+  const estimatedValueCents = resolveEstimatedValueCents(normalized);
   const estimatedValueDollars = Math.floor(estimatedValueCents / 100);
-  const details = normalizeDetails(data.details);
+  const details = normalizeDetails(normalized.details);
   const location = { ...opts.location };
+  const isGiveaway = Boolean(normalized.isGiveaway);
 
   let country =
     normalizeCountryCode(location.country) ??
@@ -273,7 +281,7 @@ async function insertListingFromBody(
   location.country = country;
 
   const reviewSnapshot = buildReviewSnapshot(
-    data,
+    normalized,
     category,
     estimatedValueDollars,
     details,
@@ -284,18 +292,19 @@ async function insertListingFromBody(
     .insert(listingsTable)
     .values({
       userId,
-      title: data.title.trim(),
-      description: data.description ?? "",
+      title: normalized.title.trim(),
+      description: normalized.description ?? "",
       category,
       categoryId: categoryUuid,
-      condition: data.condition,
+      condition: normalized.condition,
       estimatedValueCents,
-      acceptCashTopUps: Boolean(data.acceptCashTopUps),
-      wantedCategoryIds: data.wantedCategoryIds ?? [],
-      wantedCategories: data.wantedCategories ?? [],
+      acceptCashTopUps: Boolean(normalized.acceptCashTopUps),
+      isGiveaway,
+      wantedCategoryIds: normalized.wantedCategoryIds ?? [],
+      wantedCategories: normalized.wantedCategories ?? [],
       details,
       reviewSnapshot,
-      isSwipeOnly: Boolean(data.isSwipeOnly),
+      isSwipeOnly: Boolean(normalized.isSwipeOnly),
       locationCity: location.city,
       locationLat: toDecimalStr(location.lat),
       locationLng: toDecimalStr(location.lng),
@@ -322,11 +331,11 @@ async function insertListingFromBody(
     categoryId?: string | null;
     freeText?: string | null;
   }[] = [];
-  for (const cid of data.wantedCategoryIds ?? []) {
+  for (const cid of normalized.wantedCategoryIds ?? []) {
     if (isUuid(cid)) wantRows.push({ listingId: listing.id, categoryId: cid });
   }
-  if (data.wantedFreeText?.trim()) {
-    wantRows.push({ listingId: listing.id, freeText: data.wantedFreeText.trim() });
+  if (normalized.wantedFreeText?.trim()) {
+    wantRows.push({ listingId: listing.id, freeText: normalized.wantedFreeText.trim() });
   }
   if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
 
@@ -426,7 +435,8 @@ router.get("/map", optionalAuth, async (req, res) => {
     });
   }
 
-  const { lat: rawLat, lng: rawLng, radius: rawRadius, limit } = parsed.data;
+  const { lat: rawLat, lng: rawLng, radius: rawRadius, limit, giveaway: giveawayOnly } =
+    parsed.data;
   const userId = req.user?.sub;
 
   const conditions: SQL<unknown>[] = [
@@ -444,6 +454,9 @@ router.get("/map", optionalAuth, async (req, res) => {
       ) <= ${rawRadius}
     )`,
   ];
+  if (giveawayOnly) {
+    conditions.push(eq(listingsTable.isGiveaway, true));
+  }
 
   if (userId) {
     conditions.push(ne(listingsTable.userId, userId));
@@ -496,6 +509,7 @@ router.get("/map", optionalAuth, async (req, res) => {
         distance_miles: distanceMiles,
         category: row.category,
         category_id: row.categoryId,
+        is_giveaway: row.isGiveaway ?? false,
         images,
         primary_image_url: images[0] ?? null,
       };
@@ -850,8 +864,11 @@ const updateListingSchema = z.object({
   condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
   estimatedValue: z.coerce.number().nonnegative().optional(),
   estimatedValueCents: z.number().int().nonnegative().optional(),
+  acceptCashTopUps: z.boolean().optional(),
+  isGiveaway: z.boolean().optional(),
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
+  wantedFreeText: z.string().max(500).optional(),
   /** Owner can pause an active listing or bring a paused one back. */
   status: z.preprocess(
     (v) => (v === "active" || v === "paused" ? v : undefined),
@@ -887,9 +904,13 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const patch = parsed.data;
+  const nextIsGiveaway = patch.isGiveaway ?? listing.isGiveaway;
+  const giveawayNormalized = nextIsGiveaway
+    ? normalizeGiveawayFields({ ...patch, isGiveaway: true })
+    : patch;
   const profaneField = findProfaneField([
-    { field: "title", value: patch.title },
-    { field: "description", value: patch.description },
+    { field: "title", value: giveawayNormalized.title },
+    { field: "description", value: giveawayNormalized.description },
   ]);
   if (profaneField) {
     return res.status(400).json({
@@ -899,27 +920,34 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const wantsChanged =
-    patch.wantedCategoryIds !== undefined || patch.wantedCategories !== undefined;
-  const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
+    nextIsGiveaway ||
+    giveawayNormalized.wantedCategoryIds !== undefined ||
+    giveawayNormalized.wantedCategories !== undefined;
+  const nextWantedIds = nextIsGiveaway
+    ? []
+    : (giveawayNormalized.wantedCategoryIds ?? listing.wantedCategoryIds ?? []);
 
-  let nextCategory = patch.category;
-  let nextCategoryId = patch.categoryId;
-  if (patch.categoryId !== undefined) {
+  let nextCategory = giveawayNormalized.category;
+  let nextCategoryId = giveawayNormalized.categoryId;
+  if (giveawayNormalized.categoryId !== undefined) {
     const catRow = await db.query.categoriesTable.findFirst({
-      where: eq(categoriesTable.id, patch.categoryId),
+      where: eq(categoriesTable.id, giveawayNormalized.categoryId),
       columns: { id: true, name: true },
     });
     if (!catRow) {
       return res.status(400).json({ error: "Unknown categoryId" });
     }
     nextCategoryId = catRow.id;
-    nextCategory = patch.category?.trim() || catRow.name;
+    nextCategory = giveawayNormalized.category?.trim() || catRow.name;
   }
 
   const valuePatch =
-    patch.estimatedValue !== undefined || patch.estimatedValueCents !== undefined
-      ? { estimatedValueCents: resolveEstimatedValueCents(patch) }
-      : {};
+    nextIsGiveaway
+      ? { estimatedValueCents: 0 }
+      : giveawayNormalized.estimatedValue !== undefined ||
+          giveawayNormalized.estimatedValueCents !== undefined
+        ? { estimatedValueCents: resolveEstimatedValueCents(giveawayNormalized) }
+        : {};
   const nextValueCents = valuePatch.estimatedValueCents;
   const priceChanged =
     nextValueCents !== undefined && nextValueCents !== listing.estimatedValueCents;
@@ -974,20 +1002,34 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   const [updated] = await db
     .update(listingsTable)
     .set({
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(giveawayNormalized.title !== undefined ? { title: giveawayNormalized.title } : {}),
+      ...(giveawayNormalized.description !== undefined
+        ? { description: giveawayNormalized.description }
+        : {}),
       ...(nextCategory !== undefined ? { category: nextCategory } : {}),
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
-      ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
+      ...(giveawayNormalized.condition !== undefined
+        ? { condition: giveawayNormalized.condition }
+        : {}),
       ...valuePatch,
+      ...(patch.isGiveaway !== undefined ? { isGiveaway: patch.isGiveaway } : {}),
+      ...(nextIsGiveaway
+        ? { acceptCashTopUps: false }
+        : giveawayNormalized.acceptCashTopUps !== undefined
+          ? { acceptCashTopUps: giveawayNormalized.acceptCashTopUps }
+          : {}),
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...(placePatch ?? {}),
-      ...(patch.wantedCategoryIds !== undefined
-        ? { wantedCategoryIds: patch.wantedCategoryIds }
-        : {}),
-      ...(patch.wantedCategories !== undefined
-        ? { wantedCategories: patch.wantedCategories }
-        : {}),
+      ...(nextIsGiveaway
+        ? { wantedCategoryIds: [], wantedCategories: [] }
+        : {
+            ...(giveawayNormalized.wantedCategoryIds !== undefined
+              ? { wantedCategoryIds: giveawayNormalized.wantedCategoryIds }
+              : {}),
+            ...(giveawayNormalized.wantedCategories !== undefined
+              ? { wantedCategories: giveawayNormalized.wantedCategories }
+              : {}),
+          }),
       updatedAt: new Date(),
     })
     .where(eq(listingsTable.id, listingId))

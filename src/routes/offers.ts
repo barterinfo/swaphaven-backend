@@ -40,6 +40,7 @@ const listingSummaryColumns = {
   title: true,
   estimatedValueCents: true,
   status: true,
+  isGiveaway: true,
 } as const;
 
 /** Relations needed to render an offer row in the mobile inbox. */
@@ -128,7 +129,8 @@ async function serializeOfferListWithRounds(
 const createOfferSchema = z.object({
   listingId:         z.string().uuid(),
   swipeId:           z.string().uuid().optional(),
-  offeredListingIds: z.array(z.string().uuid()).min(1, "At least one item must be offered"),
+  /** Empty for free-giveaway interest; at least one UUID for barter. */
+  offeredListingIds: z.array(z.string().uuid()).default([]),
   /** Optional extras from the seller's closet; [listingId] is always included. */
   sellerListingIds:  z.array(z.string().uuid()).optional(),
   cashTopUpCents:    z.number().int().min(0).default(0),
@@ -166,11 +168,40 @@ router.post("/", requireAuth, async (req, res) => {
     return res.status(409).json({ error: "conflict", message: "Listing is no longer active" });
   }
 
+  const isGiveaway = Boolean(listing.isGiveaway);
+  if (isGiveaway) {
+    if (offeredListingIds.length > 0) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: "Free giveaways do not accept item swaps",
+      });
+    }
+    if ((offerData.cashTopUpCents ?? 0) > 0) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: "Free giveaways do not accept cash",
+      });
+    }
+    if ((sellerListingIdsRaw ?? []).length > 0) {
+      return res.status(400).json({
+        error: "bad_request",
+        message: "Free giveaways do not accept extra seller items",
+      });
+    }
+  } else if (offeredListingIds.length < 1) {
+    return res.status(400).json({
+      error: "validation",
+      message: { offeredListingIds: ["At least one item must be offered"] },
+    });
+  }
+
   // Pin the opened listing first; extras from the soft "add more" CTA follow.
-  const sellerListingIds = [
-    offerData.listingId,
-    ...(sellerListingIdsRaw ?? []).filter((id) => id !== offerData.listingId),
-  ];
+  const sellerListingIds = isGiveaway
+    ? [offerData.listingId]
+    : [
+        offerData.listingId,
+        ...(sellerListingIdsRaw ?? []).filter((id) => id !== offerData.listingId),
+      ];
   if (sellerListingIds.length > 1) {
     const sellerListings = await db.query.listingsTable.findMany({
       where: (t, { inArray }) => inArray(t.id, sellerListingIds),
@@ -209,33 +240,43 @@ router.post("/", requireAuth, async (req, res) => {
 
   const [offer] = await db
     .insert(offersTable)
-    .values({ ...offerData, buyerId: req.user!.sub, sellerId: listing.userId, isSuperlike })
+    .values({
+      ...offerData,
+      cashTopUpCents: isGiveaway ? 0 : (offerData.cashTopUpCents ?? 0),
+      buyerId: req.user!.sub,
+      sellerId: listing.userId,
+      isSuperlike,
+    })
     .returning();
 
   // Original offer items (buyer side) — kept for legacy compatibility.
-  await db.insert(offerItemsTable).values(
-    offeredListingIds.map((lid, i) => ({ offerId: offer.id, listingId: lid, position: i })),
-  );
+  if (offeredListingIds.length) {
+    await db.insert(offerItemsTable).values(
+      offeredListingIds.map((lid, i) => ({ offerId: offer.id, listingId: lid, position: i })),
+    );
+  }
 
   // Round 1 = buyer's original proposal.
   const [round] = await db.insert(offerRoundsTable).values({
     offerId: offer.id,
     roundNumber: 1,
     proposedBy: "buyer",
-    buyerCashTopUpCents: offerData.cashTopUpCents ?? 0,
+    buyerCashTopUpCents: isGiveaway ? 0 : (offerData.cashTopUpCents ?? 0),
     sellerCashRequestedCents: 0,
     note: offerData.buyerNote ?? null,
   }).returning();
 
-  // Buyer's items on the buyer side.
-  await db.insert(offerRoundItemsTable).values(
-    offeredListingIds.map((lid, i) => ({
-      offerRoundId: round.id,
-      listingId: lid,
-      side: "buyer" as const,
-      position: i,
-    })),
-  );
+  // Buyer's items on the buyer side (empty for free-giveaway interest).
+  if (offeredListingIds.length) {
+    await db.insert(offerRoundItemsTable).values(
+      offeredListingIds.map((lid, i) => ({
+        offerRoundId: round.id,
+        listingId: lid,
+        side: "buyer" as const,
+        position: i,
+      })),
+    );
+  }
   // Seller side: pinned target + any extras the buyer added from their closet.
   await db.insert(offerRoundItemsTable).values(
     sellerListingIds.map((lid, i) => ({
@@ -249,8 +290,10 @@ router.post("/", requireAuth, async (req, res) => {
   await db.insert(notificationsTable).values({
     userId: listing.userId,
     type: "offer_received",
-    title: "New swap offer!",
-    body: "Someone wants to trade for your item.",
+    title: isGiveaway ? "Someone wants your free item!" : "New swap offer!",
+    body: isGiveaway
+      ? "Someone is interested in your giveaway."
+      : "Someone wants to trade for your item.",
     relatedOfferId: offer.id,
   });
   // Rich FCM card for the seller (recipient): their = buyer items, your = seller side.
@@ -428,10 +471,64 @@ async function handleAccept(offerId: string, userId: string, res: Response) {
   }).returning();
   const conv = existingConv ?? (await db.insert(conversationsTable).values({ offerId: offer.id }).returning())[0]!;
 
+  const targetListing = await db.query.listingsTable.findFirst({
+    where: eq(listingsTable.id, offer.listingId),
+    columns: { id: true, title: true, isGiveaway: true, status: true },
+  });
+  const isGiveaway = Boolean(targetListing?.isGiveaway);
+
+  // Free giveaway: close the listing as given away and decline other interests.
+  if (isGiveaway && targetListing?.status === "active") {
+    await db
+      .update(listingsTable)
+      .set({
+        status: "traded",
+        soldMethod: "given_away",
+        tradedWithUserId: offer.buyerId,
+        updatedAt: new Date(),
+      })
+      .where(eq(listingsTable.id, offer.listingId));
+
+    const otherInterests = await db.query.offersTable.findMany({
+      where: and(
+        eq(offersTable.listingId, offer.listingId),
+        inArray(offersTable.status, [...ACTIVE_OFFER_STATUSES]),
+        sql`${offersTable.id} != ${offer.id}`,
+      ),
+      columns: { id: true, buyerId: true },
+    });
+    if (otherInterests.length) {
+      await db
+        .update(offersTable)
+        .set({ status: "denied", updatedAt: new Date() })
+        .where(inArray(offersTable.id, otherInterests.map((o) => o.id)));
+      await db.insert(notificationsTable).values(
+        otherInterests.map((o) => ({
+          userId: o.buyerId,
+          type: "offer_denied" as const,
+          title: "Offer declined",
+          body: `"${targetListing.title}" has already been given away.`,
+          relatedOfferId: o.id,
+        })),
+      );
+      for (const o of otherInterests) {
+        void notifyOfferDeclined({
+          offerId: o.id,
+          notifyUserId: o.buyerId,
+          listingTitle: targetListing.title,
+          reason: "listing_sold",
+        }).catch(console.error);
+      }
+    }
+  }
+
   const notifyUserId = isSeller ? offer.buyerId : offer.sellerId;
   await db.insert(notificationsTable).values({
     userId: notifyUserId, type: "offer_accepted",
-    title: "Offer accepted! 🎉", body: "Your trade offer was accepted. Start chatting now.",
+    title: isGiveaway ? "You're getting it! 🎉" : "Offer accepted! 🎉",
+    body: isGiveaway
+      ? "The owner picked you for their free item. Start chatting now."
+      : "Your trade offer was accepted. Start chatting now.",
     relatedOfferId: offer.id, relatedTradeId: trade.id, relatedConversationId: conv.id,
   });
   // Recipient = notifyUserId; their* = accepter's side, your* = recipient's side.
@@ -450,18 +547,12 @@ async function handleAccept(offerId: string, userId: string, res: Response) {
     });
     await sendPushToUser(notifyUserId, payload);
   })().catch(console.error);
-  if (isSeller) {
-    const listing = await db.query.listingsTable.findFirst({
-      where: eq(listingsTable.id, offer.listingId),
-      columns: { id: true, title: true },
-    });
-    if (listing) {
-      void notifyFollowersOfAcceptedTrade({
-        sellerId: userId,
-        listingId: listing.id,
-        listingTitle: listing.title,
-      }).catch(console.error);
-    }
+  if (isSeller && targetListing && !isGiveaway) {
+    void notifyFollowersOfAcceptedTrade({
+      sellerId: userId,
+      listingId: targetListing.id,
+      listingTitle: targetListing.title,
+    }).catch(console.error);
   }
   void notifyOfferAccepted({
     offerId: offer.id,
@@ -575,6 +666,17 @@ router.post("/:offerId/counter", requireAuth, async (req, res) => {
   const isBuyer = offer.buyerId === userId;
   const isSeller = offer.sellerId === userId;
   if (!isBuyer && !isSeller) return res.status(403).json({ error: "forbidden" });
+
+  const targetListing = await db.query.listingsTable.findFirst({
+    where: eq(listingsTable.id, offer.listingId),
+    columns: { isGiveaway: true },
+  });
+  if (targetListing?.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Free giveaways cannot be negotiated",
+    });
+  }
 
   // Verify it's the caller's turn.
   if (isSeller && offer.currentTurn !== "seller") {

@@ -167,6 +167,7 @@ export const openApiSpec = {
           description:         { type: "string", nullable: true },
           condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
           estimatedValueCents: { type: "integer", description: "Canonical listing value in integer cents." },
+          isGiveaway:          { type: "boolean", description: "True when the listing is a free giveaway (no swap expected)." },
           isSwipeOnly:         { type: "boolean" },
           status:              { type: "string", enum: ["active","traded","paused","deleted"] },
           soldMethod:          { type: "string", enum: ["traded_on_barter","sold_for_cash","given_away"], nullable: true, description: "How the item left the seller. Set by POST /sold; null while the listing is active." },
@@ -201,6 +202,10 @@ export const openApiSpec = {
             description: "Canonical listing value in integer cents.",
           },
           accept_cash_top_ups: { type: "boolean" },
+          is_giveaway: {
+            type: "boolean",
+            description: "True when the listing is a free giveaway (no swap expected).",
+          },
           wanted_category_ids: { type: "array", items: { type: "string" } },
           wanted_categories:   { type: "array", items: { type: "string" } },
           images:              { type: "array", items: { type: "string", format: "uri" } },
@@ -1110,6 +1115,11 @@ export const openApiSpec = {
                     description: "Canonical listing value in integer cents.",
                   },
                   acceptCashTopUps: { type: "boolean" },
+                  isGiveaway: {
+                    type: "boolean",
+                    description:
+                      "Free giveaway. When true, value is stored as 0 and wanted/cash fields are cleared.",
+                  },
                   isSwipeOnly: { type: "boolean" },
                   wantedCategoryIds: { type: "array", items: { type: "string", format: "uuid" } },
                   wantedCategories: { type: "array", items: { type: "string" } },
