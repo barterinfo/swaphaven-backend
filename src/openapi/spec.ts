@@ -2387,6 +2387,106 @@ export const openApiSpec = {
     "/api/inbox/summary": {
       get: { tags: ["Chat"], summary: "Inbox badge counts", responses: { "200": { description: "Counts for the nav badge", content: { "application/json": { schema: { $ref: "#/components/schemas/InboxSummary" } } } } } },
     },
+    // ── Ask (intent chat on Swipe) ────────────────────────────────────────────────
+    "/api/ask": {
+      post: {
+        tags: ["Ask"],
+        summary: "Classify a typed want/sell request and return ranked listings or a sell draft",
+        description:
+          "Auth required. Proxies to barter-ai intent + seek rank. Returns listing cards with matchReason " +
+          "and optional sellDraft for create-listing prefill. Rate-limited (60/hour per user).",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["text"],
+                properties: {
+                  text: { type: "string", minLength: 1, maxLength: 500 },
+                  threadId: { type: "string", format: "uuid" },
+                  country: { type: "string", minLength: 2, maxLength: 2 },
+                  prior: {
+                    type: "object",
+                    properties: {
+                      intent: { type: "string", enum: ["seek", "sell", "both", "unclear"] },
+                      query: { type: "string", nullable: true },
+                      categorySlug: { type: "string", nullable: true },
+                      constraints: { type: "object" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Intent, message, listings, optional sellDraft" },
+          "503": { description: "Ask / barter-ai unavailable" },
+        },
+      },
+    },
+    "/api/ask/events": {
+      post: {
+        tags: ["Ask"],
+        summary: "Record Ask card select / dismiss / offer for taste learning",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["listingId", "kind"],
+                properties: {
+                  listingId: { type: "string", format: "uuid" },
+                  kind: { type: "string", enum: ["selected", "dismissed", "offered"] },
+                  threadId: { type: "string", format: "uuid" },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Event stored" } },
+      },
+    },
+    "/api/ask/wants": {
+      get: {
+        tags: ["Ask"],
+        summary: "List active saved wants",
+        responses: { "200": { description: "Active wants" } },
+      },
+      post: {
+        tags: ["Ask"],
+        summary: "Keep watching — save an active want for notify-on-publish",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                  query: { type: "string", minLength: 1, maxLength: 120 },
+                  categorySlug: { type: "string", nullable: true },
+                  embedding: { type: "array", items: { type: "number" } },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Want created" }, "200": { description: "Want refreshed" } },
+      },
+    },
+    "/api/ask/wants/{wantId}": {
+      delete: {
+        tags: ["Ask"],
+        summary: "Stop watching a want",
+        parameters: [
+          { name: "wantId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: { "200": { description: "Want paused" } },
+      },
+    },
     // ── Notifications ────────────────────────────────────────────────────────────
     "/api/notifications": {
       get: { tags: ["Notifications"], summary: "Notification feed", parameters: [{ $ref: "#/components/parameters/limit" }, { name: "unreadOnly", in: "query", schema: { type: "boolean" } }], responses: { "200": { description: "Paginated notifications" } } },

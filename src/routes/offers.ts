@@ -31,6 +31,7 @@ import {
   notifyOfferWithdrawn,
   notifySwapCounter,
 } from "../lib/activity-email/notify.js";
+import { fulfillWantsOnOffer } from "../lib/want-match.js";
 
 const router = Router();
 
@@ -311,6 +312,10 @@ router.post("/", requireAuth, async (req, res) => {
     senderUserId: req.user!.sub,
     theirListingIds: offeredListingIds,
     yourListingId: offerData.listingId,
+  }).catch(console.error);
+  void fulfillWantsOnOffer({
+    buyerId: req.user!.sub,
+    listingId: offerData.listingId,
   }).catch(console.error);
   return res.status(201).json(offer);
 });
