@@ -36,6 +36,7 @@ Cross-repo work also appears in [barter-stack `mobile/docs/FEATURE_LOG.md`](../.
 
 | Date | Feature | Areas touched | Chat |
 |------|---------|---------------|------|
+| 2026-11-10 | Ricky Ask cross-stack docs | docs/RICKY_ASK.md, docs/README, ask routes, want-match, barter-ai ask, mobile ask overlay | [Ricky Ask implementation](24ccabf1-f8c8-45ad-8b77-07b2f26066a3) |
 | 2026-10-15 | Location pin privacy and PDPA docs | docs/LOCATION_PIN_PRIVACY.md, docs/PDPA.md, API_GUIDE, DB_SCHEMA, place-suggestions, from-place, listings/map, 0038 | [Location pin privacy](5b8ebc97-6184-4961-be14-d00ac661d7d2) |
 | 2026-09-29 | Follow feature full doc and perf | docs/FOLLOW_FEATURE.md, 0035_follow_perf, fan-out caps, denorm counts | [Follow feature end-to-end](272151c5-0acc-40a4-93ec-80eabaa4e285) |
 | 2026-09-29 | Follow feature end-to-end | user_follows, follow-alerts, search/followed, mute, suggestions, mobile follow + docs/FOLLOW_FEATURE.md | [Follow feature end-to-end](272151c5-0acc-40a4-93ec-80eabaa4e285) |
