@@ -17,6 +17,7 @@ import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-mode
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
 import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
+import { scheduleWantMatch } from "../lib/want-match.js";
 import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
 import {
   notifyFollowersOfNewListing,
@@ -341,6 +342,7 @@ async function insertListingFromBody(
 
   const serialized = serializeListingBarter(listing, { images: imageUrls });
   scheduleListingEmbed(listing.id);
+  scheduleWantMatch(listing.id);
   void notifyFollowersOfNewListing({
     sellerId: listing.userId,
     listingId: listing.id,

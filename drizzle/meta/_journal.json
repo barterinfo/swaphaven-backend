@@ -288,6 +288,13 @@
       "when": 1787000000000,
       "tag": "0039_listing_is_giveaway",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0040_ask_wants",
+      "breakpoints": true
     }
   ]
 }
