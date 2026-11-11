@@ -110,6 +110,59 @@ export async function createListing(
   };
 }
 
+/** Creates a free listing via POST /api/giveaways (requires a tapped place). */
+export async function createGiveaway(
+  accessToken: string,
+  overrides: Record<string, unknown> = {},
+): Promise<ListingResult> {
+  const slug =
+    typeof overrides.category === "string"
+      ? overrides.category
+      : "electronics";
+  const resolvedCategoryId =
+    (typeof overrides.categoryId === "string" &&
+    String(overrides.categoryId).includes("-")
+      ? overrides.categoryId
+      : categoryIdBySlug(slug)) ?? categoryIdBySlug("electronics")!;
+
+  const { categoryId: _ignored, category: _cat, place: placeOverride, ...rest } =
+    overrides;
+  const res = await request(app)
+    .post("/api/giveaways")
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({
+      title: `Free-${uid()}`,
+      condition: "good",
+      categoryId: resolvedCategoryId,
+      place: placeOverride ?? {
+        label: "Hillview",
+        lat: 1.3521,
+        lng: 103.8198,
+        pinKind: "area",
+        countryCode: "SG",
+      },
+      images: [`https://picsum.photos/seed/${uid()}/800/600`],
+      ...rest,
+    });
+
+  if (res.status !== 201) {
+    throw new Error(`createGiveaway failed: ${JSON.stringify(res.body)}`);
+  }
+  const body = res.body as {
+    id?: string;
+    title?: string;
+    userId?: string;
+    status?: string;
+    listing?: { id?: string; title?: string; user_id?: string; status?: string };
+  };
+  return {
+    id: body.listing?.id ?? body.id ?? "",
+    title: body.listing?.title ?? body.title ?? "",
+    userId: body.listing?.user_id ?? body.userId ?? "",
+    status: body.listing?.status ?? body.status ?? "",
+  };
+}
+
 // ─── Offers ───────────────────────────────────────────────────────────────────
 
 export async function createOffer(

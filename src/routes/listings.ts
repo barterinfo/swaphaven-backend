@@ -10,27 +10,24 @@ import {
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
-import { p, toDecimalStr } from "../lib/route-helpers.js";
+import { p } from "../lib/route-helpers.js";
 import { filterListingImageUrls } from "../lib/media.js";
 import { findProfaneField } from "../lib/moderation.js";
-import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-moderation.js";
+import { isImageRelevantToListing } from "../lib/image-moderation.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
 import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
 import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
 import {
-  notifyFollowersOfNewListing,
   notifyFollowersOfPriceChange,
   notifyFollowersOfRelist,
 } from "../lib/follow-alerts.js";
+import { insertListingFromBody } from "../lib/create-listing.js";
 import {
-  buildReviewSnapshot,
   createListingBodySchema,
   createListingFromPlaceBodySchema,
   isUuid,
-  normalizeDetails,
   pickedPlaceSchema,
-  resolveCategoryUuid,
   resolveEstimatedValueCents,
   resolveLocation,
   serializeListingBarter,
@@ -167,6 +164,12 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const data = parsed.data;
+  if (data.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use POST /api/giveaways for free listings",
+    });
+  }
   const profaneField = findProfaneField([
     { field: "title", value: data.title },
     { field: "description", value: data.description },
@@ -200,156 +203,12 @@ const mapQuerySchema = z.object({
   lng: z.coerce.number().min(-180).max(180),
   radius: z.coerce.number().positive().max(500),
   limit: z.coerce.number().int().min(1).max(100).optional().default(60),
+  /** When true, only free giveaway listings. */
+  giveaway: z
+    .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0"), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "true" || v === "1"),
 });
-
-/**
- * Shared insert path for POST / and POST /from-place.
- * [pinKind] is set only on the from-place route.
- */
-async function insertListingFromBody(
-  userId: string,
-  data: CreateListingBody,
-  opts: {
-    location: ReturnType<typeof resolveLocation>;
-    pinKind?: "area" | "venue" | null;
-    /** Fallback country from CDN / request when payload and profile omit it. */
-    requestCountry: string;
-  },
-) {
-  const imageUrls = filterListingImageUrls(data.images ?? []);
-  if (imageUrls.length) {
-    const irrelevant = await findIrrelevantImage(
-      imageUrls,
-      data.title,
-      data.description ?? "",
-    );
-    if (irrelevant) {
-      return {
-        error: {
-          status: 400 as const,
-          body: {
-            error: "moderation",
-            message:
-              "One or more photos do not appear to match the listing title or description. Please upload a photo of the actual item.",
-          },
-        },
-      };
-    }
-  }
-
-  const categoryUuid = resolveCategoryUuid(data);
-  const catRow = await db.query.categoriesTable.findFirst({
-    where: eq(categoriesTable.id, categoryUuid),
-    columns: { id: true, name: true, slug: true },
-  });
-  if (!catRow) {
-    return {
-      error: {
-        status: 400 as const,
-        body: { error: "Unknown categoryId" },
-      },
-    };
-  }
-
-  const category = data.category?.trim() || catRow.name;
-  const estimatedValueCents = resolveEstimatedValueCents(data);
-  const estimatedValueDollars = Math.floor(estimatedValueCents / 100);
-  const details = normalizeDetails(data.details);
-  const location = { ...opts.location };
-
-  let country =
-    normalizeCountryCode(location.country) ??
-    normalizeCountryCode(
-      (
-        await db.query.userProfilesTable.findFirst({
-          where: eq(userProfilesTable.id, userId),
-          columns: { locationCountry: true },
-        })
-      )?.locationCountry,
-    );
-  if (!country) {
-    country = opts.requestCountry;
-  }
-  location.country = country;
-
-  const reviewSnapshot = buildReviewSnapshot(
-    data,
-    category,
-    estimatedValueDollars,
-    details,
-    location,
-  );
-
-  const [listing] = await db
-    .insert(listingsTable)
-    .values({
-      userId,
-      title: data.title.trim(),
-      description: data.description ?? "",
-      category,
-      categoryId: categoryUuid,
-      condition: data.condition,
-      estimatedValueCents,
-      acceptCashTopUps: Boolean(data.acceptCashTopUps),
-      wantedCategoryIds: data.wantedCategoryIds ?? [],
-      wantedCategories: data.wantedCategories ?? [],
-      details,
-      reviewSnapshot,
-      isSwipeOnly: Boolean(data.isSwipeOnly),
-      locationCity: location.city,
-      locationLat: toDecimalStr(location.lat),
-      locationLng: toDecimalStr(location.lng),
-      locationAddress: location.address,
-      locationState: location.state,
-      locationCountry: location.country,
-      locationPostalCode: location.postalCode,
-      locationPinKind: opts.pinKind ?? null,
-    })
-    .returning();
-
-  if (imageUrls.length) {
-    await db.insert(listingImagesTable).values(
-      imageUrls.map((url, position) => ({
-        listingId: listing.id,
-        url,
-        position,
-      })),
-    );
-  }
-
-  const wantRows: {
-    listingId: string;
-    categoryId?: string | null;
-    freeText?: string | null;
-  }[] = [];
-  for (const cid of data.wantedCategoryIds ?? []) {
-    if (isUuid(cid)) wantRows.push({ listingId: listing.id, categoryId: cid });
-  }
-  if (data.wantedFreeText?.trim()) {
-    wantRows.push({ listingId: listing.id, freeText: data.wantedFreeText.trim() });
-  }
-  if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
-
-  const serialized = serializeListingBarter(listing, { images: imageUrls });
-  scheduleListingEmbed(listing.id);
-  void notifyFollowersOfNewListing({
-    sellerId: listing.userId,
-    listingId: listing.id,
-    listingTitle: listing.title,
-  }).catch(console.error);
-
-  return {
-    listing,
-    serialized,
-    body: {
-      listing: serialized,
-      id: listing.id,
-      title: listing.title,
-      status: listing.status,
-      userId: listing.userId,
-    },
-  };
-}
 
 // ─── POST /api/listings/from-place ────────────────────────────────────────────
 // Must be registered before /:listingId.
@@ -362,6 +221,12 @@ router.post("/from-place", requireAuth, async (req, res) => {
   }
 
   const { place, ...rest } = parsed.data;
+  if (rest.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use POST /api/giveaways for free listings",
+    });
+  }
   if (queryHasUnit(place.label)) {
     return res.status(400).json({
       error: "validation",
@@ -371,6 +236,7 @@ router.post("/from-place", requireAuth, async (req, res) => {
 
   const data: CreateListingBody = {
     ...rest,
+    isGiveaway: false,
     location: {
       lat: place.lat,
       lng: place.lng,
@@ -426,7 +292,8 @@ router.get("/map", optionalAuth, async (req, res) => {
     });
   }
 
-  const { lat: rawLat, lng: rawLng, radius: rawRadius, limit } = parsed.data;
+  const { lat: rawLat, lng: rawLng, radius: rawRadius, limit, giveaway: giveawayOnly } =
+    parsed.data;
   const userId = req.user?.sub;
 
   const conditions: SQL<unknown>[] = [
@@ -444,6 +311,9 @@ router.get("/map", optionalAuth, async (req, res) => {
       ) <= ${rawRadius}
     )`,
   ];
+  if (giveawayOnly) {
+    conditions.push(eq(listingsTable.isGiveaway, true));
+  }
 
   if (userId) {
     conditions.push(ne(listingsTable.userId, userId));
@@ -496,6 +366,7 @@ router.get("/map", optionalAuth, async (req, res) => {
         distance_miles: distanceMiles,
         category: row.category,
         category_id: row.categoryId,
+        is_giveaway: row.isGiveaway ?? false,
         images,
         primary_image_url: images[0] ?? null,
       };
@@ -850,8 +721,10 @@ const updateListingSchema = z.object({
   condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
   estimatedValue: z.coerce.number().nonnegative().optional(),
   estimatedValueCents: z.number().int().nonnegative().optional(),
+  acceptCashTopUps: z.boolean().optional(),
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
+  wantedFreeText: z.string().max(500).optional(),
   /** Owner can pause an active listing or bring a paused one back. */
   status: z.preprocess(
     (v) => (v === "active" || v === "paused" ? v : undefined),
@@ -880,6 +753,12 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   });
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
+  if (listing.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use PATCH /api/giveaways/:id for free listings",
+    });
+  }
 
   const parsed = updateListingSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -899,7 +778,8 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const wantsChanged =
-    patch.wantedCategoryIds !== undefined || patch.wantedCategories !== undefined;
+    patch.wantedCategoryIds !== undefined ||
+    patch.wantedCategories !== undefined;
   const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
 
   let nextCategory = patch.category;
@@ -980,6 +860,9 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...valuePatch,
+      ...(patch.acceptCashTopUps !== undefined
+        ? { acceptCashTopUps: patch.acceptCashTopUps }
+        : {}),
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...(placePatch ?? {}),
       ...(patch.wantedCategoryIds !== undefined

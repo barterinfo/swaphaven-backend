@@ -38,6 +38,8 @@ export const createListingBodySchema = z.object({
   /** Canonical listing value in integer cents. */
   estimatedValueCents: z.coerce.number().int().nonnegative().optional(),
   acceptCashTopUps: z.boolean().optional().default(false),
+  /** Free giveaway — no swap expected. Forces value/wanted/cash fields off on write. */
+  isGiveaway: z.boolean().optional().default(false),
   isSwipeOnly: z.boolean().optional().default(false),
   wantedCategoryIds: z.array(z.string().uuid()).optional().default([]),
   wantedCategories: z.array(z.string()).optional().default([]),
@@ -117,6 +119,7 @@ export function buildListingPayload(
     condition: fixture.condition,
     estimatedValueCents: Math.round(fixture.estimatedValue * 100),
     acceptCashTopUps: fixture.acceptCashTopUps,
+    isGiveaway: false,
     isSwipeOnly: fixture.isSwipeOnly,
     wantedCategoryIds: fixture.wantedCategoryIds,
     wantedCategories: fixture.wantedCategories,
@@ -146,6 +149,31 @@ export function resolveEstimatedValueCents(data: {
     return Math.round(data.estimatedValue * 100);
   }
   return 0;
+}
+
+/**
+ * Giveaway listings store zero value, no cash top-ups, and empty wants.
+ * Call before insert/update so clients cannot leave conflicting barter fields.
+ */
+export function normalizeGiveawayFields<T extends {
+  isGiveaway?: boolean;
+  estimatedValue?: number;
+  estimatedValueCents?: number;
+  acceptCashTopUps?: boolean;
+  wantedCategoryIds?: string[];
+  wantedCategories?: string[];
+  wantedFreeText?: string;
+}>(data: T): T {
+  if (!data.isGiveaway) return data;
+  return {
+    ...data,
+    estimatedValue: 0,
+    estimatedValueCents: 0,
+    acceptCashTopUps: false,
+    wantedCategoryIds: [],
+    wantedCategories: [],
+    wantedFreeText: undefined,
+  };
 }
 
 export function listingValueCents(listing: {
@@ -211,6 +239,7 @@ export function buildReviewSnapshot(
     condition: data.condition,
     estimatedValue,
     acceptCashTopUps: Boolean(data.acceptCashTopUps),
+    isGiveaway: Boolean(data.isGiveaway),
     wantedCategoryIds: data.wantedCategoryIds ?? [],
     wantedCategories: data.wantedCategories ?? [],
     details,
@@ -301,6 +330,7 @@ export function serializeListingBarter(
     // Whole-dollar denormalization for older clients / sort keys — not precise.
     estimated_value: Math.floor(cents / 100),
     accept_cash_top_ups: listing.acceptCashTopUps,
+    is_giveaway: listing.isGiveaway ?? false,
     wanted_category_ids: wantedIds,
     wanted_categories: wantedLabels,
     images: options.images ?? [],

@@ -172,6 +172,8 @@ type RecommendBody = {
   followedOwnerIds?: string[];
   country: string;
   category?: string;
+  /** When true, rank only free giveaway listings. */
+  giveawayOnly?: boolean;
   limit: number;
   candidateIds?: string[];
 };
