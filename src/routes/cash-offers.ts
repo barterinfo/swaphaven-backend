@@ -113,7 +113,7 @@ router.post("/", requireAuth, async (req, res) => {
   if (listing.isGiveaway) {
     return res.status(409).json({
       error: "conflict",
-      message: "Free giveaways do not accept cash offers",
+      message: "Use POST /api/giveaways/:id/interest for free listings",
     });
   }
 

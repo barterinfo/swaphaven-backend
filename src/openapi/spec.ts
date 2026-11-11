@@ -1355,6 +1355,111 @@ export const openApiSpec = {
           "201": { description: "Listing created" },
           "400": { description: "Missing place, unit label, or invalid body" },
           "401": { description: "Unauthorized" },
+          "409": { description: "isGiveaway requested — use POST /api/giveaways" },
+        },
+      },
+    },
+    "/api/giveaways": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Create a free giveaway listing from a tapped place",
+        description:
+          "Forces is_giveaway with zero value and empty wants. Barter creates stay on POST /api/listings/from-place.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["title", "categoryId", "place"],
+                properties: {
+                  title: { type: "string" },
+                  categoryId: { type: "string", format: "uuid" },
+                  place: {
+                    type: "object",
+                    required: ["label", "lat", "lng", "pinKind"],
+                    properties: {
+                      label: { type: "string" },
+                      lat: { type: "number" },
+                      lng: { type: "number" },
+                      pinKind: { type: "string", enum: ["area", "venue"] },
+                      countryCode: { type: "string", minLength: 2, maxLength: 2 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Giveaway created" },
+          "400": { description: "Validation or moderation error" },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+    "/api/giveaways/{listingId}": {
+      patch: {
+        tags: ["Giveaways"],
+        summary: "Edit a free giveaway listing",
+        parameters: [
+          { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": { description: "Updated" },
+          "409": { description: "Not a giveaway — use PATCH /api/listings/:id" },
+        },
+      },
+    },
+    "/api/giveaways/{listingId}/interest": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Send interest on a free listing (no items or cash)",
+        parameters: [
+          { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  swipeId: { type: "string", format: "uuid" },
+                  buyerNote: { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Interest created (offer row)" },
+          "409": { description: "Not a giveaway — use POST /api/offers" },
+        },
+      },
+    },
+    "/api/giveaways/interests/{interestId}/accept": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Accept one giveaway interest; closes listing and declines others",
+        parameters: [
+          { name: "interestId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": { description: "Trade and conversation created" },
+          "409": { description: "Not a giveaway interest" },
+        },
+      },
+    },
+    "/api/giveaways/interests/{interestId}/decline": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Decline a giveaway interest",
+        parameters: [
+          { name: "interestId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "204": { description: "Declined" },
+          "409": { description: "Not a giveaway interest" },
         },
       },
     },
@@ -2566,6 +2671,7 @@ export const openApiSpec = {
     { name: "Users",         description: "User profiles" },
     { name: "Media",         description: "S3 presigned upload URLs for listing images" },
     { name: "Listings",      description: "Item listings, categories, and owner actions (edit / mark sold / delete)" },
+    { name: "Giveaways",     description: "Free listings and interest accept/decline (separate from barter offers)" },
     { name: "Places",        description: "Selectable place suggestions for onboarding and create-listing" },
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Saved",         description: "Save-for-later listings (independent of swipes)" },

@@ -10,28 +10,24 @@ import {
 } from "../db/schema/index.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { parsePaginationQuery, encodeCursor } from "../lib/paginate.js";
-import { p, toDecimalStr } from "../lib/route-helpers.js";
+import { p } from "../lib/route-helpers.js";
 import { filterListingImageUrls } from "../lib/media.js";
 import { findProfaneField } from "../lib/moderation.js";
-import { findIrrelevantImage, isImageRelevantToListing } from "../lib/image-moderation.js";
+import { isImageRelevantToListing } from "../lib/image-moderation.js";
 import { getActiveNegotiationListingIds } from "../lib/active-offer-listings.js";
 import { hiddenOwnerIds } from "../lib/user-blocks.js";
 import { recommendRelated, scheduleListingEmbed } from "../lib/barter-ai.js";
 import { fallbackRelatedIds, serializeListingsByIds } from "../lib/related-listings.js";
 import {
-  notifyFollowersOfNewListing,
   notifyFollowersOfPriceChange,
   notifyFollowersOfRelist,
 } from "../lib/follow-alerts.js";
+import { insertListingFromBody } from "../lib/create-listing.js";
 import {
-  buildReviewSnapshot,
   createListingBodySchema,
   createListingFromPlaceBodySchema,
   isUuid,
-  normalizeDetails,
-  normalizeGiveawayFields,
   pickedPlaceSchema,
-  resolveCategoryUuid,
   resolveEstimatedValueCents,
   resolveLocation,
   serializeListingBarter,
@@ -168,6 +164,12 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const data = parsed.data;
+  if (data.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use POST /api/giveaways for free listings",
+    });
+  }
   const profaneField = findProfaneField([
     { field: "title", value: data.title },
     { field: "description", value: data.description },
@@ -208,158 +210,6 @@ const mapQuerySchema = z.object({
     .transform((v) => v === true || v === "true" || v === "1"),
 });
 
-/**
- * Shared insert path for POST / and POST /from-place.
- * [pinKind] is set only on the from-place route.
- */
-async function insertListingFromBody(
-  userId: string,
-  data: CreateListingBody,
-  opts: {
-    location: ReturnType<typeof resolveLocation>;
-    pinKind?: "area" | "venue" | null;
-    /** Fallback country from CDN / request when payload and profile omit it. */
-    requestCountry: string;
-  },
-) {
-  const imageUrls = filterListingImageUrls(data.images ?? []);
-  if (imageUrls.length) {
-    const irrelevant = await findIrrelevantImage(
-      imageUrls,
-      data.title,
-      data.description ?? "",
-    );
-    if (irrelevant) {
-      return {
-        error: {
-          status: 400 as const,
-          body: {
-            error: "moderation",
-            message:
-              "One or more photos do not appear to match the listing title or description. Please upload a photo of the actual item.",
-          },
-        },
-      };
-    }
-  }
-
-  const categoryUuid = resolveCategoryUuid(data);
-  const catRow = await db.query.categoriesTable.findFirst({
-    where: eq(categoriesTable.id, categoryUuid),
-    columns: { id: true, name: true, slug: true },
-  });
-  if (!catRow) {
-    return {
-      error: {
-        status: 400 as const,
-        body: { error: "Unknown categoryId" },
-      },
-    };
-  }
-
-  const category = data.category?.trim() || catRow.name;
-  const normalized = normalizeGiveawayFields(data);
-  const estimatedValueCents = resolveEstimatedValueCents(normalized);
-  const estimatedValueDollars = Math.floor(estimatedValueCents / 100);
-  const details = normalizeDetails(normalized.details);
-  const location = { ...opts.location };
-  const isGiveaway = Boolean(normalized.isGiveaway);
-
-  let country =
-    normalizeCountryCode(location.country) ??
-    normalizeCountryCode(
-      (
-        await db.query.userProfilesTable.findFirst({
-          where: eq(userProfilesTable.id, userId),
-          columns: { locationCountry: true },
-        })
-      )?.locationCountry,
-    );
-  if (!country) {
-    country = opts.requestCountry;
-  }
-  location.country = country;
-
-  const reviewSnapshot = buildReviewSnapshot(
-    normalized,
-    category,
-    estimatedValueDollars,
-    details,
-    location,
-  );
-
-  const [listing] = await db
-    .insert(listingsTable)
-    .values({
-      userId,
-      title: normalized.title.trim(),
-      description: normalized.description ?? "",
-      category,
-      categoryId: categoryUuid,
-      condition: normalized.condition,
-      estimatedValueCents,
-      acceptCashTopUps: Boolean(normalized.acceptCashTopUps),
-      isGiveaway,
-      wantedCategoryIds: normalized.wantedCategoryIds ?? [],
-      wantedCategories: normalized.wantedCategories ?? [],
-      details,
-      reviewSnapshot,
-      isSwipeOnly: Boolean(normalized.isSwipeOnly),
-      locationCity: location.city,
-      locationLat: toDecimalStr(location.lat),
-      locationLng: toDecimalStr(location.lng),
-      locationAddress: location.address,
-      locationState: location.state,
-      locationCountry: location.country,
-      locationPostalCode: location.postalCode,
-      locationPinKind: opts.pinKind ?? null,
-    })
-    .returning();
-
-  if (imageUrls.length) {
-    await db.insert(listingImagesTable).values(
-      imageUrls.map((url, position) => ({
-        listingId: listing.id,
-        url,
-        position,
-      })),
-    );
-  }
-
-  const wantRows: {
-    listingId: string;
-    categoryId?: string | null;
-    freeText?: string | null;
-  }[] = [];
-  for (const cid of normalized.wantedCategoryIds ?? []) {
-    if (isUuid(cid)) wantRows.push({ listingId: listing.id, categoryId: cid });
-  }
-  if (normalized.wantedFreeText?.trim()) {
-    wantRows.push({ listingId: listing.id, freeText: normalized.wantedFreeText.trim() });
-  }
-  if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
-
-  const serialized = serializeListingBarter(listing, { images: imageUrls });
-  scheduleListingEmbed(listing.id);
-  void notifyFollowersOfNewListing({
-    sellerId: listing.userId,
-    listingId: listing.id,
-    listingTitle: listing.title,
-  }).catch(console.error);
-
-  return {
-    listing,
-    serialized,
-    body: {
-      listing: serialized,
-      id: listing.id,
-      title: listing.title,
-      status: listing.status,
-      userId: listing.userId,
-    },
-  };
-}
-
 // ─── POST /api/listings/from-place ────────────────────────────────────────────
 // Must be registered before /:listingId.
 router.post("/from-place", requireAuth, async (req, res) => {
@@ -371,6 +221,12 @@ router.post("/from-place", requireAuth, async (req, res) => {
   }
 
   const { place, ...rest } = parsed.data;
+  if (rest.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use POST /api/giveaways for free listings",
+    });
+  }
   if (queryHasUnit(place.label)) {
     return res.status(400).json({
       error: "validation",
@@ -380,6 +236,7 @@ router.post("/from-place", requireAuth, async (req, res) => {
 
   const data: CreateListingBody = {
     ...rest,
+    isGiveaway: false,
     location: {
       lat: place.lat,
       lng: place.lng,
@@ -865,7 +722,6 @@ const updateListingSchema = z.object({
   estimatedValue: z.coerce.number().nonnegative().optional(),
   estimatedValueCents: z.number().int().nonnegative().optional(),
   acceptCashTopUps: z.boolean().optional(),
-  isGiveaway: z.boolean().optional(),
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
   wantedFreeText: z.string().max(500).optional(),
@@ -897,6 +753,12 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   });
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
+  if (listing.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use PATCH /api/giveaways/:id for free listings",
+    });
+  }
 
   const parsed = updateListingSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -904,13 +766,9 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const patch = parsed.data;
-  const nextIsGiveaway = patch.isGiveaway ?? listing.isGiveaway;
-  const giveawayNormalized = nextIsGiveaway
-    ? normalizeGiveawayFields({ ...patch, isGiveaway: true })
-    : patch;
   const profaneField = findProfaneField([
-    { field: "title", value: giveawayNormalized.title },
-    { field: "description", value: giveawayNormalized.description },
+    { field: "title", value: patch.title },
+    { field: "description", value: patch.description },
   ]);
   if (profaneField) {
     return res.status(400).json({
@@ -920,34 +778,28 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const wantsChanged =
-    nextIsGiveaway ||
-    giveawayNormalized.wantedCategoryIds !== undefined ||
-    giveawayNormalized.wantedCategories !== undefined;
-  const nextWantedIds = nextIsGiveaway
-    ? []
-    : (giveawayNormalized.wantedCategoryIds ?? listing.wantedCategoryIds ?? []);
+    patch.wantedCategoryIds !== undefined ||
+    patch.wantedCategories !== undefined;
+  const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
 
-  let nextCategory = giveawayNormalized.category;
-  let nextCategoryId = giveawayNormalized.categoryId;
-  if (giveawayNormalized.categoryId !== undefined) {
+  let nextCategory = patch.category;
+  let nextCategoryId = patch.categoryId;
+  if (patch.categoryId !== undefined) {
     const catRow = await db.query.categoriesTable.findFirst({
-      where: eq(categoriesTable.id, giveawayNormalized.categoryId),
+      where: eq(categoriesTable.id, patch.categoryId),
       columns: { id: true, name: true },
     });
     if (!catRow) {
       return res.status(400).json({ error: "Unknown categoryId" });
     }
     nextCategoryId = catRow.id;
-    nextCategory = giveawayNormalized.category?.trim() || catRow.name;
+    nextCategory = patch.category?.trim() || catRow.name;
   }
 
   const valuePatch =
-    nextIsGiveaway
-      ? { estimatedValueCents: 0 }
-      : giveawayNormalized.estimatedValue !== undefined ||
-          giveawayNormalized.estimatedValueCents !== undefined
-        ? { estimatedValueCents: resolveEstimatedValueCents(giveawayNormalized) }
-        : {};
+    patch.estimatedValue !== undefined || patch.estimatedValueCents !== undefined
+      ? { estimatedValueCents: resolveEstimatedValueCents(patch) }
+      : {};
   const nextValueCents = valuePatch.estimatedValueCents;
   const priceChanged =
     nextValueCents !== undefined && nextValueCents !== listing.estimatedValueCents;
@@ -1002,34 +854,23 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   const [updated] = await db
     .update(listingsTable)
     .set({
-      ...(giveawayNormalized.title !== undefined ? { title: giveawayNormalized.title } : {}),
-      ...(giveawayNormalized.description !== undefined
-        ? { description: giveawayNormalized.description }
-        : {}),
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
       ...(nextCategory !== undefined ? { category: nextCategory } : {}),
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
-      ...(giveawayNormalized.condition !== undefined
-        ? { condition: giveawayNormalized.condition }
-        : {}),
+      ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...valuePatch,
-      ...(patch.isGiveaway !== undefined ? { isGiveaway: patch.isGiveaway } : {}),
-      ...(nextIsGiveaway
-        ? { acceptCashTopUps: false }
-        : giveawayNormalized.acceptCashTopUps !== undefined
-          ? { acceptCashTopUps: giveawayNormalized.acceptCashTopUps }
-          : {}),
+      ...(patch.acceptCashTopUps !== undefined
+        ? { acceptCashTopUps: patch.acceptCashTopUps }
+        : {}),
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...(placePatch ?? {}),
-      ...(nextIsGiveaway
-        ? { wantedCategoryIds: [], wantedCategories: [] }
-        : {
-            ...(giveawayNormalized.wantedCategoryIds !== undefined
-              ? { wantedCategoryIds: giveawayNormalized.wantedCategoryIds }
-              : {}),
-            ...(giveawayNormalized.wantedCategories !== undefined
-              ? { wantedCategories: giveawayNormalized.wantedCategories }
-              : {}),
-          }),
+      ...(patch.wantedCategoryIds !== undefined
+        ? { wantedCategoryIds: patch.wantedCategoryIds }
+        : {}),
+      ...(patch.wantedCategories !== undefined
+        ? { wantedCategories: patch.wantedCategories }
+        : {}),
       updatedAt: new Date(),
     })
     .where(eq(listingsTable.id, listingId))
