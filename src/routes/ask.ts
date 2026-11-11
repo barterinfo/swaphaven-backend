@@ -39,6 +39,21 @@ const askUserLimiter = rateLimit({
   },
 });
 
+/** Server-side daily ceiling (billing / abuse). Client Remote Config may be stricter. */
+const askDailyLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 40,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => `ask:day:${req.user?.sub ?? req.ip ?? "anon"}`,
+  validate: false,
+  skip: askSkipRateLimit,
+  message: {
+    error: "too_many_requests",
+    message: "Daily Ask limit reached. Try again tomorrow.",
+  },
+});
+
 const askBody = z.object({
   text: z.string().trim().min(1).max(500),
   threadId: z.string().uuid().optional(),
@@ -80,7 +95,7 @@ function normalizeQuery(q: string): string {
 }
 
 // POST /api/ask
-router.post("/", requireAuth, askUserLimiter, async (req, res, next) => {
+router.post("/", requireAuth, askDailyLimiter, askUserLimiter, async (req, res, next) => {
   try {
     const parsed = askBody.safeParse(req.body);
     if (!parsed.success) {
