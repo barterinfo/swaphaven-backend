@@ -52,7 +52,8 @@ export type PushDataType =
   | "new_follower"
   | "followed_listing_price"
   | "followed_listing_relisted"
-  | "followed_trade_accepted";
+  | "followed_trade_accepted"
+  | "want_match";
 
 const APNS_CATEGORY: Record<PushDataType, string> = {
   offer: "BARTER_OFFER",
@@ -65,6 +66,7 @@ const APNS_CATEGORY: Record<PushDataType, string> = {
   followed_listing_price: "BARTER_FOLLOWED_LISTING",
   followed_listing_relisted: "BARTER_FOLLOWED_LISTING",
   followed_trade_accepted: "BARTER_FOLLOWED_LISTING",
+  want_match: "BARTER_WANT_MATCH",
 };
 
 /** FCM `sendEachForMulticast` accepts at most 500 tokens per call. */

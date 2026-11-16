@@ -13,6 +13,7 @@ import { toDecimalStr } from "./route-helpers.js";
 import { scheduleListingEmbed } from "./barter-ai.js";
 import { notifyFollowersOfNewListing } from "./follow-alerts.js";
 import { normalizeCountryCode } from "./geo-country.js";
+import { scheduleWantMatch } from "./want-match.js";
 import {
   buildReviewSnapshot,
   isUuid,
@@ -158,6 +159,7 @@ export async function insertListingFromBody(
 
   const serialized = serializeListingBarter(listing, { images: imageUrls });
   scheduleListingEmbed(listing.id);
+  scheduleWantMatch(listing.id);
   void notifyFollowersOfNewListing({
     sellerId: listing.userId,
     listingId: listing.id,

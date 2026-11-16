@@ -20,6 +20,8 @@ const RECOMMEND_TIMEOUT_MS = 800;
 const EMBED_TIMEOUT_MS = 15_000;
 /** Must exceed barter-ai image fetch + Gemini suggest (≈15s + 55s). */
 const SUGGEST_TIMEOUT_MS = 75_000;
+/** Intent + optional seek rank (embed + candidates). */
+const ASK_TIMEOUT_MS = 25_000;
 
 export type BarterAiListingSuggestion = {
   title: string;
@@ -326,5 +328,123 @@ async function embedListing(listingId: string): Promise<void> {
     EMBED_TIMEOUT_MS,
     "barter-ai embed",
   );
+}
+
+/** Awaitable listing embed — used before want-match so cosine can run. */
+export async function embedListingAwait(listingId: string): Promise<void> {
+  await embedListing(listingId);
+}
+
+export type BarterAiAskIntent = "seek" | "sell" | "both" | "unclear";
+
+export type BarterAiAskConstraints = {
+  brand: string | null;
+  condition: "new" | "like_new" | "great" | "good" | "fair" | null;
+  maxValueCents: number | null;
+};
+
+export type BarterAiAskSellDraft = {
+  title: string;
+  categorySlug: string;
+  description: string;
+};
+
+export type BarterAiAskRankedItem = {
+  listingId: string;
+  score: number;
+  reason: string | null;
+  suggestedClosetCategory: string | null;
+};
+
+export type BarterAiAskResult = {
+  intent: BarterAiAskIntent;
+  query: string | null;
+  categorySlug: string | null;
+  constraints: BarterAiAskConstraints;
+  sellDraft: BarterAiAskSellDraft | null;
+  message: string;
+  items: BarterAiAskRankedItem[];
+  queryEmbedding: number[] | null;
+};
+
+export type AskBarterAiBody = {
+  userId: string;
+  text: string;
+  country: string;
+  categoryCatalog: Array<{ id: string; name: string; slug: string }>;
+  excludeIds?: string[];
+  excludeOwnerIds?: string[];
+  limit?: number;
+  prior?: {
+    intent?: BarterAiAskIntent;
+    query?: string | null;
+    categorySlug?: string | null;
+    constraints?: Partial<BarterAiAskConstraints>;
+  };
+};
+
+const ASK_UNAVAILABLE_MESSAGE =
+  "Ask is temporarily unavailable. Try search or swipe.";
+
+export async function askBarterAi(body: AskBarterAiBody): Promise<BarterAiAskResult> {
+  const cfg = configured();
+  if (!cfg) {
+    throw new AppError(503, "ask_unavailable", ASK_UNAVAILABLE_MESSAGE);
+  }
+
+  try {
+    return await fetchBarterAi<BarterAiAskResult>(
+      `${cfg.baseUrl}/api/internal/ask`,
+      {
+        method: "POST",
+        headers: {
+          "X-Internal-Key": cfg.secret,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+      ASK_TIMEOUT_MS,
+      "barter-ai ask",
+    );
+  } catch (err) {
+    // Upstream HTTP errors / timeouts surface as 502 barter_ai_* — never leak that
+    // technical message (e.g. "barter-ai ask failed with HTTP 503") to clients.
+    if (
+      err instanceof AppError &&
+      (err.statusCode === 502 ||
+        err.statusCode === 503 ||
+        err.code === "barter_ai_error" ||
+        err.code === "barter_ai_unreachable")
+    ) {
+      throw new AppError(503, "ask_unavailable", ASK_UNAVAILABLE_MESSAGE);
+    }
+    throw err;
+  }
+}
+
+export async function embedText(text: string): Promise<number[] | null> {
+  const cfg = configured();
+  if (!cfg) return null;
+  try {
+    const json = await fetchBarterAi<{ embedding?: number[] | null }>(
+      `${cfg.baseUrl}/api/internal/embed/text`,
+      {
+        method: "POST",
+        headers: {
+          "X-Internal-Key": cfg.secret,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
+      },
+      EMBED_TIMEOUT_MS,
+      "barter-ai embed text",
+    );
+    return Array.isArray(json.embedding) ? json.embedding : null;
+  } catch (err) {
+    console.error("[barter-ai embed text]", err);
+    return null;
+  }
 }
 
