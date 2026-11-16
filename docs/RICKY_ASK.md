@@ -110,19 +110,19 @@ sequenceDiagram
 | Path | Role |
 |------|------|
 | `mobile/lib/features/discovery/presentation/swipe_discovery_screen.dart` | Hosts FAB / popup, layout, drag bounds |
-| `.../presentation/ask/ask_pet_fab.dart` | Ricky avatar (`RickyPainter` / `RickyAvatar`), dock, voice, drag |
-| `.../presentation/ask/ask_popup.dart` | Thread, listing cards, sell chip, Keep watching, composer |
-| `.../presentation/ask/ask_composer.dart` | Bottom text field (hint: “Trade on Barter”) |
-| `.../presentation/ask/ask_voice.dart` | `speech_to_text` wrapper |
-| `.../notifications/presentation/ricky_notifications_panel.dart` | Bell popover (`GET /api/notifications`) |
-| `.../domain/entities/ask_entities.dart` | `AskTurn`, `AskSession`, intents, cards, sell draft |
-| `.../domain/entities/ricky_ask_config.dart` | RC config + quota snapshot |
-| `.../application/submit_ask_use_case.dart` | Submit turn |
-| `.../application/record_ask_event_use_case.dart` | `selected` / `dismissed` / `offered` |
-| `.../application/save_ask_want_use_case.dart` | Keep watching |
-| `.../data/datasources/ask_remote_data_source.dart` | JSON ↔ entities |
-| `.../di/ask_providers.dart` | Session, popup open, FAB offset, use cases |
-| `.../di/ricky_ask_quota_providers.dart` | RC + daily usage |
+| `mobile/lib/features/ricky/presentation/ask/ask_pet_fab.dart` | Ricky avatar (`RickyPainter` / `RickyAvatar`), dock, voice, drag |
+| `mobile/lib/features/ricky/presentation/ask/ask_popup.dart` | Thread, listing cards, sell chip, Keep watching, composer |
+| `mobile/lib/features/ricky/presentation/ask/ask_composer.dart` | Bottom text field (hint: “Trade on Barter”) |
+| `mobile/lib/features/ricky/presentation/ask/ask_voice.dart` | `speech_to_text` wrapper |
+| `mobile/lib/features/ricky/presentation/ask/ricky_notifications_panel.dart` | Bell popover (`GET /api/notifications`) |
+| `mobile/lib/features/ricky/domain/entities/ask_entities.dart` | `AskTurn`, `AskSession`, intents, cards, sell draft |
+| `mobile/lib/features/ricky/domain/entities/ricky_ask_config.dart` | RC config + quota snapshot |
+| `mobile/lib/features/ricky/application/submit_ask_use_case.dart` | Submit turn |
+| `mobile/lib/features/ricky/application/record_ask_event_use_case.dart` | `selected` / `dismissed` / `offered` |
+| `mobile/lib/features/ricky/application/save_ask_want_use_case.dart` | Keep watching |
+| `mobile/lib/features/ricky/data/datasources/ask_remote_data_source.dart` | JSON ↔ entities |
+| `mobile/lib/features/ricky/di/ask_providers.dart` | Session, popup open, FAB offset, use cases |
+| `mobile/lib/features/ricky/di/ricky_ask_quota_providers.dart` | RC + daily usage |
 | `mobile/lib/core/storage/storage.dart` | `RickyAskPrefs` per-user daily counter |
 | `mobile/lib/core/services/api_endpoints.dart` | `/api/ask`, `/events`, `/wants` |
 | `mobile/lib/core/notifications/notification_deep_link.dart` | `want_match` parse |
