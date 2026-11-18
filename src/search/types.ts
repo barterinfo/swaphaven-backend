@@ -22,6 +22,8 @@ export type SearchListingParams = {
   excludeListingIds?: string[];
   /** Owner user IDs to hide (e.g. one-way blocks). */
   excludeOwnerIds?: string[];
+  /** When true, only free giveaway listings. */
+  giveawayOnly?: boolean;
   /** Phase 2 hook — accepted and ignored in Phase 1. */
   seedIds?: string[];
 };

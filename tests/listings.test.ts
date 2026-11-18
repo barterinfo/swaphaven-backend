@@ -3,7 +3,7 @@ import request from "supertest";
 import { eq } from "drizzle-orm";
 import { categoryIdBySlug } from "../src/lib/categories.js";
 import { app } from "./helpers/app.js";
-import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
+import { registerUser, createListing, createGiveaway, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { categoriesTable, listingImagesTable, listingsTable, listingViewsTable } from "../src/db/schema/index.js";
 
@@ -275,6 +275,21 @@ describe("POST /api/listings/from-place", () => {
     expect(pinRow.location_city).toBe("Hillview");
     expect(pinRow.map_pin.precision).toBe("area");
     expect(pinRow.map_pin.lat).not.toBe(1.3521);
+  });
+
+  it("includes free giveaways on the nearby map", async () => {
+    const { accessToken } = await registerUser();
+    const free = await createGiveaway(accessToken, {
+      title: `FreeMap-${uid()}`,
+    });
+
+    const map = await request(app)
+      .get("/api/listings/map")
+      .query({ lat: 1.3521, lng: 103.8198, radius: 50 });
+    expect(map.status).toBe(200);
+    const pinRow = map.body.listings.find((l: { id: string }) => l.id === free.id);
+    expect(pinRow).toBeTruthy();
+    expect(pinRow.is_giveaway).toBe(true);
   });
 });
 

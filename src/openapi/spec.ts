@@ -2628,6 +2628,7 @@ export const openApiSpec = {
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
           { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
           { name: "seed_ids", in: "query", schema: { type: "string" }, description: "Phase 2: CSV of listing UUIDs (ignored in Phase 1)" },
+          { name: "giveaway", in: "query", schema: { type: "boolean" }, description: "When true, only free giveaway listings" },
         ],
         responses: {
           "200": {
@@ -2635,6 +2636,30 @@ export const openApiSpec = {
             content: { "application/json": { schema: { $ref: "#/components/schemas/SearchListingsResponse" } } },
           },
           "400": { description: "Validation error" },
+        },
+      },
+    },
+    "/api/search/free": {
+      get: {
+        tags: ["Search"],
+        summary: "Newest free giveaway listings",
+        description:
+          "Active free listings (is_giveaway) for the search idle Free items carousel. Newest first. Location is optional and does not hard-filter by radius.",
+        security: [],
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 40, default: 8 } },
+        ],
+        responses: {
+          "200": {
+            description: "Free listings",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TrendingSearchListingsResponse" },
+              },
+            },
+          },
         },
       },
     },

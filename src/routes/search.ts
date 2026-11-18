@@ -36,6 +36,11 @@ const searchListingsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional().default(0),
   /** Phase 2 affinity hook — accepted, ignored in Phase 1. */
   seed_ids: z.string().optional(),
+  /** When true, only free giveaway listings. */
+  giveaway: z
+    .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0"), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "true" || v === "1"),
 });
 
 const trendingQuerySchema = z.object({
@@ -203,6 +208,7 @@ router.get("/listings", optionalAuth, async (req, res) => {
     offset: q.offset,
     excludeUserId: req.user?.sub,
     excludeOwnerIds,
+    giveawayOnly: q.giveaway,
     seedIds: parseSeedIds(q.seed_ids),
   });
 
@@ -235,6 +241,40 @@ router.get("/trending", optionalAuth, async (req, res) => {
     offset: 0,
     excludeUserId: req.user?.sub,
     excludeOwnerIds,
+  });
+
+  return res.json({
+    listings: result.listings,
+    total: result.total,
+  });
+});
+
+// ─── GET /api/search/free ─────────────────────────────────────────────────────
+// Newest active free giveaways for the search idle carousel. Location is a
+// soft preference only — no radius hard-filter, so the row stays populated.
+router.get("/free", optionalAuth, async (req, res) => {
+  const parsed = trendingQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "validation_error",
+      message: parsed.error.issues[0]?.message ?? "Invalid query",
+    });
+  }
+
+  const q = parsed.data;
+  const excludeOwnerIds = req.user?.sub
+    ? await hiddenOwnerIds(req.user.sub)
+    : [];
+  const result = await searchListings({
+    lat: q.lat,
+    lng: q.lng,
+    radius: undefined,
+    sort: "newest",
+    limit: q.limit,
+    offset: 0,
+    excludeUserId: req.user?.sub,
+    excludeOwnerIds,
+    giveawayOnly: true,
   });
 
   return res.json({
