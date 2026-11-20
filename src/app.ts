@@ -14,6 +14,7 @@ import authRouter from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
 import listingsRouter from "./routes/listings.js";
 import listingSuggestRouter from "./routes/listing-suggest.js";
+import giveawaysRouter from "./routes/giveaways.js";
 import swipeRouter from "./routes/swipe.js";
 import offersRouter from "./routes/offers.js";
 import cashOffersRouter from "./routes/cash-offers.js";
@@ -31,6 +32,7 @@ import savedRouter from "./routes/saved.js";
 import legalRouter from "./routes/legal.js";
 import landingRouter from "./routes/landing.js";
 import barterAiRouter from "./routes/barterAi.js";
+import askRouter from "./routes/ask.js";
 import safetyRouter from "./routes/safety.js";
 import accountDeletionRouter from "./routes/account-deletion.js";
 import geoRouter from "./routes/geo.js";
@@ -189,6 +191,7 @@ export function createApp(): express.Express {
   // Before listings so /suggest-from-images is not captured by /:listingId.
   app.use("/api/listings",      listingSuggestRouter);
   app.use("/api/listings",      listingsRouter);
+  app.use("/api/giveaways",     giveawaysRouter);
   app.use("/api/swipe",         swipeRouter);
   app.use("/api/saved",         savedRouter);
   app.use("/api/offers",        offersRouter);
@@ -201,6 +204,7 @@ export function createApp(): express.Express {
   app.use("/api/ads",           adsRouter);
   app.use("/api/search",        searchRouter);
   app.use("/api/barter-ai",     barterAiRouter);
+  app.use("/api/ask",           askRouter);
   app.use("/api/account",       accountDeletionRouter);
   app.use("/api/geo",           geoRouter);
   app.use("/api/places",        placesRouter);

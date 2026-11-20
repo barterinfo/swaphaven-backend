@@ -110,6 +110,12 @@ router.post("/", requireAuth, async (req, res) => {
       message: "Listing is no longer active",
     });
   }
+  if (listing.isGiveaway) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use POST /api/giveaways/:id/interest for free listings",
+    });
+  }
 
   let isSuperlike = false;
   if (swipeId) {

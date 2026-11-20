@@ -24,6 +24,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "followed_listing_price",
   "followed_listing_relisted",
   "followed_trade_accepted",
+  "want_match",
 ]);
 
 // ─── notifications ────────────────────────────────────────────────────────────

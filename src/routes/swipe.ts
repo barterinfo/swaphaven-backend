@@ -82,6 +82,11 @@ const deckQuerySchema = z.object({
       if (v == null || v === "" || v.toLowerCase() === "all") return undefined;
       return v;
     }),
+  /** When true, only free giveaway listings. Combines with category. */
+  giveaway: z
+    .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0"), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === "true" || v === "1"),
 });
 
 // ─── GET /api/swipe/deck ──────────────────────────────────────────────────────
@@ -98,6 +103,7 @@ router.get("/deck", optionalAuth, async (req, res) => {
   const userId = req.user?.sub ?? null;
   const clientExcludeIds = parsedQuery.data.excludeIds;
   const categorySlug = parsedQuery.data.category;
+  const giveawayOnly = Boolean(parsedQuery.data.giveaway);
 
   // Country scopes the deck. Signed-in: saved profile, else infer + persist.
   // Guests: CDN country header, else Singapore — do not write a profile.
@@ -176,6 +182,9 @@ router.get("/deck", optionalAuth, async (req, res) => {
       conditions.push(sql`false`);
     }
   }
+  if (giveawayOnly) {
+    conditions.push(eq(listingsTable.isGiveaway, true));
+  }
 
   const listingWith = {
     images: true,
@@ -204,6 +213,7 @@ router.get("/deck", optionalAuth, async (req, res) => {
       followedOwnerIds: followeeIds,
       country: viewerCountry,
       category: categorySlug,
+      giveawayOnly: giveawayOnly || undefined,
       limit: DECK_PAGE_SIZE,
     });
     if (!ranked.skipped && ranked.items.length) {

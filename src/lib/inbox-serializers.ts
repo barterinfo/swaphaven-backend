@@ -40,6 +40,8 @@ interface ListingSummaryInput {
   estimatedValueCents?: number | null;
   /** Listing lifecycle status — used by mobile to strike sold/deleted items. */
   status?: string | null;
+  /** True when the listing is a free giveaway (no swap expected). */
+  isGiveaway?: boolean | null;
   images?: ListingImageInput[];
   user?: UserSummaryInput | null;
 }
@@ -72,6 +74,7 @@ function serializeListingSummary(
     title: listing.title,
     estimatedValueCents: resolveValueCents(listing),
     status: listing.status ?? "active",
+    isGiveaway: listing.isGiveaway ?? false,
     images: images.map((img) => ({ url: img.url })),
     ...(listing.user ? { user: serializeUserSummary(listing.user) } : {}),
   };

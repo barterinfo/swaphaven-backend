@@ -52,6 +52,10 @@ function buildFilterConditions(params: SearchListingParams): SQL<unknown>[] {
     conditions.push(inArray(listingsTable.condition, params.conditions));
   }
 
+  if (params.giveawayOnly) {
+    conditions.push(eq(listingsTable.isGiveaway, true));
+  }
+
   if (params.category && params.category.trim()) {
     // Mobile sends browse ids/slugs (e.g. "sports_fitness"); seeded listings
     // often store display labels ("Sports & Fitness"). Match FK first, then
@@ -226,6 +230,7 @@ export async function searchListings(params: SearchListingParams): Promise<{
       condition: listingsTable.condition,
       estimatedValueCents: listingsTable.estimatedValueCents,
       acceptCashTopUps: listingsTable.acceptCashTopUps,
+      isGiveaway: listingsTable.isGiveaway,
       wantedCategoryIds: listingsTable.wantedCategoryIds,
       wantedCategories: listingsTable.wantedCategories,
       details: listingsTable.details,

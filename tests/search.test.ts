@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { app } from "./helpers/app.js";
-import { registerUser, createListing, createOffer, uid } from "./helpers/fixtures.js";
+import { registerUser, createListing, createGiveaway, createOffer, uid } from "./helpers/fixtures.js";
 import { testDb } from "./helpers/db.js";
 import { listingsTable } from "../src/db/schema/index.js";
 import { categoryIdBySlug } from "../src/lib/categories.js";
@@ -32,6 +32,43 @@ describe("GET /api/search/trending", () => {
     });
     const ids = res.body.listings.map((l: { id: string }) => l.id);
     expect(ids).toContain(hot.id);
+  });
+});
+
+describe("GET /api/search/free", () => {
+  it("returns only free giveaway listings", async () => {
+    const owner = await registerUser();
+    const marker = uid();
+    const free = await createGiveaway(owner.accessToken, {
+      title: `FreeLamp-${marker}`,
+    });
+    const barter = await createListing(owner.accessToken, {
+      title: `PaidLamp-${marker}`,
+    });
+
+    const res = await request(app).get("/api/search/free?limit=40");
+    expect(res.status).toBe(200);
+    const ids = res.body.listings.map((l: { id: string }) => l.id);
+    expect(ids).toContain(free.id);
+    expect(ids).not.toContain(barter.id);
+    for (const listing of res.body.listings as Array<{ is_giveaway?: boolean; isGiveaway?: boolean }>) {
+      expect(listing.is_giveaway ?? listing.isGiveaway).toBe(true);
+    }
+  });
+
+  it("keyword search still includes free listings", async () => {
+    const owner = await registerUser();
+    const marker = uid();
+    const free = await createGiveaway(owner.accessToken, {
+      title: `FreeStool-${marker}`,
+    });
+
+    const res = await request(app).get(
+      `/api/search/listings?q=${encodeURIComponent(`FreeStool-${marker}`)}`,
+    );
+    expect(res.status).toBe(200);
+    const ids = res.body.listings.map((l: { id: string }) => l.id);
+    expect(ids).toContain(free.id);
   });
 });
 

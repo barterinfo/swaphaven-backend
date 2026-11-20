@@ -30,6 +30,8 @@ export const listingsTable = pgTable("listings", {
   /** Canonical listing value in integer cents. */
   estimatedValueCents: integer("estimated_value_cents").notNull().default(0),
   acceptCashTopUps:    boolean("accept_cash_top_ups").notNull().default(false),
+  /** When true the listing is a free giveaway (no swap expected). */
+  isGiveaway:          boolean("is_giveaway").notNull().default(false),
   wantedCategoryIds:   jsonb("wanted_category_ids").$type<string[]>().notNull().default([]),
   wantedCategories:    jsonb("wanted_categories").$type<string[]>().notNull().default([]),
   details:             jsonb("details").$type<ListingDetails>().notNull().default({ ageRange: "", brand: "" }),

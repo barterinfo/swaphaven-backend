@@ -167,6 +167,7 @@ export const openApiSpec = {
           description:         { type: "string", nullable: true },
           condition:           { type: "string", enum: ["new","like_new","great","good","fair"] },
           estimatedValueCents: { type: "integer", description: "Canonical listing value in integer cents." },
+          isGiveaway:          { type: "boolean", description: "True when the listing is a free giveaway (no swap expected)." },
           isSwipeOnly:         { type: "boolean" },
           status:              { type: "string", enum: ["active","traded","paused","deleted"] },
           soldMethod:          { type: "string", enum: ["traded_on_barter","sold_for_cash","given_away"], nullable: true, description: "How the item left the seller. Set by POST /sold; null while the listing is active." },
@@ -201,6 +202,10 @@ export const openApiSpec = {
             description: "Canonical listing value in integer cents.",
           },
           accept_cash_top_ups: { type: "boolean" },
+          is_giveaway: {
+            type: "boolean",
+            description: "True when the listing is a free giveaway (no swap expected).",
+          },
           wanted_category_ids: { type: "array", items: { type: "string" } },
           wanted_categories:   { type: "array", items: { type: "string" } },
           images:              { type: "array", items: { type: "string", format: "uri" } },
@@ -1110,6 +1115,11 @@ export const openApiSpec = {
                     description: "Canonical listing value in integer cents.",
                   },
                   acceptCashTopUps: { type: "boolean" },
+                  isGiveaway: {
+                    type: "boolean",
+                    description:
+                      "Free giveaway. When true, value is stored as 0 and wanted/cash fields are cleared.",
+                  },
                   isSwipeOnly: { type: "boolean" },
                   wantedCategoryIds: { type: "array", items: { type: "string", format: "uuid" } },
                   wantedCategories: { type: "array", items: { type: "string" } },
@@ -1345,6 +1355,111 @@ export const openApiSpec = {
           "201": { description: "Listing created" },
           "400": { description: "Missing place, unit label, or invalid body" },
           "401": { description: "Unauthorized" },
+          "409": { description: "isGiveaway requested — use POST /api/giveaways" },
+        },
+      },
+    },
+    "/api/giveaways": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Create a free giveaway listing from a tapped place",
+        description:
+          "Forces is_giveaway with zero value and empty wants. Barter creates stay on POST /api/listings/from-place.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["title", "categoryId", "place"],
+                properties: {
+                  title: { type: "string" },
+                  categoryId: { type: "string", format: "uuid" },
+                  place: {
+                    type: "object",
+                    required: ["label", "lat", "lng", "pinKind"],
+                    properties: {
+                      label: { type: "string" },
+                      lat: { type: "number" },
+                      lng: { type: "number" },
+                      pinKind: { type: "string", enum: ["area", "venue"] },
+                      countryCode: { type: "string", minLength: 2, maxLength: 2 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Giveaway created" },
+          "400": { description: "Validation or moderation error" },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+    "/api/giveaways/{listingId}": {
+      patch: {
+        tags: ["Giveaways"],
+        summary: "Edit a free giveaway listing",
+        parameters: [
+          { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": { description: "Updated" },
+          "409": { description: "Not a giveaway — use PATCH /api/listings/:id" },
+        },
+      },
+    },
+    "/api/giveaways/{listingId}/interest": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Send interest on a free listing (no items or cash)",
+        parameters: [
+          { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  swipeId: { type: "string", format: "uuid" },
+                  buyerNote: { type: "string", maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Interest created (offer row)" },
+          "409": { description: "Not a giveaway — use POST /api/offers" },
+        },
+      },
+    },
+    "/api/giveaways/interests/{interestId}/accept": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Accept one giveaway interest; closes listing and declines others",
+        parameters: [
+          { name: "interestId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": { description: "Trade and conversation created" },
+          "409": { description: "Not a giveaway interest" },
+        },
+      },
+    },
+    "/api/giveaways/interests/{interestId}/decline": {
+      post: {
+        tags: ["Giveaways"],
+        summary: "Decline a giveaway interest",
+        parameters: [
+          { name: "interestId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "204": { description: "Declined" },
+          "409": { description: "Not a giveaway interest" },
         },
       },
     },
@@ -2377,6 +2492,106 @@ export const openApiSpec = {
     "/api/inbox/summary": {
       get: { tags: ["Chat"], summary: "Inbox badge counts", responses: { "200": { description: "Counts for the nav badge", content: { "application/json": { schema: { $ref: "#/components/schemas/InboxSummary" } } } } } },
     },
+    // ── Ask (intent chat on Swipe) ────────────────────────────────────────────────
+    "/api/ask": {
+      post: {
+        tags: ["Ask"],
+        summary: "Classify a typed want/sell request and return ranked listings or a sell draft",
+        description:
+          "Auth required. Proxies to barter-ai intent + seek rank. Returns listing cards with matchReason " +
+          "and optional sellDraft for create-listing prefill. Rate-limited (60/hour per user).",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["text"],
+                properties: {
+                  text: { type: "string", minLength: 1, maxLength: 500 },
+                  threadId: { type: "string", format: "uuid" },
+                  country: { type: "string", minLength: 2, maxLength: 2 },
+                  prior: {
+                    type: "object",
+                    properties: {
+                      intent: { type: "string", enum: ["seek", "sell", "both", "unclear"] },
+                      query: { type: "string", nullable: true },
+                      categorySlug: { type: "string", nullable: true },
+                      constraints: { type: "object" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Intent, message, listings, optional sellDraft" },
+          "503": { description: "Ask / barter-ai unavailable" },
+        },
+      },
+    },
+    "/api/ask/events": {
+      post: {
+        tags: ["Ask"],
+        summary: "Record Ask card select / dismiss / offer for taste learning",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["listingId", "kind"],
+                properties: {
+                  listingId: { type: "string", format: "uuid" },
+                  kind: { type: "string", enum: ["selected", "dismissed", "offered"] },
+                  threadId: { type: "string", format: "uuid" },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Event stored" } },
+      },
+    },
+    "/api/ask/wants": {
+      get: {
+        tags: ["Ask"],
+        summary: "List active saved wants",
+        responses: { "200": { description: "Active wants" } },
+      },
+      post: {
+        tags: ["Ask"],
+        summary: "Keep watching — save an active want for notify-on-publish",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                  query: { type: "string", minLength: 1, maxLength: 120 },
+                  categorySlug: { type: "string", nullable: true },
+                  embedding: { type: "array", items: { type: "number" } },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Want created" }, "200": { description: "Want refreshed" } },
+      },
+    },
+    "/api/ask/wants/{wantId}": {
+      delete: {
+        tags: ["Ask"],
+        summary: "Stop watching a want",
+        parameters: [
+          { name: "wantId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: { "200": { description: "Want paused" } },
+      },
+    },
     // ── Notifications ────────────────────────────────────────────────────────────
     "/api/notifications": {
       get: { tags: ["Notifications"], summary: "Notification feed", parameters: [{ $ref: "#/components/parameters/limit" }, { name: "unreadOnly", in: "query", schema: { type: "boolean" } }], responses: { "200": { description: "Paginated notifications" } } },
@@ -2413,6 +2628,7 @@ export const openApiSpec = {
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
           { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
           { name: "seed_ids", in: "query", schema: { type: "string" }, description: "Phase 2: CSV of listing UUIDs (ignored in Phase 1)" },
+          { name: "giveaway", in: "query", schema: { type: "boolean" }, description: "When true, only free giveaway listings" },
         ],
         responses: {
           "200": {
@@ -2420,6 +2636,30 @@ export const openApiSpec = {
             content: { "application/json": { schema: { $ref: "#/components/schemas/SearchListingsResponse" } } },
           },
           "400": { description: "Validation error" },
+        },
+      },
+    },
+    "/api/search/free": {
+      get: {
+        tags: ["Search"],
+        summary: "Newest free giveaway listings",
+        description:
+          "Active free listings (is_giveaway) for the search idle Free items carousel. Newest first. Location is optional and does not hard-filter by radius.",
+        security: [],
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 40, default: 8 } },
+        ],
+        responses: {
+          "200": {
+            description: "Free listings",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TrendingSearchListingsResponse" },
+              },
+            },
+          },
         },
       },
     },
@@ -2556,6 +2796,7 @@ export const openApiSpec = {
     { name: "Users",         description: "User profiles" },
     { name: "Media",         description: "S3 presigned upload URLs for listing images" },
     { name: "Listings",      description: "Item listings, categories, and owner actions (edit / mark sold / delete)" },
+    { name: "Giveaways",     description: "Free listings and interest accept/decline (separate from barter offers)" },
     { name: "Places",        description: "Selectable place suggestions for onboarding and create-listing" },
     { name: "Swipe",         description: "Swipe deck and streak" },
     { name: "Saved",         description: "Save-for-later listings (independent of swipes)" },
