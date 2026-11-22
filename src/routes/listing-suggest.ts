@@ -22,7 +22,7 @@ const suggestSkipRateLimit = () =>
 /** Cap total Gemini calls per user (cost / misuse). */
 const suggestUserLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 8,
+  max: env.AI_DRAFT_USER_LIMIT_MAX,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   keyGenerator: (req) => `suggest:user:${req.user?.sub ?? req.ip ?? "anon"}`,
@@ -34,10 +34,10 @@ const suggestUserLimiter = rateLimit({
   },
 });
 
-/** Same photo set spam — max 2 drafts per URL set per hour. */
+/** Same photo set spam — AI_DRAFT_PHOTO_SET_LIMIT_MAX drafts per URL set per hour. */
 const suggestPhotoSetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 2,
+  max: env.AI_DRAFT_PHOTO_SET_LIMIT_MAX,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   keyGenerator: (req) => {

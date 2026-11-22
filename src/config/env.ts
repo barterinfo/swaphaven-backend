@@ -34,6 +34,10 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().default(20),
   API_RATE_LIMIT_MAX: z.coerce.number().default(300),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
+  /** Max AI listing drafts (suggest-from-images) per user per rolling hour. */
+  AI_DRAFT_USER_LIMIT_MAX: z.coerce.number().int().positive().default(8),
+  /** Max AI listing drafts per user per identical photo URL set per rolling hour. */
+  AI_DRAFT_PHOTO_SET_LIMIT_MAX: z.coerce.number().int().positive().default(2),
   /**
    * Max swipes per user per local calendar day.
    * Unset / empty = unlimited. Set a positive integer (e.g. `20`) to enforce a daily cap.

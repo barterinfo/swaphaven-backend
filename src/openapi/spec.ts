@@ -1245,7 +1245,9 @@ export const openApiSpec = {
           "Auth required. Accepts public https image URLs from POST /api/media/presign. " +
           "Returns draft title, description, category, condition, brand, age, estimated value " +
           "(depreciated used/trade cents), and wanted categories. Does not create a listing. " +
-          "Rate-limited (8/hour per user, 2/hour per photo set). Returns 503 when barter-ai / Gemini is unconfigured.",
+          "Rate-limited per rolling hour (AI_DRAFT_USER_LIMIT_MAX per user, " +
+          "AI_DRAFT_PHOTO_SET_LIMIT_MAX per photo set; defaults 8 and 2). " +
+          "Returns 503 when barter-ai / Gemini is unconfigured.",
         requestBody: {
           required: true,
           content: {
