@@ -67,6 +67,7 @@ Leave existing listing list/detail/trending/swipe/closet shapes unchanged. `seri
 ### `GET /api/listings/map?lat=&lng=&radius=&limit=`
 
 - Auth optional. Radius in **miles** (same as trending).
+- Omitting `limit` returns every active pin in the radius; when set, caps the newest results.
 - Each item: `id`, `title`, `location_city`, `map_pin: { lat, lng, precision }`, `distance_miles`, images/category helpers.
 - No address, postal code, or stored exact coordinates.
 - Distance uses private stored points; pin uses `publicMapPin` (`src/lib/map-pin.ts`).

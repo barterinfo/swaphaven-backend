@@ -202,7 +202,8 @@ const mapQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
   radius: z.coerce.number().positive().max(500),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(60),
+  /** When omitted, every active listing in the radius is returned. */
+  limit: z.coerce.number().int().min(1).optional(),
   /** When true, only free giveaway listings. */
   giveaway: z
     .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0"), z.boolean()])
@@ -328,7 +329,7 @@ router.get("/map", optionalAuth, async (req, res) => {
   const rows = await db.query.listingsTable.findMany({
     where: and(...conditions),
     with: { images: true },
-    limit,
+    ...(limit != null ? { limit } : {}),
     orderBy: (t, { desc }) => [desc(t.createdAt)],
   });
 

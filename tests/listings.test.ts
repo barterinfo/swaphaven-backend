@@ -291,6 +291,54 @@ describe("POST /api/listings/from-place", () => {
     expect(pinRow).toBeTruthy();
     expect(pinRow.is_giveaway).toBe(true);
   });
+
+  it("returns every in-radius pin when limit is omitted", async () => {
+    const { user } = await registerUser();
+    const categoryId = categoryIdBySlug("electronics")!;
+    const centerLat = 0.5;
+    const centerLng = 100.5;
+    const insideCount = 65;
+
+    await testDb.insert(listingsTable).values([
+      ...Array.from({ length: insideCount }, (_, i) => ({
+        userId: user.id,
+        categoryId,
+        title: `MapBulk-${i}-${uid()}`,
+        condition: "good" as const,
+        locationCity: "BulkArea",
+        locationLat: String(centerLat),
+        locationLng: String(centerLng),
+        locationPinKind: "area" as const,
+        status: "active" as const,
+      })),
+      {
+        userId: user.id,
+        categoryId,
+        title: `MapFar-${uid()}`,
+        condition: "good" as const,
+        locationCity: "FarAway",
+        locationLat: "10.0",
+        locationLng: "110.0",
+        locationPinKind: "area" as const,
+        status: "active" as const,
+      },
+    ]);
+
+    const all = await request(app)
+      .get("/api/listings/map")
+      .query({ lat: centerLat, lng: centerLng, radius: 5 });
+    expect(all.status).toBe(200);
+    expect(all.body.listings).toHaveLength(insideCount);
+    expect(
+      all.body.listings.every((l: { location_city: string }) => l.location_city === "BulkArea"),
+    ).toBe(true);
+
+    const capped = await request(app)
+      .get("/api/listings/map")
+      .query({ lat: centerLat, lng: centerLng, radius: 5, limit: 10 });
+    expect(capped.status).toBe(200);
+    expect(capped.body.listings).toHaveLength(10);
+  });
 });
 
 // ─── POST /api/listings ───────────────────────────────────────────────────────

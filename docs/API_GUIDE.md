@@ -244,7 +244,8 @@ Response: `{ "listing": { ... } }` (barter-shaped; **no** raw lat/lng on the pub
 ### Nearby map pins
 
 ```bash
-curl -s 'http://localhost:3001/api/listings/map?lat=1.35&lng=103.8&radius=10&limit=50'
+curl -s 'http://localhost:3001/api/listings/map?lat=1.35&lng=103.8&radius=10'
+
 ```
 
 Each item includes `location_city`, `map_pin: { lat, lng, precision }`, `distance_miles`. Distance uses private stored points; pin is ~500 m cell (`area` / legacy) or venue point.
