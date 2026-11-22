@@ -1478,7 +1478,12 @@ export const openApiSpec = {
           { name: "lat", in: "query", required: true, schema: { type: "number" } },
           { name: "lng", in: "query", required: true, schema: { type: "number" } },
           { name: "radius", in: "query", required: true, schema: { type: "number", exclusiveMinimum: 0 }, description: "Radius in miles" },
-          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          {
+            name: "limit",
+            in: "query",
+            description: "Optional cap. When omitted, every pin in the radius is returned.",
+            schema: { type: "integer", minimum: 1 },
+          },
         ],
         responses: {
           "200": {
