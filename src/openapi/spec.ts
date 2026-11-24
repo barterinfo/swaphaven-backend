@@ -201,6 +201,18 @@ export const openApiSpec = {
             type: "integer",
             description: "Canonical listing value in integer cents.",
           },
+          image_objects: {
+            type: "array",
+            description: "Photo objects with ids (detail responses); `images` stays string URLs for older clients.",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", format: "uuid" },
+                url: { type: "string" },
+                position: { type: "integer" },
+              },
+            },
+          },
           accept_cash_top_ups: { type: "boolean" },
           is_giveaway: {
             type: "boolean",
@@ -1404,6 +1416,8 @@ export const openApiSpec = {
       patch: {
         tags: ["Giveaways"],
         summary: "Edit a free giveaway listing",
+        description:
+          "Send isGiveaway:false with estimatedValueCents to convert to a barter listing in place (same id/photos), or isGiveaway:true on a barter listing to make it free.",
         parameters: [
           { name: "listingId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
         ],
@@ -1625,6 +1639,9 @@ export const openApiSpec = {
                   },
                   wantedCategoryIds:   { type: "array", items: { type: "string", format: "uuid" }, description: "Open to trade for — category UUIDs." },
                   wantedCategories:    { type: "array", items: { type: "string" }, description: "Open to trade for — display labels (e.g. 'Vintage Clothing', 'Sneakers')." },
+                  isGiveaway:          { type: "boolean", description: "Convert barter ↔ free in place. Making it free zeroes value/wants; leaving free requires estimatedValueCents." },
+                  acceptCashTopUps:    { type: "boolean" },
+                  details:             { type: "object", properties: { ageRange: { type: "string" }, brand: { type: "string" } } },
                   status:              { type: "string", enum: ["active", "paused"], description: "Pause or re-list (active ↔ paused only)." },
                   place: {
                     type: "object",
