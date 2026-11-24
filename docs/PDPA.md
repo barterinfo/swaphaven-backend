@@ -21,20 +21,21 @@ What we already do so location and related personal data are collected for marke
 | Listing **edit** location only via tapped `place` on PATCH (same rules) | Done | Mobile edit-listing + `PATCH /api/listings/:id` `place` |
 | **Use current location** seeds **area/neighbourhood only** (never street/block/house in the field) | Done | Mobile `reverseToCoarsePlace` / `formatCoarse` + create-listing/onboarding/edit |
 | **Units** rejected in suggestions and on from-place | Done | `place-suggestions.ts`, listings route |
-| **Block / condo / house** → public **area** name only; pin is area cell | Done | Classification + `location_pin_kind = area` |
+| **Condo / HDB block** selectable by name; pin is ~100 m area cell (never exact building point). Detached house → area name only | Done | Classification + `location_pin_kind = area` |
+| **Key landmarks / MRT / malls / other public points** selectable by name as venue pins, even when Nominatim gives a house number | Done | Classification (`place-suggestions.ts`) |
 | **Public venues** (MRT, mall, park, …) → label + venue pin | Done | `pinKind = venue` |
 | Exact listing coordinates **omitted** from feed/detail serializers | Done | `serializeListingBarter` |
 | Street / postal **not** returned on public listing payloads | Done | Same |
-| Nearby map pins only via **`GET /api/listings/map`** (~500 m cell or venue) | Done | `map-pin.ts`, listings map route |
+| Nearby map pins only via **`GET /api/listings/map`** (~100 m cell or venue) | Done | `map-pin.ts`, listings map route |
 | Legacy listings keep rows; map uses **area cell** when kind null | Done | Map route |
 | Viewer **home** separate from listing place; Settings may show owner coords | Done | Onboarding / profile PATCH; Settings UI |
 | Public **profile header** does not show home location line | Done | Mobile `profile_ui_mapper` |
 | Other users’ profile API: city / `hasLocation`, not lat/lng | Done | `GET /api/users/:userId` |
 | Meetup uses both homes **server-side**; chat shows public stop names | Done | Meetup suggestions feature |
-| Privacy Policy nearby callout updated (picked place, no unit/block/exact pin) | Done | `legal.ts` |
+| Privacy Policy nearby callout updated (picked condo/HDB/landmark/MRT place, no unit/exact pin) | Done | `legal.ts` |
 | In-app ⓘ on Nearby map explaining approximate pins | Done | `BarterNearbyMapControls` |
 
-**Product rule of thumb:** User may *type* a condo name to find suggestions; we still **save/show the neighbourhood (or public venue)**, not the building, to other people.
+**Product rule of thumb:** User may *type* a condo, HDB block, MRT station, landmark or neighbourhood to find suggestions and pick it by name. We still **never save/show a unit**, and residential picks are shown with a ~100 m area pin, not the exact building point.
 
 ---
 
@@ -68,7 +69,7 @@ Marketplace needs some sharing:
 - Public reviews / trade stats as already productized
 - Chat content they send each other
 
-They should **not** see: email/password, exact home coordinates, unit/block/condo as the public listing place, street/postal on listing APIs.
+They should **not** see: email/password, exact home coordinates, unit numbers, street/postal on listing APIs. A picked condo/HDB/landmark/MRT place name is shown by design, with an approximate pin.
 
 ---
 

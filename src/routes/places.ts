@@ -14,7 +14,8 @@ const suggestionsQuerySchema = z.object({
 /**
  * GET /api/places/suggestions
  * Selectable place rows for onboarding and create-listing. Units are omitted;
- * blocks come back as the surrounding area name.
+ * condos, HDB blocks, MRT stations, landmarks and other public places come
+ * back under their own names (residential pins stay area-snapped).
  */
 router.get("/suggestions", async (req, res) => {
   const parsed = suggestionsQuerySchema.safeParse(req.query);

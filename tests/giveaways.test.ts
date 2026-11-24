@@ -25,6 +25,46 @@ describe("Dedicated giveaway APIs", () => {
     expect(body.wanted_categories ?? body.wantedCategories ?? []).toEqual([]);
   });
 
+  it("PATCH /api/listings converts a giveaway to barter only with a value", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createGiveaway(accessToken, { title: "Free desk" });
+
+    const noValue = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ isGiveaway: false });
+    expect(noValue.status).toBe(400);
+
+    const res = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        isGiveaway: false,
+        estimatedValueCents: 8000,
+        details: { brand: "IKEA", ageRange: "2 years" },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.listing.is_giveaway).toBe(false);
+    expect(res.body.listing.estimatedValueCents).toBe(8000);
+    expect(res.body.listing.details.brand).toBe("IKEA");
+  });
+
+  it("PATCH /api/giveaways converts a barter listing to free in place", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      estimatedValueCents: 4200,
+    });
+
+    const res = await request(app)
+      .patch(`/api/giveaways/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ isGiveaway: true });
+    expect(res.status).toBe(200);
+    const body = res.body.listing ?? res.body;
+    expect(body.is_giveaway ?? body.isGiveaway).toBe(true);
+    expect(body.estimatedValueCents).toBe(0);
+  });
+
   it("barter create rejects isGiveaway and points at /api/giveaways", async () => {
     const { accessToken } = await registerUser();
     await expect(

@@ -689,6 +689,24 @@ describe("PATCH /api/listings/:id", () => {
     ]);
   });
 
+  it("converts a barter listing to free in place", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken, {
+      estimatedValueCents: 5000,
+      acceptCashTopUps: true,
+    });
+
+    const res = await request(app)
+      .patch(`/api/listings/${listing.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ isGiveaway: true });
+    expect(res.status).toBe(200);
+    expect(res.body.listing.is_giveaway).toBe(true);
+    expect(res.body.listing.estimatedValueCents).toBe(0);
+    expect(res.body.listing.accept_cash_top_ups).toBe(false);
+    expect(res.body.listing.wanted_category_ids).toEqual([]);
+  });
+
   it("ignores status and locationCity — not part of the edit contract", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken);
@@ -810,8 +828,44 @@ describe("POST /api/listings/:id/images", () => {
   });
 });
 
+  it("detail returns image_objects with ids so Edit can delete photos", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+    const addRes = await request(app)
+      .post(`/api/listings/${listing.id}/images`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ url: "https://example.com/photo.jpg", position: 0 });
+    expect(addRes.status).toBe(201);
+
+    const res = await request(app).get(`/api/listings/${listing.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.image_objects).toHaveLength(1);
+    expect(res.body.image_objects[0].id).toBe(addRes.body.id);
+    expect(res.body.listing.image_objects[0].id).toBe(addRes.body.id);
+    expect(res.body.images).toEqual(["https://example.com/photo.jpg"]);
+  });
+
 // ─── DELETE /api/listings/:id/images/:imageId ─────────────────────────────────
 describe("DELETE /api/listings/:id/images/:imageId", () => {
+  it("does not delete an image that belongs to another listing", async () => {
+    const { accessToken } = await registerUser();
+    const listing = await createListing(accessToken);
+    const other = await createListing(accessToken);
+    const addRes = await request(app)
+      .post(`/api/listings/${listing.id}/images`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ url: "https://example.com/photo.jpg", position: 0 });
+    expect(addRes.status).toBe(201);
+
+    const res = await request(app)
+      .delete(`/api/listings/${other.id}/images/${addRes.body.id}`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(res.status).toBe(404);
+
+    const detail = await request(app).get(`/api/listings/${listing.id}`);
+    expect(detail.body.images).toEqual(["https://example.com/photo.jpg"]);
+  });
+
   it("owner can remove an image", async () => {
     const { accessToken } = await registerUser();
     const listing = await createListing(accessToken);

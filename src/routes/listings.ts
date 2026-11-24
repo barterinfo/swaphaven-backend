@@ -625,9 +625,19 @@ router.get("/:listingId", optionalAuth, async (req, res) => {
     return res.status(404).json({ error: "Listing not found" });
   }
 
-  const images = listing.images?.length
-    ? listing.images.sort((a, b) => a.position - b.position).map((i) => i.url)
+  const sortedImages = (listing.images ?? [])
+    .slice()
+    .sort((a, b) => a.position - b.position);
+  const images = sortedImages.length
+    ? sortedImages.map((i) => i.url)
     : await loadListingImages(listing.id);
+  // Object form (id + url + position) — Edit Listing needs ids to delete a
+  // photo; `images: string[]` alone made every existing photo undeletable.
+  const imageObjects = sortedImages.map((i) => ({
+    id: i.id,
+    url: i.url,
+    position: i.position,
+  }));
 
   const sellerProfile = await db.query.userProfilesTable.findFirst({
     where: eq(userProfilesTable.id, listing.userId),
@@ -671,11 +681,12 @@ router.get("/:listingId", optionalAuth, async (req, res) => {
   }
 
   return res.json({
-    listing: { ...payload, is_saved: isSaved },
+    listing: { ...payload, is_saved: isSaved, image_objects: imageObjects },
     id: listing.id,
     title: listing.title,
     status: listing.status,
     images,
+    image_objects: imageObjects,
     is_saved: isSaved,
   });
 });
@@ -726,6 +737,14 @@ const updateListingSchema = z.object({
   wantedCategoryIds: z.array(z.string().uuid()).optional(),
   wantedCategories: z.array(z.string()).optional(),
   wantedFreeText: z.string().max(500).optional(),
+  /** Convert barter ↔ free in place (same id/photos). Giveaway forces value/wants off. */
+  isGiveaway: z.boolean().optional(),
+  details: z
+    .object({
+      ageRange: z.string().max(100).optional(),
+      brand: z.string().max(200).optional(),
+    })
+    .optional(),
   /** Owner can pause an active listing or bring a paused one back. */
   status: z.preprocess(
     (v) => (v === "active" || v === "paused" ? v : undefined),
@@ -754,12 +773,6 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   });
   if (!listing) return res.status(404).json({ error: "not_found", message: "Listing not found" });
   if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
-  if (listing.isGiveaway) {
-    return res.status(409).json({
-      error: "conflict",
-      message: "Use PATCH /api/giveaways/:id for free listings",
-    });
-  }
 
   const parsed = updateListingSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -767,9 +780,20 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const patch = parsed.data;
+  // A giveaway may only be edited here when converting it to a barter listing.
+  if (listing.isGiveaway && patch.isGiveaway !== false) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use PATCH /api/giveaways/:id for free listings",
+    });
+  }
+  const nextIsGiveaway = patch.isGiveaway ?? listing.isGiveaway;
   const profaneField = findProfaneField([
     { field: "title", value: patch.title },
     { field: "description", value: patch.description },
+    { field: "wantedFreeText", value: patch.wantedFreeText },
+    { field: "brand", value: patch.details?.brand },
+    { field: "ageRange", value: patch.details?.ageRange },
   ]);
   if (profaneField) {
     return res.status(400).json({
@@ -779,9 +803,12 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   }
 
   const wantsChanged =
+    nextIsGiveaway !== listing.isGiveaway ||
     patch.wantedCategoryIds !== undefined ||
     patch.wantedCategories !== undefined;
-  const nextWantedIds = patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? [];
+  const nextWantedIds = nextIsGiveaway
+    ? []
+    : (patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? []);
 
   let nextCategory = patch.category;
   let nextCategoryId = patch.categoryId;
@@ -797,13 +824,36 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     nextCategory = patch.category?.trim() || catRow.name;
   }
 
-  const valuePatch =
-    patch.estimatedValue !== undefined || patch.estimatedValueCents !== undefined
-      ? { estimatedValueCents: resolveEstimatedValueCents(patch) }
-      : {};
-  const nextValueCents = valuePatch.estimatedValueCents;
-  const priceChanged =
-    nextValueCents !== undefined && nextValueCents !== listing.estimatedValueCents;
+  // Effective value after any giveaway conversion: free is always 0, and a
+  // listing leaving "free" must supply a real value (it was never asked for).
+  let nextValueCents: number;
+  if (nextIsGiveaway) {
+    nextValueCents = 0;
+  } else if (
+    patch.estimatedValue !== undefined ||
+    patch.estimatedValueCents !== undefined
+  ) {
+    nextValueCents = resolveEstimatedValueCents(patch);
+  } else {
+    nextValueCents = listing.estimatedValueCents;
+  }
+  // Only a listing leaving "free" must supply a value — legacy barter
+  // listings with 0 stay editable for unrelated fields.
+  if (listing.isGiveaway && !nextIsGiveaway && nextValueCents <= 0) {
+    return res.status(400).json({
+      error: "validation",
+      message: "estimatedValueCents is required when a listing is not free",
+    });
+  }
+  const priceChanged = nextValueCents !== listing.estimatedValueCents;
+  const valuePatch = { estimatedValueCents: nextValueCents };
+  const nextDetails =
+    patch.details !== undefined
+      ? {
+          ageRange: patch.details.ageRange ?? listing.details?.ageRange ?? "",
+          brand: patch.details.brand ?? listing.details?.brand ?? "",
+        }
+      : undefined;
 
   let nextStatus: "active" | "paused" | undefined;
   if (patch.status !== undefined && patch.status !== listing.status) {
@@ -861,17 +911,17 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...valuePatch,
-      ...(patch.acceptCashTopUps !== undefined
-        ? { acceptCashTopUps: patch.acceptCashTopUps }
-        : {}),
+      isGiveaway: nextIsGiveaway,
+      acceptCashTopUps: nextIsGiveaway
+        ? false
+        : (patch.acceptCashTopUps ?? listing.acceptCashTopUps),
+      ...(nextDetails !== undefined ? { details: nextDetails } : {}),
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...(placePatch ?? {}),
-      ...(patch.wantedCategoryIds !== undefined
-        ? { wantedCategoryIds: patch.wantedCategoryIds }
-        : {}),
-      ...(patch.wantedCategories !== undefined
-        ? { wantedCategories: patch.wantedCategories }
-        : {}),
+      wantedCategoryIds: nextWantedIds,
+      wantedCategories: nextIsGiveaway
+        ? []
+        : (patch.wantedCategories ?? listing.wantedCategories ?? []),
       updatedAt: new Date(),
     })
     .where(eq(listingsTable.id, listingId))
@@ -1101,7 +1151,19 @@ router.delete("/:listingId/images/:imageId", requireAuth, async (req, res) => {
   if (!listing) return res.status(404).json({ error: "not_found" });
   if (listing.userId !== req.user!.sub) return res.status(403).json({ error: "forbidden" });
 
-  await db.delete(listingImagesTable).where(eq(listingImagesTable.id, imageId));
+  // Scope to this listing — an image id from another listing must not delete here.
+  const deleted = await db
+    .delete(listingImagesTable)
+    .where(
+      and(
+        eq(listingImagesTable.id, imageId),
+        eq(listingImagesTable.listingId, listingId),
+      ),
+    )
+    .returning({ id: listingImagesTable.id });
+  if (!deleted.length) {
+    return res.status(404).json({ error: "not_found", message: "Image not found" });
+  }
   return res.status(204).send();
 });
 

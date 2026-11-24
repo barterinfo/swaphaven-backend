@@ -45,13 +45,30 @@ export type CreateGiveawayFromPlaceBody = z.infer<
   typeof createGiveawayFromPlaceBodySchema
 >;
 
-/** Patch fields allowed on a free listing (never value / cash / wants). */
+/**
+ * Patch fields on a free listing. While it stays free, value / cash / wants are
+ * forced off. `isGiveaway: false` converts it to a barter listing in place, in
+ * which case value / cash / wants / details become editable (value required).
+ */
 export const updateGiveawaySchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(10000).optional(),
   category: z.string().optional(),
   categoryId: z.string().uuid().optional(),
   condition: z.enum(["new", "like_new", "great", "good", "fair"]).optional(),
+  isGiveaway: z.boolean().optional(),
+  estimatedValue: z.coerce.number().nonnegative().optional(),
+  estimatedValueCents: z.number().int().nonnegative().optional(),
+  acceptCashTopUps: z.boolean().optional(),
+  wantedCategoryIds: z.array(z.string().uuid()).optional(),
+  wantedCategories: z.array(z.string()).optional(),
+  wantedFreeText: z.string().max(500).optional(),
+  details: z
+    .object({
+      ageRange: z.string().max(100).optional(),
+      brand: z.string().max(200).optional(),
+    })
+    .optional(),
   status: z.preprocess(
     (v) => (v === "active" || v === "paused" ? v : undefined),
     z.enum(["active", "paused"]).optional(),

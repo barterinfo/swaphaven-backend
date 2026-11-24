@@ -374,7 +374,7 @@ Seeded via `drizzle/0015_seed_categories.sql` and `0016_seed_jewelry_category.sq
 
 Indexes: `(status, created_at)`, `(user_id)`. Trigram search indexes: `0013_search_trgm_indexes.sql`.
 
-Location product rules: [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md). Map pins (~500 m cell or venue) only via `GET /api/listings/map`.
+Location product rules: [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md). Map pins (~100 m cell or venue) only via `GET /api/listings/map`.
 
 #### `listing_images`
 | Column | Type | Constraints | Notes |

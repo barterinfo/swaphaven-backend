@@ -20,6 +20,7 @@ import {
   updateGiveawaySchema,
 } from "../lib/giveaway.js";
 import {
+  isUuid,
   normalizeGiveawayFields,
   resolveLocation,
   type CreateListingBody,
@@ -137,13 +138,6 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
   if (listing.userId !== req.user!.sub) {
     return res.status(403).json({ error: "forbidden" });
   }
-  if (!listing.isGiveaway) {
-    return res.status(409).json({
-      error: "conflict",
-      message: "Use PATCH /api/listings/:id for barter listings",
-    });
-  }
-
   const parsed = updateGiveawaySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -152,9 +146,20 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     });
   }
   const patch = parsed.data;
+  // A barter listing may only be edited here when converting it to free.
+  if (!listing.isGiveaway && patch.isGiveaway !== true) {
+    return res.status(409).json({
+      error: "conflict",
+      message: "Use PATCH /api/listings/:id for barter listings",
+    });
+  }
+  const nextIsGiveaway = patch.isGiveaway ?? listing.isGiveaway;
   const profaneField = findProfaneField([
     { field: "title", value: patch.title },
     { field: "description", value: patch.description },
+    { field: "wantedFreeText", value: patch.wantedFreeText },
+    { field: "brand", value: patch.details?.brand },
+    { field: "ageRange", value: patch.details?.ageRange },
   ]);
   if (profaneField) {
     return res.status(400).json({
@@ -226,6 +231,39 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     };
   }
 
+  // Effective value after any conversion: free is always 0; leaving "free"
+  // requires a value (never collected while the listing was a giveaway).
+  let nextValueCents: number;
+  if (nextIsGiveaway) {
+    nextValueCents = 0;
+  } else if (
+    patch.estimatedValue !== undefined ||
+    patch.estimatedValueCents !== undefined
+  ) {
+    nextValueCents =
+      patch.estimatedValueCents != null
+        ? Math.round(patch.estimatedValueCents)
+        : Math.round((patch.estimatedValue ?? 0) * 100);
+  } else {
+    nextValueCents = listing.estimatedValueCents;
+  }
+  if (listing.isGiveaway && !nextIsGiveaway && nextValueCents <= 0) {
+    return res.status(400).json({
+      error: "validation",
+      message: "estimatedValueCents is required when a listing is not free",
+    });
+  }
+  const nextWantedIds = nextIsGiveaway
+    ? []
+    : (patch.wantedCategoryIds ?? listing.wantedCategoryIds ?? []);
+  const nextDetails =
+    patch.details !== undefined
+      ? {
+          ageRange: patch.details.ageRange ?? listing.details?.ageRange ?? "",
+          brand: patch.details.brand ?? listing.details?.brand ?? "",
+        }
+      : undefined;
+
   const [updated] = await db
     .update(listingsTable)
     .set({
@@ -234,11 +272,16 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
       ...(nextCategory !== undefined ? { category: nextCategory } : {}),
       ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
-      estimatedValueCents: 0,
-      acceptCashTopUps: false,
-      wantedCategoryIds: [],
-      wantedCategories: [],
-      isGiveaway: true,
+      estimatedValueCents: nextValueCents,
+      acceptCashTopUps: nextIsGiveaway
+        ? false
+        : (patch.acceptCashTopUps ?? listing.acceptCashTopUps),
+      wantedCategoryIds: nextWantedIds,
+      wantedCategories: nextIsGiveaway
+        ? []
+        : (patch.wantedCategories ?? listing.wantedCategories ?? []),
+      ...(nextDetails !== undefined ? { details: nextDetails } : {}),
+      isGiveaway: nextIsGiveaway,
       ...(nextStatus !== undefined ? { status: nextStatus } : {}),
       ...(placePatch ?? {}),
       updatedAt: new Date(),
@@ -247,6 +290,12 @@ router.patch("/:listingId", requireAuth, async (req, res) => {
     .returning();
 
   await db.delete(listingWantsTable).where(eq(listingWantsTable.listingId, listingId));
+  if (!nextIsGiveaway && nextWantedIds.length) {
+    const wantRows = nextWantedIds
+      .filter((cid) => isUuid(cid))
+      .map((categoryId) => ({ listingId, categoryId }));
+    if (wantRows.length) await db.insert(listingWantsTable).values(wantRows);
+  }
   scheduleListingEmbed(updated.id);
 
   const serialized = await serializeGiveawayListing(updated.id);
