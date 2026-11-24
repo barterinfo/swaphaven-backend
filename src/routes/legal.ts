@@ -121,11 +121,11 @@ function buildPrivacyPolicyHtml(): string {
 
     <div class="callout">
       <p><strong>How nearby listings work.</strong> A listing place is one the seller picked from
-      suggestions. Unit numbers are not accepted. A block or house is saved and shown as the
-      surrounding area. Precise coordinates stay server-side for distance and ranking. Other
-      people see the public place or area name, an approximate distance, and a map pin on that
-      public place or neighbourhood area — not a street address, postal code, unit, block, or
-      the exact stored coordinates.</p>
+      suggestions — a condo, HDB block, MRT station, landmark, public place, or neighbourhood.
+      Unit numbers are not accepted. Precise coordinates stay server-side for distance and
+      ranking. Other people see the place name the seller picked, an approximate distance, and
+      a map pin on that public place or snapped to an approximate (about 100 m) area — not a
+      street address, postal code, unit, or the exact stored coordinates.</p>
     </div>
 
     <h2>4. Data We Make Visible to Other Users</h2>

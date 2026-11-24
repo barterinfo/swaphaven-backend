@@ -33,6 +33,11 @@ const PUBLIC_CLASSES = new Set([
   "railway",
   "public_transport",
   "place",
+  // Key landmarks / important points that are not shops or amenities.
+  "historic",
+  "man_made",
+  "natural",
+  "aeroway",
 ]);
 
 const PUBLIC_TYPES = new Set([
@@ -41,16 +46,56 @@ const PUBLIC_TYPES = new Set([
   "marketplace",
   "station",
   "halt",
+  "stop",
+  "subway_entrance",
   "tram_stop",
   "bus_stop",
   "bus_station",
   "park",
+  // Landmarks and other important public points.
+  "attraction",
+  "museum",
+  "gallery",
+  "artwork",
+  "viewpoint",
+  "monument",
+  "memorial",
+  "lighthouse",
+  "fort",
+  "theme_park",
+  "zoo",
+  "aquarium",
+  "library",
+  "hospital",
+  "school",
+  "university",
+  "college",
+  "place_of_worship",
+  "community_centre",
+  "sports_centre",
+  "stadium",
+  "theatre",
+  "cinema",
+  "hotel",
   "neighbourhood",
   "neighborhood",
   "suburb",
   "quarter",
   "town",
   "city",
+  "village",
+  "hamlet",
+]);
+
+/** Types that describe an area rather than a named public place. */
+const AREA_TYPES = new Set([
+  "neighbourhood",
+  "neighborhood",
+  "suburb",
+  "quarter",
+  "administrative",
+  "city",
+  "town",
   "village",
   "hamlet",
 ]);
@@ -90,9 +135,38 @@ function areaLabelFromAddress(address: Record<string, string>): string | null {
 function placeTypeLabel(className: string, type: string): string {
   if (type === "mall" || type === "department_store") return "Shopping Mall";
   if (type === "marketplace") return "Market";
-  if (className === "railway" || type === "station") return "Station";
+  if (
+    className === "railway" ||
+    className === "public_transport" ||
+    type === "station" ||
+    type === "stop" ||
+    type === "subway_entrance"
+  ) {
+    return "Station";
+  }
   if (type === "bus_stop" || type === "bus_station") return "Bus Stop";
   if (type === "park") return "Park";
+  if (
+    className === "historic" ||
+    className === "man_made" ||
+    type === "attraction" ||
+    type === "museum" ||
+    type === "gallery" ||
+    type === "artwork" ||
+    type === "viewpoint" ||
+    type === "monument" ||
+    type === "memorial" ||
+    type === "lighthouse" ||
+    type === "fort" ||
+    type === "theme_park" ||
+    type === "zoo" ||
+    type === "aquarium"
+  ) {
+    return "Landmark";
+  }
+  if (type === "library") return "Library";
+  if (type === "hospital") return "Hospital";
+  if (type === "hotel") return "Hotel";
   if (
     type === "neighbourhood" ||
     type === "neighborhood" ||
@@ -129,14 +203,82 @@ function areaSuggestionFromHit(
   };
 }
 
-/** Subtitle when a condo/building search resolves to its neighbourhood. */
-function nearPlaceType(namedPlace: string, hit: NominatimHit): string {
+function firstDisplaySegment(hit: NominatimHit): string {
+  return hit.displayName.split(",")[0]?.trim() ?? "";
+}
+
+const BLOCK_NAME_RE = /^(?:blk|block)\s+(\d+[a-z]?)$/i;
+
+/**
+ * Named residential place (condo estate, HDB block, apartment building) as a
+ * selectable suggestion in its own name. `pinKind` stays `area`, so the
+ * public map pin is still snapped to the ~100 m cell in `map-pin.ts` —
+ * never the exact building point. Units remain rejected before this runs.
+ * Falls back to the surrounding-area suggestion when there is no usable
+ * building name (e.g. a bare house number with no road/area).
+ */
+function namedResidentialSuggestion(
+  hit: NominatimHit,
+  query: string,
+): PlaceSuggestion | null {
   const area = areaLabelFromAddress(hit.address);
-  const name = namedPlace.trim();
-  if (!name || (area && name.toLowerCase() === area.toLowerCase())) {
-    return "Neighbourhood";
+  const named =
+    hit.address["building"]?.trim() || firstDisplaySegment(hit);
+  const type = hit.type.toLowerCase().split(";")[0] ?? "";
+
+  const blockMatch = BLOCK_NAME_RE.exec(named) ?? BLOCK_NAME_RE.exec(query.trim());
+  const bareNumber = /^\d+[a-z]?$/i.test(named) ? named : null;
+  // A bare number is an HDB block only for multi-unit building types or an
+  // explicit blk/block/hdb query — a detached house number stays area-only.
+  const isMultiUnit =
+    blockMatch != null ||
+    ["apartments", "condominium", "residential", "dormitory"].includes(type) ||
+    BLOCK_RE.test(query) ||
+    /\bhdb\b/i.test(query);
+  if ((blockMatch || bareNumber) && isMultiUnit) {
+    const blockNo = (blockMatch?.[1] ?? bareNumber ?? "").toUpperCase();
+    const road = hit.address["road"]?.trim();
+    const label = road
+      ? `Block ${blockNo}, ${road}`
+      : area
+        ? `Block ${blockNo}, ${area}`
+        : `Block ${blockNo}`;
+    return {
+      label,
+      lat: hit.lat,
+      lng: hit.lng,
+      pinKind: "area",
+      placeType: area ? `HDB · ${area}` : "HDB",
+      countryCode: hit.countryCode,
+    };
   }
-  return `Near ${name}`;
+
+  if (bareNumber) return areaSuggestionFromHit(hit, "Neighbourhood");
+
+  if (!named || queryHasUnit(named)) {
+    return areaSuggestionFromHit(hit, "Neighbourhood");
+  }
+
+  const looksHdb =
+    /\bhdb\b/i.test(query) ||
+    /\bhdb\b/i.test(hit.displayName) ||
+    BLOCK_RE.test(query);
+  const kindWord = looksHdb
+    ? "HDB"
+    : type === "condominium" || type === "apartments" || hit.className === "landuse"
+      ? "Condo"
+      : "Building";
+  return {
+    label: named,
+    lat: hit.lat,
+    lng: hit.lng,
+    pinKind: "area",
+    placeType:
+      area && area.toLowerCase() !== named.toLowerCase()
+        ? `${kindWord} · ${area}`
+        : kindWord,
+    countryCode: hit.countryCode,
+  };
 }
 
 /**
@@ -152,40 +294,80 @@ export function classifyNominatimHit(
   }
 
   const className = hit.className.toLowerCase();
-  const type = hit.type.toLowerCase();
+  // Nominatim occasionally returns compound types ("attraction;theme_park").
+  const type = (hit.type.toLowerCase().split(";")[0] ?? "").trim();
   const hasHouseNumber = Boolean(hit.address["house_number"]?.trim());
+  const isAreaType = AREA_TYPES.has(type);
+  const isPublic =
+    PUBLIC_CLASSES.has(className) || PUBLIC_TYPES.has(type);
+
+  const venueSuggestion = (): PlaceSuggestion | null => {
+    // For named venues the display name leads; suburb/neighbourhood is only
+    // the name for area-type rows (or when the lead segment is a number).
+    const lead = firstDisplaySegment(hit);
+    const shortName =
+      hit.address["amenity"] ||
+      hit.address["shop"] ||
+      hit.address["tourism"] ||
+      hit.address["leisure"] ||
+      hit.address["railway"] ||
+      (lead && !/^\d/.test(lead) ? lead : "") ||
+      hit.address["suburb"] ||
+      hit.address["neighbourhood"] ||
+      hit.address["neighborhood"] ||
+      lead ||
+      hit.displayName;
+    if (!isSelectableAreaLabel(shortName.trim())) return null;
+
+    const kind = placeTypeLabel(className, type);
+    const areaHint =
+      hit.address["suburb"] ||
+      hit.address["neighbourhood"] ||
+      hit.address["neighborhood"] ||
+      hit.address["quarter"] ||
+      hit.address["city_district"] ||
+      null;
+    // Venues often share a brand name — show area under the row so picks differ.
+    const placeType =
+      !isAreaType &&
+      areaHint &&
+      areaHint.trim().toLowerCase() !== shortName.trim().toLowerCase()
+        ? `${kind} · ${areaHint.trim()}`
+        : kind;
+
+    return {
+      label: shortName.trim(),
+      lat: hit.lat,
+      lng: hit.lng,
+      pinKind: isAreaType ? "area" : "venue",
+      placeType,
+      countryCode: hit.countryCode,
+    };
+  };
+
+  // Named public places first: an MRT station, mall, landmark, hospital, …
+  // usually carries a house number in Nominatim, and that must not collapse
+  // it to the surrounding area. Condo/HDB names are handled below.
+  if (isPublic && !isAreaType) return venueSuggestion();
+
   const isBuilding =
     className === "building" ||
     hasHouseNumber ||
     BLOCK_RE.test(hit.displayName);
 
-  // Buildings / house numbers / "block …": public label is the surrounding area.
-  if (isBuilding) {
-    const named =
-      hit.address["building"]?.trim() ||
-      hit.displayName.split(",")[0]?.trim() ||
-      "";
-    const placeType =
-      named && !queryHasUnit(named) ? nearPlaceType(named, hit) : "Neighbourhood";
-    return areaSuggestionFromHit(hit, placeType);
-  }
+  // Condo / HDB / other residential buildings: selectable by name, but the
+  // pin stays `area` (~100 m cell) — never the exact building point.
+  if (isBuilding) return namedResidentialSuggestion(hit, query);
 
   // Condo / residential estates (Hillview Heights, Reflections at Keppel Bay, …).
-  // Public label is the surrounding neighbourhood only — not the condo name.
   if (className === "landuse" && type === "residential") {
-    const condoName = hit.displayName.split(",")[0]?.trim() || "";
-    const placeType = condoName
-      ? nearPlaceType(condoName, hit)
-      : "Neighbourhood";
-    return areaSuggestionFromHit(hit, placeType);
+    return namedResidentialSuggestion(hit, query);
   }
 
   // SG planning areas (and similar) are boundary/administrative with a suburb.
   if (className === "boundary" && type === "administrative") {
     const area =
-      areaLabelFromAddress(hit.address) ||
-      hit.displayName.split(",")[0]?.trim() ||
-      null;
+      areaLabelFromAddress(hit.address) || firstDisplaySegment(hit) || null;
     if (!area || !isSelectableAreaLabel(area)) return null;
     return {
       label: area,
@@ -197,57 +379,8 @@ export function classifyNominatimHit(
     };
   }
 
-  const isPublic =
-    PUBLIC_CLASSES.has(className) || PUBLIC_TYPES.has(type);
   if (!isPublic) return null;
-
-  const shortName =
-    hit.address["amenity"] ||
-    hit.address["shop"] ||
-    hit.address["tourism"] ||
-    hit.address["leisure"] ||
-    hit.address["railway"] ||
-    hit.address["suburb"] ||
-    hit.address["neighbourhood"] ||
-    hit.address["neighborhood"] ||
-    hit.displayName.split(",")[0]?.trim() ||
-    hit.displayName;
-
-  if (!isSelectableAreaLabel(shortName.trim())) return null;
-
-  const isAreaType =
-    type === "neighbourhood" ||
-    type === "neighborhood" ||
-    type === "suburb" ||
-    type === "quarter" ||
-    type === "administrative" ||
-    type === "city" ||
-    type === "town" ||
-    type === "village" ||
-    type === "hamlet";
-
-  const kind = placeTypeLabel(className, type);
-  const areaHint =
-    hit.address["suburb"] ||
-    hit.address["neighbourhood"] ||
-    hit.address["neighborhood"] ||
-    hit.address["quarter"] ||
-    hit.address["city_district"] ||
-    null;
-  // Venues often share a brand name — show area under the row so picks differ.
-  const placeType =
-    !isAreaType && areaHint && areaHint.trim().toLowerCase() !== shortName.trim().toLowerCase()
-      ? `${kind} · ${areaHint.trim()}`
-      : kind;
-
-  return {
-    label: shortName.trim(),
-    lat: hit.lat,
-    lng: hit.lng,
-    pinKind: isAreaType ? "area" : "venue",
-    placeType,
-    countryCode: hit.countryCode,
-  };
+  return venueSuggestion();
 }
 
 function parseNominatimItem(item: unknown): NominatimHit | null {
@@ -279,27 +412,39 @@ function parseNominatimItem(item: unknown): NominatimHit | null {
   };
 }
 
-/** Forward-search Nominatim and return only selectable place suggestions. */
-export async function fetchPlaceSuggestions(opts: {
-  query: string;
-  countryCode?: string | null;
-  limit?: number;
-}): Promise<PlaceSuggestion[]> {
-  const q = opts.query.trim();
-  if (q.length < 2) return [];
-  if (queryHasUnit(q)) return [];
+/**
+ * Retry spellings Nominatim misses: it returns nothing for
+ * "Blk 123 Ang Mo Kio" (needs the bare number + road/area) and for
+ * "Gardens by the Bay MRT" (needs the station name without the suffix).
+ */
+export function fallbackPlaceQueries(query: string): string[] {
+  const q = query.trim();
+  const candidates: string[] = [];
+  const withoutBlock = q.replace(/\b(?:blk|block)\b/gi, " ").replace(/\s+/g, " ").trim();
+  if (withoutBlock.length >= 2 && withoutBlock !== q) candidates.push(withoutBlock);
+  const withoutTransit = q
+    .replace(/\b(?:mrt|lrt|station)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (withoutTransit.length >= 2 && withoutTransit !== q) {
+    candidates.push(withoutTransit);
+  }
+  return candidates;
+}
 
-  const limit = Math.min(Math.max(opts.limit ?? 8, 1), 15);
+async function searchNominatim(
+  q: string,
+  countryCode: string | null,
+  limit: number,
+  classifyQuery: string,
+): Promise<PlaceSuggestion[]> {
   const params = new URLSearchParams({
     q,
     format: "json",
     addressdetails: "1",
     limit: String(limit * 2),
   });
-  const country = opts.countryCode?.trim().toLowerCase();
-  if (country && /^[a-z]{2}$/.test(country)) {
-    params.set("countrycodes", country);
-  }
+  if (countryCode) params.set("countrycodes", countryCode);
 
   const res = await fetch(
     `https://nominatim.openstreetmap.org/search?${params.toString()}`,
@@ -322,7 +467,7 @@ export async function fetchPlaceSuggestions(opts: {
   for (const item of data) {
     const hit = parseNominatimItem(item);
     if (!hit) continue;
-    const suggestion = classifyNominatimHit(hit, q);
+    const suggestion = classifyNominatimHit(hit, classifyQuery);
     if (!suggestion) continue;
     const key =
       suggestion.pinKind === "area"
@@ -334,4 +479,30 @@ export async function fetchPlaceSuggestions(opts: {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** Forward-search Nominatim and return only selectable place suggestions. */
+export async function fetchPlaceSuggestions(opts: {
+  query: string;
+  countryCode?: string | null;
+  limit?: number;
+}): Promise<PlaceSuggestion[]> {
+  const q = opts.query.trim();
+  if (q.length < 2) return [];
+  if (queryHasUnit(q)) return [];
+
+  const limit = Math.min(Math.max(opts.limit ?? 8, 1), 15);
+  const rawCountry = opts.countryCode?.trim().toLowerCase();
+  const country =
+    rawCountry && /^[a-z]{2}$/.test(rawCountry) ? rawCountry : null;
+
+  // Classify against the original query even on a fallback search, so an
+  // explicit "Blk …" / "… MRT" still drives the HDB/station labelling.
+  const first = await searchNominatim(q, country, limit, q);
+  if (first.length > 0) return first;
+  for (const candidate of fallbackPlaceQueries(q)) {
+    const retry = await searchNominatim(candidate, country, limit, q);
+    if (retry.length > 0) return retry;
+  }
+  return [];
 }

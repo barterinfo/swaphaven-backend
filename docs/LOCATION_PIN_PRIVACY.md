@@ -1,6 +1,6 @@
 # Location pin privacy
 
-How Barter stores, classifies, and exposes listing and profile location so other users see an **area or public place**, not a unit, block, or exact home pin.
+How Barter stores, classifies, and exposes listing and profile location so other users see a **picked place name** (condo, HDB block, MRT station, landmark, public place, or area) with an approximate pin, not a unit or exact home pin.
 
 Cross-links: [PDPA.md](./PDPA.md) (controls already in place) · public policy HTML via `GET /privacy` · mobile [LOCATION_PIN_PRIVACY.md](../../barter-stack/mobile/docs/LOCATION_PIN_PRIVACY.md)
 
@@ -10,9 +10,9 @@ Cross-links: [PDPA.md](./PDPA.md) (controls already in place) · public policy H
 
 1. A listing cannot be published without a place **chosen from suggestions**.
 2. GPS alone never becomes the listing pin.
-3. Units are rejected; blocks/condos resolve to the surrounding neighbourhood.
+3. Units are rejected; condos/HDB blocks are selectable by name with an `area` pin, and detached houses resolve to the surrounding neighbourhood.
 4. Public responses never return street address, postal code, or exact coordinates.
-5. Nearby map pins come only from `GET /api/listings/map` (area cell ~500 m, or venue point).
+5. Nearby map pins come only from `GET /api/listings/map` (area cell ~100 m, or venue point).
 6. Existing listing rows stay; legacy pins use the area cell.
 
 ---
@@ -23,8 +23,8 @@ Cross-links: [PDPA.md](./PDPA.md) (controls already in place) · public policy H
 |---------|---------|-------------------|
 | **Viewer home** | Profile + local prefs (`location_lat` / `location_lng`, city label) | Place name / city only on public profile APIs; coordinates never in public user payloads |
 | **Listing place** | `location_city` (public name), private lat/lng, `location_pin_kind` | City/area name, distance, map pin from map route |
-| **Area pin** | `location_pin_kind = area` (or null legacy) | Pin snapped to ~500 m grid cell |
-| **Venue pin** | `location_pin_kind = venue` | Pin at the public place (MRT, mall, park, …) |
+| **Area pin** | `location_pin_kind = area` (or null legacy) | Pin snapped to ~100 m grid cell; label may be a neighbourhood, condo, or HDB block name |
+| **Venue pin** | `location_pin_kind = venue` | Pin at the public place (MRT, mall, park, landmark, …) |
 
 Home and listing place are **separate**. Prefilling create-listing from home does not publish until a suggestion is tapped.
 
@@ -37,12 +37,13 @@ Implemented in `src/lib/place-suggestions.ts`. Used by `GET /api/places/suggesti
 | Input kind | Selectable? | Public label | Pin kind |
 |------------|-------------|--------------|----------|
 | Unit / apt / `#` / floor-unit / 4-digit stack in query or name | No | — | — |
-| Block / house / building / condo (`landuse=residential`, house number, …) | Yes as **area** | Suburb / neighbourhood (e.g. Bukit Batok) | `area` |
+| Condo / HDB block / apartment building (`building`, `landuse=residential`, house number, `blk …`, …) | Yes by **name** | Condo/HDB name (e.g. Hillview Heights, Block 123, Ang Mo Kio Avenue 3) | `area` (~100 m cell) |
+| Detached house (bare house number, no block/condo name) | Yes as **area** | Suburb / neighbourhood | `area` |
 | SG planning area (`boundary` + `administrative`) | Yes | Suburb / area name | `area` |
-| Public place (station, mall, park, neighbourhood types, …) | Yes | Venue or area name | `venue` or `area` |
+| Public place / key landmark (station, MRT, mall, park, museum, hospital, `historic`, `man_made`, …) — including hits with a house number | Yes | Venue or area name | `venue` or `area` |
 | Unknown class/type | No | — | — |
 
-Duplicates with the same public area name collapse to one row. Condo searches show e.g. **Bukit Batok** · Near Hillview Heights.
+Duplicates with the same public area name collapse to one row. Condo searches show e.g. **Hillview Heights** · Condo · Bukit Batok.
 
 ---
 
@@ -101,7 +102,7 @@ ALTER TABLE "listings" ADD COLUMN IF NOT EXISTS "location_pin_kind" text;
 - Rows are not deleted or force-repicked.
 - Public name = existing `location_city`.
 - Distance = stored coordinates on the server.
-- Map pin = ~500 m cell when kind is null/area.
+- Map pin = ~100 m cell when kind is null/area.
 - No coords → out of radius search, no pin.
 
 ---

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyNominatimHit,
+  fallbackPlaceQueries,
   queryHasUnit,
   type NominatimHit,
 } from "../src/lib/place-suggestions.js";
@@ -29,6 +30,16 @@ describe("queryHasUnit", () => {
   });
 });
 
+describe("fallbackPlaceQueries", () => {
+  it("retries blk/block and MRT spellings Nominatim misses", () => {
+    expect(fallbackPlaceQueries("Blk 123 Ang Mo Kio")).toContain("123 Ang Mo Kio");
+    expect(fallbackPlaceQueries("Gardens by the Bay MRT")).toContain(
+      "Gardens by the Bay",
+    );
+    expect(fallbackPlaceQueries("Hillview Heights")).toEqual([]);
+  });
+});
+
 describe("classifyNominatimHit", () => {
   it("rejects unit queries", () => {
     expect(
@@ -39,7 +50,7 @@ describe("classifyNominatimHit", () => {
     ).toBeNull();
   });
 
-  it("maps a block to the surrounding area", () => {
+  it("keeps an HDB block selectable by block and area, with an area pin", () => {
     const suggestion = classifyNominatimHit(
       hit({
         displayName: "Block 27, Hillview Heights, Singapore",
@@ -51,9 +62,105 @@ describe("classifyNominatimHit", () => {
     );
     expect(suggestion).toEqual(
       expect.objectContaining({
-        label: "Hillview",
+        label: "Block 27, Hillview",
         pinKind: "area",
-        placeType: "Neighbourhood",
+        placeType: "HDB · Hillview",
+      }),
+    );
+  });
+
+  it("keeps a numbered HDB block selectable by block and road", () => {
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName:
+            "123, Ang Mo Kio Avenue 3, Kebun Bahru, Ang Mo Kio, Singapore",
+          className: "building",
+          type: "residential",
+          address: {
+            house_number: "123",
+            road: "Ang Mo Kio Avenue 3",
+            neighbourhood: "Kebun Bahru",
+            suburb: "Ang Mo Kio",
+          },
+        }),
+        "Blk 123 Ang Mo Kio",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Block 123, Ang Mo Kio Avenue 3",
+        pinKind: "area",
+        placeType: "HDB · Ang Mo Kio",
+      }),
+    );
+  });
+
+  it("keeps a landmark venue even when it has a house number", () => {
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName: "Marina Bay Sands, 10, Bayfront Avenue, Civic District, Singapore",
+          className: "tourism",
+          type: "hotel",
+          address: {
+            house_number: "10",
+            road: "Bayfront Avenue",
+            suburb: "Civic District",
+          },
+        }),
+        "Marina Bay Sands",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Marina Bay Sands",
+        pinKind: "venue",
+        placeType: "Hotel · Civic District",
+      }),
+    );
+  });
+
+  it("keeps an MRT station venue even when it has a house number", () => {
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName:
+            "Gardens by the Bay, 11, Marina Gardens Drive, Marina South, Singapore",
+          className: "railway",
+          type: "station",
+          address: {
+            house_number: "11",
+            suburb: "Marina South",
+          },
+          lat: 1.2815,
+          lng: 103.8685,
+        }),
+        "Gardens by the Bay MRT",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Gardens by the Bay",
+        pinKind: "venue",
+        placeType: "Station · Marina South",
+      }),
+    );
+  });
+
+  it("keeps a mall venue even when it has a house number", () => {
+    expect(
+      classifyNominatimHit(
+        hit({
+          displayName: "HDB Hub, 480, Lorong 6 Toa Payoh, Toa Payoh, Singapore",
+          className: "shop",
+          type: "mall",
+          address: { house_number: "480", suburb: "Toa Payoh" },
+        }),
+        "HDB Hub",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        label: "HDB Hub",
+        pinKind: "venue",
+        placeType: "Shopping Mall · Toa Payoh",
       }),
     );
   });
@@ -122,7 +229,7 @@ describe("classifyNominatimHit", () => {
     ).toBeNull();
   });
 
-  it("maps a condo estate to its surrounding neighbourhood", () => {
+  it("keeps a condo estate selectable by name, with an area pin", () => {
     expect(
       classifyNominatimHit(
         hit({
@@ -141,9 +248,9 @@ describe("classifyNominatimHit", () => {
       ),
     ).toEqual(
       expect.objectContaining({
-        label: "Bukit Batok",
+        label: "Hillview Heights",
         pinKind: "area",
-        placeType: "Near Hillview Heights",
+        placeType: "Condo · Bukit Batok",
       }),
     );
   });
@@ -198,6 +305,13 @@ describe("classifyNominatimHit", () => {
 });
 
 describe("publicMapPin", () => {
+  it("snaps to a ~100 m cell (0.0009 degrees)", () => {
+    expect(snapToNeighbourhoodCell(1.3521, 103.8198)).toEqual({
+      lat: 1.35225,
+      lng: 103.81995,
+    });
+  });
+
   it("snaps area and legacy null kinds to the neighbourhood cell", () => {
     const cell = snapToNeighbourhoodCell(1.3521, 103.8198);
     expect(publicMapPin({ lat: 1.3521, lng: 103.8198, pinKind: "area" })).toEqual({

@@ -205,7 +205,7 @@ curl -s 'http://localhost:3001/api/places/suggestions?q=Bukit%20Batok&country=SG
 ```
 
 Returns `{ "suggestions": [{ "label", "lat", "lng", "pinKind", "placeType", "countryCode" }] }`.
-Units are rejected; blocks/condos surface as **area** labels. See [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md).
+Units are rejected; condos, HDB blocks, MRT stations, landmarks and other public points surface under their **own names** (residential picks keep an `area` pin, snapped to ~100 m). See [LOCATION_PIN_PRIVACY.md](./LOCATION_PIN_PRIVACY.md).
 
 ### Create listing from place (preferred for mobile)
 
@@ -248,7 +248,7 @@ curl -s 'http://localhost:3001/api/listings/map?lat=1.35&lng=103.8&radius=10'
 
 ```
 
-Each item includes `location_city`, `map_pin: { lat, lng, precision }`, `distance_miles`. Distance uses private stored points; pin is ~500 m cell (`area` / legacy) or venue point.
+Each item includes `location_city`, `map_pin: { lat, lng, precision }`, `distance_miles`. Distance uses private stored points; pin is ~100 m cell (`area` / legacy) or venue point.
 
 ### Create listing (legacy)
 
